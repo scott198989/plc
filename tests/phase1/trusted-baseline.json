@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "baselineId": "phase1-remediation-validation-v2",
+  "baselineId": "phase1-remediation-validation-v3",
   "hashAlgorithm": "SHA-256",
   "manifestPath": "tests/phase1/trusted-baseline.json",
   "scope": "exact-project-file-set",
@@ -464,8 +464,8 @@
     },
     {
       "path": "tests/phase1/run_phase1_mutations.ps1",
-      "bytes": 19744,
-      "sha256": "DC0D0661A8DE59D01C9EC782FC1A3C54ED3889E28EAE05B47920164D0B039E8B"
+      "bytes": 19852,
+      "sha256": "7B426B8D433221F0904130E86A212F89F363E3A1F2E4646E16D512B8654A5306"
     },
     {
       "path": "tools/foundation/assert-toolchain.mjs",

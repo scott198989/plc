@@ -295,9 +295,13 @@ $mutations = @(
             $packagePath = Join-Path $case 'package.json'
             $package = Get-Content -LiteralPath $packagePath -Raw | ConvertFrom-Json
             if ($null -eq $package.dependencies) {
-                $package | Add-Member -NotePropertyName dependencies -NotePropertyValue ([ordered]@{})
+                $package | Add-Member -NotePropertyName dependencies -NotePropertyValue (
+                    [pscustomobject][ordered]@{ axios = '1.7.9' }
+                )
             }
-            $package.dependencies | Add-Member -NotePropertyName axios -NotePropertyValue '1.7.9' -Force
+            else {
+                $package.dependencies | Add-Member -NotePropertyName axios -NotePropertyValue '1.7.9' -Force
+            }
             Write-Utf8 $packagePath (($package | ConvertTo-Json -Depth 100) + [Environment]::NewLine)
             $cargoPath = Join-Path $case 'Cargo.toml'
             [System.IO.File]::AppendAllText(
