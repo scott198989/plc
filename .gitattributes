@@ -1,0 +1,21 @@
+* text=auto
+
+*.json text eol=lf
+*.md text eol=lf
+*.mjs text eol=lf
+*.py text eol=lf
+*.toml text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+
+# Controlled source inputs are byte-hashed and must never be normalized.
+"Govs PLC project Research Report.md" -text !eol
+*.docx -text
+
+# Binary media must remain byte-preserved when later phases authorize it.
+*.gif -text
+*.ico -text
+*.jpeg -text
+*.jpg -text
+*.png -text
+*.webp -text

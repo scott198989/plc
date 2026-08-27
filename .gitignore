@@ -1,0 +1,37 @@
+# Local and generated dependency state
+node_modules/
+.pnpm-store/
+target/
+__pycache__/
+*.py[cod]
+
+# Build, test, and coverage output
+dist/
+build/
+coverage/
+artifacts/
+test-results/
+playwright-report/
+
+# Local application state and secrets
+.env
+.env.*
+!.env.example
+*.local
+*.log
+
+# Editor and operating-system metadata
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Office lock and temporary files
+~$*.docx
+~$*.xlsx
+~$*.pptx
+*.tmp
+
+# Phase 1 local verification evidence is reproducible and not committed
+.phase1-verification/

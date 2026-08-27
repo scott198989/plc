@@ -1,0 +1,18 @@
+{
+  "name": "plc-engineering-simulator-governance",
+  "version": "0.0.0-phase1",
+  "private": true,
+  "description": "Phase 1 governance and verification foundation for an offline educational PLC engineering simulator.",
+  "type": "module",
+  "packageManager": "pnpm@11.19.0",
+  "engines": {
+    "node": "24.19.0",
+    "pnpm": "11.19.0"
+  },
+  "scripts": {
+    "test": "pnpm verify:phase1",
+    "verify:phase1": "python -B tools/phase1/run_phase1_verification.py",
+    "requirements:extract": "python -B tools/phase1/extract_directive_requirements.py --root .",
+    "requirements:check": "python -B tools/phase1/extract_directive_requirements.py --check --root ."
+  }
+}

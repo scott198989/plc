@@ -1,0 +1,2886 @@
+{
+  "schemaVersion": 2,
+  "snapshotDate": "2026-08-27",
+  "generatedBy": "tools/phase1/extract_directive_requirements.py",
+  "generatorSha256": "299F052AB6E6249FA7019A5209B18403C6422A81627503417F06BEF2F26B9618",
+  "completionRule": "Only VERIFIED means complete. No completion percentage is calculated.",
+  "scope": "Phase 1 repository foundation; product implementation is not started.",
+  "requirementCount": 247,
+  "stateCounts": {
+    "BLOCKED": 5,
+    "IMPLEMENTED_UNVERIFIED": 22,
+    "NOT_STARTED": 217,
+    "PARTIAL": 2,
+    "SCAFFOLDED": 1
+  },
+  "entries": [
+    {
+      "requirementId": "PES-GOV-0001",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0002",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0003",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0004",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0005",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0006",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0007",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0008",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0009",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0010",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "BLOCKED",
+      "verificationIds": [],
+      "implementationComponents": [
+        "OPEN_DECISIONS.md",
+        "EVIDENCE_REGISTER.json"
+      ],
+      "decisionLinks": [
+        "DEC-0001"
+      ],
+      "notes": "DEC-0001: research hash matches, but the controlled filename differs."
+    },
+    {
+      "requirementId": "PES-GOV-0011",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0012",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0013",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-MSN-0001",
+      "component": "product mission and intended environment",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-MSN-0002",
+      "component": "product mission and intended environment",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-MSN-0003",
+      "component": "product mission and intended environment",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-MSN-0004",
+      "component": "product mission and intended environment",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-MSN-0005",
+      "component": "product mission and intended environment",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-MSN-0006",
+      "component": "product mission and intended environment",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-MSN-0007",
+      "component": "product mission and intended environment",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-MSN-0008",
+      "component": "product mission and intended environment",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-MSN-0009",
+      "component": "product mission and intended environment",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ACC-0001",
+      "component": "acceptance and product claims",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ACC-0002",
+      "component": "acceptance and product claims",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ACC-0003",
+      "component": "acceptance and product claims",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ACC-0004",
+      "component": "acceptance and product claims",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-VOC-0001",
+      "component": "canonical vocabulary",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-VOC-0002",
+      "component": "canonical vocabulary",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-VOC-0003",
+      "component": "canonical vocabulary",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-VOC-0004",
+      "component": "canonical vocabulary",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-VOC-0005",
+      "component": "canonical vocabulary",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-EDU-0001",
+      "component": "Engineering Mode, Learning Lens, and Teacher Mode",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-EDU-0002",
+      "component": "Engineering Mode, Learning Lens, and Teacher Mode",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-EDU-0003",
+      "component": "Engineering Mode, Learning Lens, and Teacher Mode",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-EDU-0004",
+      "component": "Engineering Mode, Learning Lens, and Teacher Mode",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-EDU-0005",
+      "component": "Engineering Mode, Learning Lens, and Teacher Mode",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-EDU-0006",
+      "component": "Engineering Mode, Learning Lens, and Teacher Mode",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PROF-0001",
+      "component": "TrainingProfile and version claims",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PROF-0002",
+      "component": "TrainingProfile and version claims",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PROF-0003",
+      "component": "TrainingProfile and version claims",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PROF-0004",
+      "component": "TrainingProfile and version claims",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PROF-0005",
+      "component": "TrainingProfile and version claims",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PROF-0006",
+      "component": "TrainingProfile and version claims",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-FID-0001",
+      "component": "fidelity doctrine",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-FID-0002",
+      "component": "fidelity doctrine",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-FID-0003",
+      "component": "fidelity doctrine",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-FID-0004",
+      "component": "fidelity doctrine",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-FID-0005",
+      "component": "fidelity doctrine",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-FID-0006",
+      "component": "fidelity doctrine",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-FID-0007",
+      "component": "fidelity doctrine",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-FID-0008",
+      "component": "fidelity doctrine",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SCP-0001",
+      "component": "scope, exclusions, and deferrals",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SCP-0002",
+      "component": "scope, exclusions, and deferrals",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SCP-0003",
+      "component": "scope, exclusions, and deferrals",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SCP-0004",
+      "component": "scope, exclusions, and deferrals",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SCP-0005",
+      "component": "scope, exclusions, and deferrals",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SCP-0006",
+      "component": "scope, exclusions, and deferrals",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SCP-0007",
+      "component": "scope, exclusions, and deferrals",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SCP-0008",
+      "component": "scope, exclusions, and deferrals",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SCP-0009",
+      "component": "scope, exclusions, and deferrals",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SCP-0010",
+      "component": "scope, exclusions, and deferrals",
+      "targetMilestone": "Phase 1 constitution only; observable product implementation requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0001",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0002",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0003",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0004",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0005",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0006",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0007",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0008",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0009",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0010",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0001",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0002",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0003",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0004",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0005",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0006",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0007",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0008",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0009",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0010",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0011",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0012",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0013",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0014",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0015",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0016",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0011",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0012",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0013",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0014",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0015",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0016",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0017",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0018",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0019",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0020",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0021",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ISO-0022",
+      "component": "VirtualUniverse physical-isolation wall",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0001",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0002",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0003",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0004",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0005",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0006",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0007",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0008",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0009",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0010",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0011",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0012",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0013",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0014",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0015",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0016",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-CRM-0001",
+        "VER-QLT-0001"
+      ],
+      "implementationComponents": [
+        "CLEAN_ROOM_POLICY.md"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-CRM-0017",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-CRM-0001"
+      ],
+      "implementationComponents": [
+        "EVIDENCE_REGISTER.json"
+      ],
+      "decisionLinks": [],
+      "notes": "The normalized evidence-register structure exists, but its records remain unreviewed and lack verification mappings."
+    },
+    {
+      "requirementId": "PES-CRM-0018",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0019",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0020",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0021",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-CRM-0001"
+      ],
+      "implementationComponents": [
+        "ASSET_PROVENANCE.json"
+      ],
+      "decisionLinks": [],
+      "notes": "The asset-provenance schema exists and truthfully records zero assets, but no reviewed production-asset record exists yet."
+    },
+    {
+      "requirementId": "PES-CRM-0022",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "PARTIAL",
+      "verificationIds": [
+        "VER-CRM-0001"
+      ],
+      "implementationComponents": [
+        "ASSET_PROVENANCE.json",
+        "tools/phase1/verify-phase1.mjs"
+      ],
+      "decisionLinks": [],
+      "notes": "The Phase 1 verifier checks the registry; production asset-pipeline enforcement awaits product assets."
+    },
+    {
+      "requirementId": "PES-CRM-0023",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0024",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CRM-0025",
+      "component": "clean-room, intellectual property, and provenance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PRJ-0001",
+      "component": "simulator-native project and archive boundary",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PRJ-0002",
+      "component": "simulator-native project and archive boundary",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PRJ-0003",
+      "component": "simulator-native project and archive boundary",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PRJ-0004",
+      "component": "simulator-native project and archive boundary",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PRJ-0005",
+      "component": "simulator-native project and archive boundary",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PRJ-0006",
+      "component": "simulator-native project and archive boundary",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-PRJ-0007",
+      "component": "simulator-native project and archive boundary",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0017",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-ISO-0001"
+      ],
+      "implementationComponents": [
+        "SECURITY_INVARIANTS.md",
+        "THREAT_MODEL.md"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-SEC-0018",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0019",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0020",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-TCH-0001",
+      "component": "teacher/student data boundary",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-TCH-0002",
+      "component": "teacher/student data boundary",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-TCH-0003",
+      "component": "teacher/student data boundary",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-TCH-0004",
+      "component": "teacher/student data boundary",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-TCH-0005",
+      "component": "teacher/student data boundary",
+      "targetMilestone": "Reserved for a later authored education/teacher phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0021",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0022",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0023",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0024",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-SEC-0025",
+      "component": "security and trust boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0001",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0002",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0003",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0004",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0005",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0006",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0007",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0008",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0009",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0010",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0011",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0012",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0013",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0014",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0015",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0016",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-TYP-0001",
+      "component": "canonical type system",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-TYP-0002",
+      "component": "canonical type system",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0017",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0018",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0019",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0020",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0021",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-IR-0001",
+      "component": "unified typed PLC intermediate representation",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-IR-0002",
+      "component": "unified typed PLC intermediate representation",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-IR-0003",
+      "component": "unified typed PLC intermediate representation",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-IR-0004",
+      "component": "unified typed PLC intermediate representation",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-IR-0005",
+      "component": "unified typed PLC intermediate representation",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DET-0001",
+      "component": "determinism, scheduling, and replay",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DET-0002",
+      "component": "determinism, scheduling, and replay",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DET-0003",
+      "component": "determinism, scheduling, and replay",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DET-0004",
+      "component": "determinism, scheduling, and replay",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DET-0005",
+      "component": "determinism, scheduling, and replay",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DET-0006",
+      "component": "determinism, scheduling, and replay",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DET-0007",
+      "component": "determinism, scheduling, and replay",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0022",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0023",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0024",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0025",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DIA-0001",
+      "component": "diagnostics and causal faults",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DIA-0002",
+      "component": "diagnostics and causal faults",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DIA-0003",
+      "component": "diagnostics and causal faults",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DIA-0004",
+      "component": "diagnostics and causal faults",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DIA-0005",
+      "component": "diagnostics and causal faults",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DIA-0006",
+      "component": "diagnostics and causal faults",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0026",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0027",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0028",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0029",
+      "component": "constitutional architecture",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ARC-0030",
+      "component": "constitutional architecture",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-QLT-0001"
+      ],
+      "implementationComponents": [
+        "IMPLEMENTATION_MATRIX.json",
+        "tools/phase1/verify-phase1.mjs"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-DEV-0001",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEV-0002",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEV-0003",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEV-0004",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEV-0005",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEV-0006",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "SCAFFOLDED",
+      "verificationIds": [
+        "VER-CI-0001"
+      ],
+      "implementationComponents": [
+        "package.json",
+        "pnpm-workspace.yaml",
+        "Cargo.toml",
+        "rust-toolchain.toml"
+      ],
+      "decisionLinks": [],
+      "notes": "Root pnpm/Cargo workspace manifests exist, but product packages are intentionally absent."
+    },
+    {
+      "requirementId": "PES-DEV-0007",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEV-0008",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEV-0009",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "BLOCKED",
+      "verificationIds": [],
+      "implementationComponents": [
+        "OPEN_DECISIONS.md"
+      ],
+      "decisionLinks": [
+        "OQ-0001"
+      ],
+      "notes": "OQ-0001: initial OS and packaging model are intentionally undecided."
+    },
+    {
+      "requirementId": "PES-DOC-0001",
+      "component": "governance documentation",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-DOC-0002"
+      ],
+      "implementationComponents": [
+        "ADR/0001-no-physical-industrial-communication.md"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-DOC-0002",
+      "component": "governance documentation",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-DOC-0002"
+      ],
+      "implementationComponents": [
+        "ADR/0001-no-physical-industrial-communication.md"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-DOC-0003",
+      "component": "governance documentation",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-DOC-0001",
+        "VER-QLT-0001"
+      ],
+      "implementationComponents": [
+        "ADR/0002-original-project-format.md",
+        "ADR/0003-unified-plc-ir.md",
+        "ADR/0004-deterministic-virtual-time.md"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-DOC-0004",
+      "component": "governance documentation",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-CRM-0001",
+        "VER-QLT-0001"
+      ],
+      "implementationComponents": [
+        "EVIDENCE_REGISTER.json",
+        "ASSET_PROVENANCE.json"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-DEV-0010",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-QLT-0001"
+      ],
+      "implementationComponents": [
+        "pnpm-workspace.yaml",
+        "Cargo.toml",
+        "IMPLEMENTATION_MATRIX.json"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-DEV-0011",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Reserved for a later authored product specification/implementation phase",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEV-0012",
+      "component": "development stack and repository boundaries",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-ISO-0001"
+      ],
+      "implementationComponents": [
+        "tools/phase1/verify-phase1.mjs"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-CI-0001",
+      "component": "continuous integration and release evidence",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "PARTIAL",
+      "verificationIds": [
+        "VER-CI-0001"
+      ],
+      "implementationComponents": [
+        ".github/workflows/phase1-governance.yml",
+        "tools/phase1/verify-phase1.mjs"
+      ],
+      "decisionLinks": [
+        "DEC-0002"
+      ],
+      "notes": "Local Phase 1 governance checks and a disabled workflow proposal exist; DEC-0002 blocks remote CI, while product/WASM/packaged-artifact gates require later artifacts."
+    },
+    {
+      "requirementId": "PES-CI-0002",
+      "component": "continuous integration and release evidence",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-CI-0003",
+      "component": "continuous integration and release evidence",
+      "targetMilestone": "Later release-verification milestone after authorized product implementation",
+      "phase1Disposition": "RESERVED_LATER_PHASE_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-REQ-0001",
+      "component": "requirement and traceability system",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-REQ-0001"
+      ],
+      "implementationComponents": [
+        "REQUIREMENTS.md",
+        "requirements/phase1-requirements.json"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-REQ-0002",
+      "component": "requirement and traceability system",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-REQ-0001"
+      ],
+      "implementationComponents": [
+        "REQUIREMENTS.md",
+        "requirements/phase1-requirements.json"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-REQ-0003",
+      "component": "requirement and traceability system",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-REQ-0001",
+        "VER-CRM-0001",
+        "VER-DEC-0001"
+      ],
+      "implementationComponents": [
+        "EVIDENCE_REGISTER.json",
+        "OPEN_DECISIONS.md",
+        "RISK_REGISTER.md"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-REQ-0004",
+      "component": "requirement and traceability system",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-REQ-0001"
+      ],
+      "implementationComponents": [
+        "REQUIREMENTS.md",
+        "tools/phase1/extract_directive_requirements.py"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-REQ-0005",
+      "component": "requirement and traceability system",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-REQ-0006",
+      "component": "requirement and traceability system",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-REQ-0007",
+      "component": "requirement and traceability system",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-REQ-0008",
+      "component": "requirement and traceability system",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-REQ-0002"
+      ],
+      "implementationComponents": [
+        "IMPLEMENTATION_MATRIX.json",
+        "tools/phase1/verify-phase1.mjs"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-REQ-0009",
+      "component": "requirement and traceability system",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-REQ-0002"
+      ],
+      "implementationComponents": [
+        "IMPLEMENTATION_MATRIX.json",
+        "REQUIREMENTS.md"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-GOV-0014",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0015",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0016",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEC-0001",
+      "component": "decision and mandatory-stop governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEC-0002",
+      "component": "decision and mandatory-stop governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEC-0003",
+      "component": "decision and mandatory-stop governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEC-0004",
+      "component": "decision and mandatory-stop governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEC-0005",
+      "component": "decision and mandatory-stop governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-DEC-0006",
+      "component": "decision and mandatory-stop governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-QLT-0001",
+      "component": "quality and anti-placeholder policy",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-QLT-0001"
+      ],
+      "implementationComponents": [
+        "IMPLEMENTATION_MATRIX.json",
+        "tools/phase1/verify-phase1.mjs"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-QLT-0002",
+      "component": "quality and anti-placeholder policy",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-QLT-0003",
+      "component": "quality and anti-placeholder policy",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-QLT-0004",
+      "component": "quality and anti-placeholder policy",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-QLT-0001"
+      ],
+      "implementationComponents": [
+        "IMPLEMENTATION_MATRIX.json",
+        "pnpm-workspace.yaml",
+        "Cargo.toml"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-QLT-0005",
+      "component": "quality and anti-placeholder policy",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-QLT-0001",
+        "VER-ISO-0001"
+      ],
+      "implementationComponents": [
+        "tools/phase1/verify-phase1.mjs"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-QLT-0006",
+      "component": "quality and anti-placeholder policy",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-QLT-0007",
+      "component": "quality and anti-placeholder policy",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-QLT-0008",
+      "component": "quality and anti-placeholder policy",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0017",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "BLOCKED",
+      "verificationIds": [],
+      "implementationComponents": [
+        "OPEN_DECISIONS.md"
+      ],
+      "decisionLinks": [
+        "DEC-0001"
+      ],
+      "notes": "DEC-0001: living-directive filename and phase-document model require approval."
+    },
+    {
+      "requirementId": "PES-GOV-0018",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "BLOCKED",
+      "verificationIds": [],
+      "implementationComponents": [
+        "OPEN_DECISIONS.md"
+      ],
+      "decisionLinks": [
+        "DEC-0001"
+      ],
+      "notes": "DEC-0001: separate phase prompts may conflict with the one-document rule."
+    },
+    {
+      "requirementId": "PES-GOV-0019",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-GOV-0020",
+      "component": "authority, change, and directive governance",
+      "targetMilestone": "Continuing governance; any product behavior requires a later authored phase",
+      "phase1Disposition": "POLICY_ONLY_NO_PRODUCT_AUTHORIZATION",
+      "truthState": "NOT_STARTED",
+      "verificationIds": [],
+      "implementationComponents": [],
+      "decisionLinks": [],
+      "notes": "No product implementation is authorized by this Phase 1 foundation."
+    },
+    {
+      "requirementId": "PES-ACC-0005",
+      "component": "acceptance and product claims",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "BLOCKED",
+      "verificationIds": [],
+      "implementationComponents": [
+        "OPEN_DECISIONS.md"
+      ],
+      "decisionLinks": [
+        "DEC-0001"
+      ],
+      "notes": "DEC-0001: supplied status says 'Phase 1 authored; Phases 2-4 reserved' instead of the mandated exact wording."
+    },
+    {
+      "requirementId": "PES-ACC-0006",
+      "component": "acceptance and product claims",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-QLT-0001"
+      ],
+      "implementationComponents": [
+        "docs/governance/PHASE_1_SCOPE_AUDIT.md"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    },
+    {
+      "requirementId": "PES-ACC-0007",
+      "component": "acceptance and product claims",
+      "targetMilestone": "Phase 1 governance foundation",
+      "phase1Disposition": "FOUNDATION_WORK_ONLY",
+      "truthState": "IMPLEMENTED_UNVERIFIED",
+      "verificationIds": [
+        "VER-QLT-0001"
+      ],
+      "implementationComponents": [
+        "docs/governance/PHASE_1_SCOPE_AUDIT.md"
+      ],
+      "decisionLinks": [],
+      "notes": "A current-scope automated check is defined, but the generated registry does not self-certify verification or reviewer acceptance."
+    }
+  ]
+}

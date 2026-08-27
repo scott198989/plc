@@ -1,0 +1,226 @@
+{
+  "schemaVersion": 1,
+  "expectedRequirementCount": 247,
+  "expectedToolchainRecordCount": 13,
+  "sourceFiles": [
+    {
+      "path": "Govs PLC project Research Report.md",
+      "sha256": "F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55"
+    },
+    {
+      "path": "PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx",
+      "sha256": "EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612"
+    }
+  ],
+  "docxVisualQaObservation": {
+    "recordedResult": "OBSERVATION_PASS",
+    "admissionStatus": "UNAPPROVED_OBSERVATION_ONLY",
+    "expectedPageCount": 40,
+    "pagesDirectory": ".phase1-verification/docx-visual/pages",
+    "pagesManifestSha256": "DE64F05C5150C2A204173418B884448D6E70D5EA15782A2254A290A8E35A69A9",
+    "derivedPdf": {
+      "path": ".phase1-verification/docx-visual/phase1-directive-render.pdf",
+      "sha256": "35DD6EB0A4CD87487B4597CDDD1285D7F47101DD2EE39DC2746BCD99A8589B79"
+    },
+    "machineAnalysis": {
+      "path": ".phase1-verification/docx-visual/visual-analysis.json",
+      "sha256": "E375D621054A4C0F584379EBB70AFDD521A21F11E50E39C389E6D72677FF5A63"
+    }
+  },
+  "requiredFiles": [
+    ".editorconfig",
+    ".gitattributes",
+    ".gitignore",
+    ".github/workflows/phase1-governance.yml",
+    ".python-version",
+    "README.md",
+    "CLEAN_ROOM_POLICY.md",
+    "SECURITY_INVARIANTS.md",
+    "LEGAL_REVIEW_CHECKLIST.md",
+    "CONTRIBUTOR_CLEAN_ROOM_ATTESTATION.md",
+    "THREAT_MODEL.md",
+    "REQUIREMENTS.md",
+    "IMPLEMENTATION_MATRIX.json",
+    "EVIDENCE_REGISTER.json",
+    "ASSET_PROVENANCE.json",
+    "DEPENDENCY_POLICY.md",
+    "OPEN_DECISIONS.md",
+    "RISK_REGISTER.md",
+    "CHANGELOG_DIRECTIVE.md",
+    "Cargo.lock",
+    "Cargo.toml",
+    "ADR/0001-no-physical-industrial-communication.md",
+    "ADR/0002-original-project-format.md",
+    "ADR/0003-unified-plc-ir.md",
+    "ADR/0004-deterministic-virtual-time.md",
+    "requirements/phase1-requirements.json",
+    "docs/research/UNRESOLVED_SOURCE_TOKENS.md",
+    "docs/governance/PHASE_1_VERIFICATION_PLAN.md",
+    "docs/governance/PHASE_1_SCOPE_AUDIT.md",
+    "docs/governance/DOCX_VISUAL_QA.md",
+    "docs/governance/TOOLCHAIN_ADMISSION_REGISTER.md",
+    "package.json",
+    "pnpm-lock.yaml",
+    "pnpm-workspace.yaml",
+    "rust-toolchain.toml",
+    "tests/phase1/policy-contract.json",
+    "tools/phase1/extract_directive_requirements.py",
+    "tools/phase1/run_phase1_verification.py",
+    "tools/phase1/verify-phase1.mjs"
+  ],
+  "expectedToolchain": {
+    "node": "24.19.0",
+    "pnpm": "11.19.0",
+    "python": "3.13.12",
+    "rust": "1.94.0",
+    "runner": "windows-2025"
+  },
+  "expectedActionPins": {
+    "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+    "actions/setup-node": "820762786026740c76f36085b0efc47a31fe5020",
+    "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97",
+    "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+  },
+  "expectedVerifiedRequirementIds": [],
+  "expectedFoundationMappings": {
+    "PES-CRM-0016": {
+      "verificationIds": ["VER-CRM-0001", "VER-QLT-0001"],
+      "implementationComponents": ["CLEAN_ROOM_POLICY.md"]
+    },
+    "PES-SEC-0017": {
+      "verificationIds": ["VER-ISO-0001"],
+      "implementationComponents": ["SECURITY_INVARIANTS.md", "THREAT_MODEL.md"]
+    },
+    "PES-ARC-0030": {
+      "verificationIds": ["VER-QLT-0001"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tools/phase1/verify-phase1.mjs"]
+    },
+    "PES-DOC-0001": {
+      "verificationIds": ["VER-DOC-0002"],
+      "implementationComponents": ["ADR/0001-no-physical-industrial-communication.md"]
+    },
+    "PES-DOC-0002": {
+      "verificationIds": ["VER-DOC-0002"],
+      "implementationComponents": ["ADR/0001-no-physical-industrial-communication.md"]
+    },
+    "PES-DOC-0003": {
+      "verificationIds": ["VER-DOC-0001", "VER-QLT-0001"],
+      "implementationComponents": ["ADR/0002-original-project-format.md", "ADR/0003-unified-plc-ir.md", "ADR/0004-deterministic-virtual-time.md"]
+    },
+    "PES-DOC-0004": {
+      "verificationIds": ["VER-CRM-0001", "VER-QLT-0001"],
+      "implementationComponents": ["EVIDENCE_REGISTER.json", "ASSET_PROVENANCE.json"]
+    },
+    "PES-DEV-0010": {
+      "verificationIds": ["VER-QLT-0001"],
+      "implementationComponents": ["pnpm-workspace.yaml", "Cargo.toml", "IMPLEMENTATION_MATRIX.json"]
+    },
+    "PES-DEV-0012": {
+      "verificationIds": ["VER-ISO-0001"],
+      "implementationComponents": ["tools/phase1/verify-phase1.mjs"]
+    },
+    "PES-REQ-0001": {
+      "verificationIds": ["VER-REQ-0001"],
+      "implementationComponents": ["REQUIREMENTS.md", "requirements/phase1-requirements.json"]
+    },
+    "PES-REQ-0002": {
+      "verificationIds": ["VER-REQ-0001"],
+      "implementationComponents": ["REQUIREMENTS.md", "requirements/phase1-requirements.json"]
+    },
+    "PES-REQ-0003": {
+      "verificationIds": ["VER-REQ-0001", "VER-CRM-0001", "VER-DEC-0001"],
+      "implementationComponents": ["EVIDENCE_REGISTER.json", "OPEN_DECISIONS.md", "RISK_REGISTER.md"]
+    },
+    "PES-REQ-0004": {
+      "verificationIds": ["VER-REQ-0001"],
+      "implementationComponents": ["REQUIREMENTS.md", "tools/phase1/extract_directive_requirements.py"]
+    },
+    "PES-REQ-0008": {
+      "verificationIds": ["VER-REQ-0002"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tools/phase1/verify-phase1.mjs"]
+    },
+    "PES-REQ-0009": {
+      "verificationIds": ["VER-REQ-0002"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "REQUIREMENTS.md"]
+    },
+    "PES-QLT-0001": {
+      "verificationIds": ["VER-QLT-0001"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tools/phase1/verify-phase1.mjs"]
+    },
+    "PES-QLT-0004": {
+      "verificationIds": ["VER-QLT-0001"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "pnpm-workspace.yaml", "Cargo.toml"]
+    },
+    "PES-QLT-0005": {
+      "verificationIds": ["VER-QLT-0001", "VER-ISO-0001"],
+      "implementationComponents": ["tools/phase1/verify-phase1.mjs"]
+    },
+    "PES-ACC-0006": {
+      "verificationIds": ["VER-QLT-0001"],
+      "implementationComponents": ["docs/governance/PHASE_1_SCOPE_AUDIT.md"]
+    },
+    "PES-ACC-0007": {
+      "verificationIds": ["VER-QLT-0001"],
+      "implementationComponents": ["docs/governance/PHASE_1_SCOPE_AUDIT.md"]
+    }
+  },
+  "verificationIds": [
+    "VER-GOV-0001",
+    "VER-DOC-0001",
+    "VER-DOC-0002",
+    "VER-REQ-0001",
+    "VER-REQ-0002",
+    "VER-CRM-0001",
+    "VER-DEC-0001",
+    "VER-QLT-0001",
+    "VER-ISO-0001",
+    "VER-CI-0001"
+  ],
+  "validTruthStates": [
+    "NOT_STARTED",
+    "SCAFFOLDED",
+    "PARTIAL",
+    "IMPLEMENTED_UNVERIFIED",
+    "VERIFIED",
+    "BLOCKED",
+    "DEFERRED",
+    "EXCLUDED"
+  ],
+  "forbiddenTopLevelPackageNames": [
+    "network",
+    "transport",
+    "device-connector",
+    "vendor-adapter",
+    "protocol",
+    "external-hmi",
+    "remote-collaboration",
+    "plugin-host",
+    "physical-plc",
+    "industrial-communication"
+  ],
+  "blockedDecisionIds": ["DEC-0001", "DEC-0002", "OQ-0001", "OQ-0002"],
+  "openQuestionIds": [
+    "OQ-0001",
+    "OQ-0002",
+    "OQ-0003",
+    "OQ-0004",
+    "OQ-0005",
+    "OQ-0006",
+    "OQ-0007",
+    "OQ-0008",
+    "OQ-0009",
+    "OQ-0010"
+  ],
+  "riskIds": [
+    "RSK-0001",
+    "RSK-0002",
+    "RSK-0003",
+    "RSK-0004",
+    "RSK-0005",
+    "RSK-0006",
+    "RSK-0007",
+    "RSK-0008",
+    "RSK-0009",
+    "RSK-0010"
+  ]
+}

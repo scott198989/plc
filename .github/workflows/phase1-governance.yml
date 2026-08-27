@@ -1,0 +1,69 @@
+name: Phase 1 governance (proposed and disabled)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: phase1-governance-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-foundation:
+    # DEC-0002 blocks every remote job until Scott approves the CI provider,
+    # service/data boundary, and artifact retention. Keep this literal false;
+    # approval requires a recorded decision and reviewed workflow change.
+    if: ${{ false }}
+    runs-on: windows-2025
+    timeout-minutes: 10
+    steps:
+      # Pinned full commit; tag mapping, admission, and execution remain unapproved.
+      - name: Check out repository without persisted credentials
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+
+      # Pinned full commit; tag mapping, admission, and execution remain unapproved.
+      - name: Install the exact Phase 1 Node runtime without dependency caching
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020
+        with:
+          node-version: 24.19.0
+          package-manager-cache: false
+
+      # Pinned full commit; tag mapping, admission, and execution remain unapproved.
+      - name: Install the exact Phase 1 Python runtime
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: 3.13.12
+
+      - name: Report runner and runtime evidence
+        shell: pwsh
+        run: |
+          Write-Output "runner-image=$env:ImageOS/$env:ImageVersion"
+          node --version
+          python --version
+
+      - name: Reject stale generated requirement snapshots
+        shell: pwsh
+        run: python -B tools/phase1/extract_directive_requirements.py --check --root .
+
+      - name: Parse-check the verifier
+        shell: pwsh
+        run: node --check tools/phase1/verify-phase1.mjs
+
+      - name: Verify Phase 1 governance foundation
+        shell: pwsh
+        run: node tools/phase1/verify-phase1.mjs
+
+      # Pinned full commit; remote upload remains blocked by DEC-0002.
+      - name: Retain the hash-bound Phase 1 verification report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: phase1-governance-report
+          path: .phase1-verification/phase1-report.json
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 14

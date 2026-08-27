@@ -1,0 +1,90 @@
+{
+  "schemaVersion": "1.0.0",
+  "registerId": "PES-ASSET-PROVENANCE",
+  "status": "PHASE_1_NO_SHIPPED_ASSETS_APPROVED",
+  "lastUpdated": "2026-08-27",
+  "governingRequirements": [
+    "PES-CRM-0021",
+    "PES-CRM-0022",
+    "PES-CRM-0023",
+    "PES-CRM-0024",
+    "PES-CI-0001",
+    "PES-CI-0003",
+    "PES-DOC-0004"
+  ],
+  "policy": {
+    "productionAssetRoot": "assets/original/",
+    "evidenceIsNotProductionAsset": true,
+    "externalOrVendorAssetsApproved": false,
+    "generatedAssetsRequireDisclosure": true,
+    "hashAlgorithm": "SHA-256",
+    "requiredApprovalStatus": "APPROVED",
+    "ciDispositionForMissingOrMismatchedRecord": "FAIL",
+    "unknownLicenseDisposition": "BLOCKED",
+    "uncertainIpDisposition": {
+      "class": 8,
+      "status": "BLOCKED",
+      "requiredReview": "PROFESSIONAL_LEGAL_REVIEW"
+    }
+  },
+  "requiredAssetFields": [
+    "assetId",
+    "logicalName",
+    "filePath",
+    "assetType",
+    "authorOrSource",
+    "sourceLocation",
+    "licenseExpression",
+    "licenseEvidenceLocation",
+    "createdDate",
+    "hashAlgorithm",
+    "originalHash",
+    "currentHash",
+    "derivativeChain",
+    "modifications",
+    "generatedAssetDisclosure",
+    "ipClass",
+    "ipDisposition",
+    "reviewer",
+    "reviewStatus",
+    "approvalDate"
+  ],
+  "prohibitedOriginsAndMethods": [
+    "Siemens or other vendor screenshots",
+    "Siemens or other vendor logos and trademarks used as product identity",
+    "Extracted or traced vendor icons",
+    "Copied, redrawn, recolored, or traced vendor device illustrations",
+    "Vendor manuals, diagrams, tables, help prose, diagnostic prose, or diagnostic identifiers",
+    "Vendor color, typography, spacing, icon-silhouette, screen-composition, or trade-dress sampling",
+    "Executable resource extraction, decompilation, disassembly, or memory scraping",
+    "Leaked, partner-only, confidential, pirated, bypassed, or circumvention-derived material",
+    "Generated output prompted or conditioned on forbidden vendor assets or expression",
+    "Remote fonts, CDN assets, analytics pixels, telemetry resources, or runtime-downloaded media"
+  ],
+  "evidenceOnlyFiles": [
+    {
+      "path": "Govs PLC project Research Report.md",
+      "classification": "FROZEN_RESEARCH_EVIDENCE_NOT_APPROVED_FOR_PRODUCTION_BUNDLE",
+      "sha256": "F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55"
+    },
+    {
+      "path": "PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx",
+      "classification": "NORMATIVE_GOVERNANCE_NOT_A_PRODUCTION_ASSET",
+      "sha256": "EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612"
+    },
+    {
+      "path": "docs/research/UNRESOLVED_SOURCE_TOKENS.md",
+      "classification": "RESEARCH_CONTROL_NOT_APPROVED_FOR_PRODUCTION_BUNDLE",
+      "sha256": "F13CCD241714BD144D1F373D7F90769CC957751BF1F10B7494ABF765A3314D5B"
+    }
+  ],
+  "assets": [],
+  "inventorySummary": {
+    "registeredAssetCount": 0,
+    "approvedAssetCount": 0,
+    "externalAssetCount": 0,
+    "vendorAssetCount": 0,
+    "releaseEligible": false,
+    "reason": "No shipped asset has yet been registered, reviewed, and approved. The empty assets array is an intentional Phase 1 truth statement, not evidence of a completed asset audit."
+  }
+}

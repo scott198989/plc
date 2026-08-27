@@ -1,0 +1,8 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+catalogMode: strict
+cleanupUnusedCatalogs: true
+linkWorkspacePackages: false
+preferWorkspacePackages: false
