@@ -1,6 +1,6 @@
 # Phase 1 Toolchain Admission Register
 
-Status: **LOCAL BOOTSTRAP CONTAINED; REMOTE CI BLOCKED; ALL TOOLS UNAPPROVED**  
+Status: **FOUNDATION IMPLEMENTED; LOCAL GATES OBSERVED; CI ACTIVE BUT UNEXECUTED; ALL TOOLS UNAPPROVED**
 Inventory date: 2026-08-27  
 Scope: Phase 1 development, governance extraction, verification, and CI tooling only  
 Production reachability: Prohibited
@@ -13,11 +13,11 @@ This register inventories the development/build tools currently declared or dire
 
 **No tool in this register is `APPROVED`.** Every entry remains provisional and unreviewed until an identified reviewer completes the policy's license, provenance, capability, integrity, maintenance, reproducibility, production-reachability, and evidence requirements. Unknown facts remain `UNKNOWN`; a local version string or executable hash does not prove upstream provenance or license compliance.
 
-Pre-existing local tools may be used only within the offline Phase 1 bootstrap containment in `DEPENDENCY_POLICY.md` Section 5.1. No remote action or hosted service may execute, and no tool may be acquired, upgraded, network-enabled, or treated as admitted, until its required review and decision are recorded. Executables, package managers, compilers, test runners, credentials, network capabilities, and services must not enter a classroom bundle, production dependency graph, runtime permission, generated runtime payload, or user-reachable path. Generated output receives independent review.
+The Corrective Addendum authorized the exact local dependency acquisition and foundation implementation recorded in `DEPENDENCY_POLICY.md` Section 5.2. That scoped authorization does not mark a tool or package approved and does not create release eligibility. Executables, package managers, compilers, test runners, credentials, and development-service capabilities must not enter the classroom artifact. Generated output receives independent review.
 
 ## 2. Local observation method
 
-The local inventory was produced with read-only commands: command resolution, `--version`, `rustup which`, manifest inspection, and SHA-256 hashing. No upstream registry, license database, package download, or remote service was used for these records. GitHub Action tag/release mappings, upstream identity, signatures, publication history, vulnerability status, licenses, and source-to-bundle correspondence are not asserted or relied upon; only the proposed repository names and 40-character commit declarations are recorded.
+The initial inventory used read-only command resolution, version, manifest, and hash inspection. The Corrective Addendum run then acquired the exact lockfile-bound npm packages and Rust components recorded below. Registry integrity fields and local package metadata are evidence, not proof of upstream identity, signatures, source correspondence, vulnerability status, or license approval. No GitHub-hosted workflow execution has been observed in this record.
 
 Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided development dependencies, not repository-owned or production-approved files. Paths under `C:\Program Files`, `AppData`, `.rustup`, and `.cargo` are host-local observations and are not reproducible repository declarations.
 
@@ -28,13 +28,17 @@ Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided devel
 | Node.js | Exact `24.19.0` in `package.json` | Bundled runtime `v24.19.0`; ordinary PATH runtime `v24.14.0` | Development verification scripts | `PROVISIONAL_UNREVIEWED`; exact version is fail-closed, but executable identity/provenance remains unapproved |
 | pnpm | Exact `11.19.0` in `packageManager` and `engines.pnpm` | `11.19.0` through bundled wrapper | Development package/workspace management | `PROVISIONAL_UNREVIEWED` |
 | Python | Exact `3.13.12` in `.python-version`; the launcher and extractor both reject other versions | PATH runtime `3.13.12`; bundled alternative `3.12.13` | Development-only directive extraction | `PROVISIONAL_UNREVIEWED`; exact version is fail-closed, but executable identity/provenance remains unapproved |
-| Rust compiler | `1.94.0` | `rustc 1.94.0 (4a4ef493e 2026-03-02)` | Development compiler; no product crate exists | `PROVISIONAL_UNREVIEWED` |
-| Cargo | Coupled to Rust toolchain `1.94.0` | `cargo 1.94.0 (85eff7c80 2026-01-15)` | Development build/workspace tool; empty workspace | `PROVISIONAL_UNREVIEWED` |
-| GitHub-hosted runner | Proposed mutable label `windows-2025` | No exact image revision, OS build, or preinstalled-tool manifest is pinned locally | Proposed remote development CI | `BLOCKED_DEC_0002_AND_ADMISSION`; workflow job is disabled |
+| Rust compiler | `1.94.0`; `clippy`, `rustfmt`, `wasm32-unknown-unknown` | `rustc 1.94.0 (4a4ef493e 2026-03-02)` | Compiles the dependency-free first-party health crate to WASM | `PROVISIONAL_UNREVIEWED` |
+| Cargo | Coupled to Rust toolchain `1.94.0` | `cargo 1.94.0 (85eff7c80 2026-01-15)` | Builds/tests the one-member Rust workspace; no registry crates | `PROVISIONAL_UNREVIEWED` |
+| TypeScript | Exact `6.0.3` in the workspace catalog | Locally executed through pnpm | Strict source/test type checking | `CANDIDATE_UNREVIEWED`; development only |
+| Vite | Exact `8.2.2` | Locally executed through pnpm | Production bundle generation only; no server used | `CANDIDATE_UNREVIEWED`; development only |
+| Vitest | Exact `4.1.10` | Locally executed through pnpm | Contract and state-model unit tests | `CANDIDATE_UNREVIEWED`; development only |
+| Playwright Core | Exact `1.62.1` | Locally executed against Chrome `151.0.7922.174` | `file://` browser interaction/isolation evidence | `CANDIDATE_UNREVIEWED`; development only |
+| System Chrome | Host `151.0.7922.174` | `C:\Program Files\Google\Chrome\Application\chrome.exe` | Headless local browser test target; not a packaging choice | `PROVISIONAL_UNREVIEWED` |
+| GitHub-hosted runner | Active mutable label `windows-2025` | No exact image revision, OS build, or preinstalled-tool manifest is pinned locally | Active CI declaration; no run observed | `ACTIVE_UNEXECUTED_UNREVIEWED` |
 | `actions/checkout` | Proposed commit `3d3c42e5aac5ba805825da76410c181273ba90b1` | Workflow declaration only; source/tag/provenance not verified | Proposed remote checkout | `BLOCKED_DEC_0002_AND_ADMISSION` |
 | `actions/setup-node` | Proposed commit `820762786026740c76f36085b0efc47a31fe5020` | Workflow declaration only; source/tag/provenance not verified | Proposed remote Node `24.19.0` setup | `BLOCKED_DEC_0002_AND_ADMISSION` |
 | `actions/setup-python` | Proposed commit `5fda3b95a4ea91299a34e894583c3862153e4b97` | Workflow declaration only; source/tag/provenance not verified | Proposed remote Python `3.13.12` setup | `BLOCKED_DEC_0002_AND_ADMISSION` |
-| `actions/upload-artifact` | Proposed commit `043fb46d1a93c77aae656e7c1c64a875d1fc6a0a` | Workflow declaration only; source/tag/provenance not verified | Proposed remote report retention | `BLOCKED_DEC_0002_AND_ADMISSION`; no upload authorized |
 | Microsoft Word | Executable version `16.0.20326.20100` | Host-local Word 2021 executable; source opened read-only | Offline DOCX-to-PDF visual observation | `PROVISIONAL_UNREVIEWED`; output is an ignored non-gating observation only |
 | Poppler tools | `pdfinfo` and `pdftoppm` `26.05.0` | Workspace-bundled executables | Offline PDF metadata inspection and 40-page PNG rendering | `PROVISIONAL_UNREVIEWED`; output is an ignored non-gating observation only |
 | PDF QA Python stack | Python `3.12.13`; `pdfplumber 0.11.9`; `Pillow 12.3.0`; `pypdf 6.10.0` | Workspace-bundled alternative runtime/packages | Offline page geometry, text, pixel, and contact-sheet observation | `PROVISIONAL_UNREVIEWED`; distinct from the pinned extractor runtime and not gate evidence |
@@ -63,7 +67,7 @@ Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided devel
 
 | Field | Current evidence or disposition |
 |---|---|
-| Requested purpose | Manage the empty Phase 1 pnpm workspace and run governance scripts |
+| Requested purpose | Manage the Phase 1 pnpm workspace; build, typecheck, test, and verify the foundation and governance records |
 | Dependency class | Development package manager; must not ship |
 | Repository declaration | `packageManager: pnpm@11.19.0`; `engines.pnpm` exact version `11.19.0` |
 | Observed executable | Bundled `pnpm.cmd` wrapper reports `11.19.0` and invokes the bundled Node plus `pnpm.mjs` |
@@ -71,7 +75,7 @@ Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided devel
 | Local package metadata | Bundled `pnpm/package.json` identifies version `11.19.0`, claims `MIT`, and has SHA-256 `862525B82C79860ED1A196DD2E08D1543A444FC9118474A5C4F581644290D892` |
 | Local license evidence | A bundled `LICENSE` file exists, but its copyright, obligations, and correspondence to the exact resolved tool have not been reviewed |
 | Observed configured registry | `https://registry.npmjs.org/`; observation is not registry approval |
-| Network/process capability | May contact registries and execute lifecycle/build tooling in development; installs are blocked until source and package admissions are approved |
+| Network/process capability | Exact lockfile-bound acquisition was authorized for the corrective run; lifecycle scripts were disabled. Future registry changes still require review. |
 | Upstream provenance/signature | `UNKNOWN`; package-manager acquisition chain and authoritative upstream integrity were not verified |
 | Production reachability | Forbidden; package manager, cache, registry configuration, and lifecycle scripts must not ship |
 | Reviewer/decision/date | `UNASSIGNED` / `NOT_REVIEWED` / `null` |
@@ -83,7 +87,7 @@ Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided devel
 |---|---|
 | Requested purpose | Execute `tools/phase1/extract_directive_requirements.py` to read the controlled DOCX and regenerate governance JSON |
 | Dependency class | Development extraction runtime; must not ship |
-| Repository declaration | `.python-version` pins `3.13.12`; `package.json` invokes the launcher through `python`, and both the launcher and extractor reject any runtime other than `3.13.12` before useful work |
+| Repository declaration | `.python-version` pins `3.13.12`; `package.json` invokes `tools/phase1/run_pinned_python.mjs`, which selects and verifies the exact Python runtime before extraction or verification |
 | Current PATH observation | `C:\Users\Scott\AppData\Local\Programs\Python\Python313\python.exe`, reports `Python 3.13.12` |
 | Current PATH executable SHA-256 | `A2A4EFF8D0B0C845284C607D50A3B5B966AC5A3121736A2E38E165BD6644D9FE` |
 | Bundled alternative | `C:\Users\Scott\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe`, reports `Python 3.12.13`, SHA-256 `D8E3F0ADF246DB00358C0C4ED349CF714898178F9558FB0E944F79F5C07F8EAA` |
@@ -99,13 +103,13 @@ Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided devel
 
 | Field | Current evidence or disposition |
 |---|---|
-| Requested purpose | Compile future trusted Rust semantics to capability-limited WebAssembly after later-phase authorization; currently supports an empty workspace only |
+| Requested purpose | Compile the Phase 1 dependency-free health function to capability-limited WebAssembly; no PLC semantics are present |
 | Dependency class | Development compiler/toolchain; compiler must not ship |
 | Repository declaration | `rust-toolchain.toml` channel `1.94.0`; `Cargo.toml` `rust-version = 1.94.0` |
 | Observed executable | `C:\Users\Scott\.rustup\toolchains\1.94.0-x86_64-pc-windows-msvc\bin\rustc.exe` |
 | Version evidence | `rustc 1.94.0 (4a4ef493e 2026-03-02)` |
 | Executable SHA-256 | `6A0699E427EE9C1492EF1C9EA967D035DC4660E92C7FE32F2C6A1038116700E5` |
-| Target/feature scope | No target, component, or generated WASM is admitted by this record; exact targets and components are `UNKNOWN` |
+| Target/feature scope | Exact `wasm32-unknown-unknown` target plus `clippy` and `rustfmt`; generated module is 247 bytes with zero imports and three required exports (`memory`, `foundation_health`, `foundation_health_len`) |
 | Local license evidence | `UNKNOWN`; toolchain license/notices were not located and reviewed during this audit |
 | Upstream source/signature | `UNKNOWN`; rustup acquisition, manifest signatures/checksums, and upstream source correspondence were not verified |
 | Network/process capability | Compiler may access files and invoke toolchain components in development; no permission extends to generated production capability |
@@ -117,9 +121,9 @@ Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided devel
 
 | Field | Current evidence or disposition |
 |---|---|
-| Requested purpose | Manage the empty Rust workspace and future exact crate resolution after authorization |
+| Requested purpose | Build and test the one-member `foundation-wasm` workspace without registry crates |
 | Dependency class | Development build/package tool; must not ship |
-| Repository declaration | Coupled to the exact `1.94.0` Rust toolchain; `Cargo.lock` currently contains no package resolution |
+| Repository declaration | Coupled to the exact `1.94.0` Rust toolchain; `Cargo.lock` resolves only first-party `foundation-wasm 0.0.0` |
 | Observed executable | `C:\Users\Scott\.rustup\toolchains\1.94.0-x86_64-pc-windows-msvc\bin\cargo.exe` |
 | Version evidence | `cargo 1.94.0 (85eff7c80 2026-01-15)` |
 | Executable SHA-256 | `CBFDFC04B61BA49D184C6D3996502A00391D570CB5CB71A00FAEB8C0CE12A4C9` |
@@ -134,13 +138,13 @@ Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided devel
 
 | Field | Current evidence or disposition |
 |---|---|
-| Requested purpose | Proposed remote execution of the Phase 1 governance workflow after `DEC-0002` and admission review |
+| Requested purpose | Execute the active Phase 1 closure gate declared by the Corrective Addendum; no hosted run is evidenced here |
 | Dependency class | External development CI environment; never a classroom runtime dependency |
 | Repository declaration | `.github/workflows/phase1-governance.yml` uses `runs-on: windows-2025` |
-| Exact image/version | `UNKNOWN`; `windows-2025` is a mutable image label and does not pin its current image revision, OS build, or installed-tool manifest. The disabled workflow would report `ImageOS` and `ImageVersion` if later approved; no completed run evidence is admitted here |
+| Exact image/version | `UNKNOWN`; `windows-2025` is a mutable image label and does not pin its current image revision, OS build, or installed-tool manifest. The active workflow reports `ImageOS` and `ImageVersion`; no completed run evidence is admitted here |
 | Local integrity evidence | None; the hosted runner image is not present locally and was not hashed or inspected |
 | Service/license/terms evidence | `UNKNOWN` and `NOT_REVIEWED` |
-| Network/credential capability | If approved, the hosted runner would use external GitHub services and network access; the proposed disabled workflow declares repository contents read-only and checkout credential persistence false |
+| Network/credential capability | If triggered, the hosted runner uses external GitHub, runtime-distribution, Rust, and npm services. The workflow declares repository contents read-only and checkout credential persistence false. Service behavior remains unreviewed. |
 | Production reachability | Forbidden; no runner image, token, service dependency, or hosted-network assumption may enter the product |
 | Reviewer/decision/date | `UNASSIGNED` / `NOT_REVIEWED` / `null` |
 | Blockers | Replace or supplement the mutable label with an approved reproducibility strategy; record exact image/tool inventory per run, service/terms/data/credential assumptions, supply-chain controls, and evidence retention |
@@ -149,13 +153,13 @@ Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided devel
 
 | Field | Current evidence or disposition |
 |---|---|
-| Requested purpose | Proposed repository checkout in remote development CI after `DEC-0002` and admission review |
+| Requested purpose | Repository checkout in the active but not-yet-observed closure workflow |
 | Dependency class | Third-party development CI action; must not ship |
 | Repository declaration | `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` |
 | Version/tag claim | `UNKNOWN`; no tag mapping is asserted or treated as evidence |
 | Local source/hash evidence | None; only the 40-character commit reference is present locally; action source and resolved bundle were not vendored or inspected |
 | License/provenance/signature | `UNKNOWN` and `NOT_REVIEWED` |
-| Network/credential capability | If approved, would execute within GitHub-hosted CI and access the repository service; the disabled proposal requests read-only contents and sets `persist-credentials: false` |
+| Network/credential capability | If triggered, executes within GitHub-hosted CI and accesses the repository service; the workflow requests read-only contents and sets `persist-credentials: false` |
 | Production reachability | Forbidden; action code, Node runtime, service tokens, and checkout metadata must not ship |
 | Reviewer/decision/date | `UNASSIGNED` / `NOT_REVIEWED` / `null` |
 | Blockers | Verify commit ownership/source, source-to-bundle correspondence, license/notices, action dependency graph, security history, credential behavior, and retained workflow evidence |
@@ -164,47 +168,32 @@ Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided devel
 
 | Field | Current evidence or disposition |
 |---|---|
-| Requested purpose | Proposed installation of exact Node.js `24.19.0` in remote Phase 1 CI after `DEC-0002` and admission review |
+| Requested purpose | Install exact Node.js `24.19.0` in the active but not-yet-observed closure workflow |
 | Dependency class | Third-party development CI action; must not ship |
 | Repository declaration | `actions/setup-node@820762786026740c76f36085b0efc47a31fe5020` with `node-version: 24.19.0` and `package-manager-cache: false` |
 | Version/tag claim | `UNKNOWN`; no tag mapping is asserted or treated as evidence |
 | Local source/hash evidence | None; only the 40-character commit reference is present locally. Action source, resolved distribution bundle, transitive dependencies, and downloaded Node payload were not vendored or inspected locally |
 | License/provenance/signature | Repository ownership, exact license obligations, source-to-bundle correspondence, commit/signature chain, release attestations, and downloaded Node provenance remain `UNKNOWN` and `NOT_REVIEWED` |
 | Cache behavior | Workflow explicitly sets `package-manager-cache: false`; this does not disable action download, Node acquisition, general runner networking, or unreviewed behavior in the action bundle |
-| Network/credential capability | If approved, would execute in GitHub-hosted CI and may access GitHub and Node distribution services. No current network scope is permitted; endpoints, redirects, integrity verification, credentials, and retained evidence require review |
+| Network/credential capability | If triggered, may access GitHub and Node distribution services. Endpoints, redirects, integrity verification, credentials, and retained evidence remain unreviewed. |
 | Production reachability | Forbidden; action code, downloaded installer/cache material, service tokens, runner metadata, and setup behavior must not ship |
 | Reviewer/decision/date | `UNASSIGNED` / `NOT_REVIEWED` / `null` |
-| Blockers | Resolve `DEC-0002`; establish durable authoritative provenance; review exact license/notices, source-to-bundle correspondence, action dependency graph, Node download endpoint and integrity/signature behavior, credential behavior, security history, runner evidence, and packaged-artifact exclusion |
+| Blockers | Resolve the remaining external-operation boundary of `DEC-0002`; establish durable authoritative provenance; review exact license/notices, source-to-bundle correspondence, action dependency graph, Node download endpoint and integrity/signature behavior, credential behavior, security history, runner evidence, and packaged-artifact exclusion |
 
 ### TC-0009 — `actions/setup-python` pinned commit
 
 | Field | Current evidence or disposition |
 |---|---|
-| Requested purpose | Proposed installation of exact Python `3.13.12` in remote CI after `DEC-0002` and admission review |
+| Requested purpose | Install exact Python `3.13.12` in the active but not-yet-observed closure workflow |
 | Dependency class | Third-party development CI action; must not ship |
 | Repository declaration | `actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97` with `python-version: 3.13.12` |
 | Version/tag claim | `UNKNOWN`; no tag mapping is asserted or treated as evidence |
 | Local source/hash evidence | None; action source, resolved bundle, transitive dependencies, and downloaded Python payload were not vendored or inspected locally |
 | License/provenance/signature | `UNKNOWN` and `NOT_REVIEWED`; the workflow declaration does not prove repository ownership or provenance |
-| Network/credential capability | If approved, would execute on GitHub-hosted CI and may access GitHub/Python distribution services; no current network scope, package installation, or dependency cache is authorized |
+| Network/credential capability | If triggered, may access GitHub and Python distribution services; exact endpoint and cache behavior remain unreviewed |
 | Production reachability | Forbidden; action code, interpreter, downloaded material, caches, tokens, and setup behavior must not ship |
 | Reviewer/decision/date | `UNASSIGNED` / `NOT_REVIEWED` / `null` |
 | Blockers | Review license/notices, source-to-bundle correspondence, dependencies, acquisition integrity/signatures, endpoint behavior, security history, credentials, retained evidence, and packaged-artifact exclusion |
-
-### TC-0010 — `actions/upload-artifact` pinned commit
-
-| Field | Current evidence or disposition |
-|---|---|
-| Requested purpose | Proposed retention of `.phase1-verification/phase1-report.json` after `DEC-0002` and service/data review; no source document, production asset, secret, or student data is selected |
-| Dependency class | Third-party development CI action and external evidence-storage service; must not ship |
-| Repository declaration | `actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a`; artifact name `phase1-governance-report`; retention `14` days |
-| Version/tag claim | `UNKNOWN`; no tag mapping is asserted or treated as evidence |
-| Local source/hash evidence | None; action source, resolved bundle, service implementation, and transitive dependencies were not vendored or inspected locally |
-| Data/network scope | If later approved, would upload one generated JSON report containing check results and hashes through GitHub Actions artifact storage. Current execution and upload are blocked by `DEC-0002`; the disabled workflow warns rather than fabricating evidence when the file is absent |
-| License/service/privacy/security evidence | `UNKNOWN` and `NOT_REVIEWED`; service terms, residency, access control, encryption, retention deletion, telemetry, and incident history require review |
-| Production reachability | Forbidden; uploader, service client, credentials, artifact URLs, and hosted-storage assumptions must not enter the classroom product |
-| Reviewer/decision/date | `UNASSIGNED` / `NOT_REVIEWED` / `null` |
-| Blockers | Review action and service licenses/terms, data handling, source-to-bundle correspondence, dependencies, authentication/permissions, integrity, retention/deletion, security history, and production exclusion |
 
 ### TC-0011 — Microsoft Word 2021 read-only QA renderer
 
@@ -251,6 +240,58 @@ Paths under `C:\Users\Scott\.cache\codex-runtimes\` are workspace-provided devel
 | Production reachability | Forbidden; interpreter, packages, native libraries, caches, and QA outputs must not ship |
 | Reviewer/decision/date | `UNASSIGNED` / `NOT_REVIEWED` / `null` |
 | Blockers | Review authoritative sources, exact package/native dependency graph, licenses/notices, integrity/signatures, vulnerability history, generated-output behavior, and production exclusion |
+
+### TC-0014 — TypeScript 6.0.3
+
+| Field | Current evidence or disposition |
+|---|---|
+| Requested purpose | Strict type checking for the contract, React shell, Worker, and tests |
+| Exact declaration/integrity | Workspace catalog `6.0.3`; `sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==` |
+| License evidence | Installed package metadata claims Apache-2.0; exact notice and source correspondence are not independently reviewed |
+| Capability/containment | General compiler and filesystem tool; development only; static isolation proves it is absent from `dist/index.html` |
+| Reviewer/decision/date | `UNASSIGNED` / `CANDIDATE_UNREVIEWED` / `null` |
+
+### TC-0015 — Vite 8.2.2
+
+| Field | Current evidence or disposition |
+|---|---|
+| Requested purpose | Bundle the foundation into staging assets consumed by the reviewed single-file inliner; no development or preview server is used |
+| Exact declaration/integrity | Workspace catalog `8.2.2`; `sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==` |
+| License evidence | Installed package metadata claims MIT; transitive and optional native build graph is lockfile-captured but not independently approved |
+| Capability/containment | Development bundler with process/filesystem capability; installation ran with `--ignore-scripts`; excluded from the single production file |
+| Reviewer/decision/date | `UNASSIGNED` / `CANDIDATE_UNREVIEWED` / `null` |
+
+### TC-0016 — Vitest 4.1.10
+
+| Field | Current evidence or disposition |
+|---|---|
+| Requested purpose | Run deterministic contract and UI-state unit tests without a browser server |
+| Exact declaration/integrity | Workspace catalog `4.1.10`; `sha512-R9jUTe5S4Qb0HCd4TNqpC7oGcrMssMRGXLW80ubjWsW9VH5GF8y1Y0SFLY9AbqSk6nt0PnOx4H4WNJYZ13GUPw==` |
+| License evidence | Installed package metadata claims MIT; exact dependency notices remain unreviewed |
+| Capability/containment | Development test runner; excluded from production output |
+| Reviewer/decision/date | `UNASSIGNED` / `CANDIDATE_UNREVIEWED` / `null` |
+
+### TC-0017 — Playwright Core 1.62.1 and system Chrome 151.0.7922.174
+
+| Field | Current evidence or disposition |
+|---|---|
+| Requested purpose | Launch a pre-existing system Chrome executable headlessly against the built `file://` artifact for interaction, responsive, deterministic-repeat, and page-request evidence |
+| Exact package declaration/integrity | Root `playwright-core 1.62.1`; `sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==`; package has zero dependencies |
+| Browser observation | `C:\Program Files\Google\Chrome\Application\chrome.exe`; file/product version `151.0.7922.174` |
+| License evidence | Playwright package metadata claims Apache-2.0; Chrome distribution/license, provenance, updater/background behavior, and packaging suitability remain unreviewed |
+| Capability/containment | Browser automation has host/process capability; development test only. The harness uses `offline: true`, background-network suppression flags, and records zero page-level remote requests; this is not process-scoped syscall/packet proof. |
+| Reviewer/decision/date | `UNASSIGNED` / `CANDIDATE_UNREVIEWED` / `null` |
+
+### TC-0018 — React production candidates
+
+| Field | Current evidence or disposition |
+|---|---|
+| Requested purpose | Local deterministic presentation and document binding only |
+| Exact graph | `react 19.2.8` and `react-dom 19.2.8` direct; `scheduler 0.27.0` transitive; exact integrity values are recorded in `DEPENDENCY_POLICY.md` Section 5.2 and `pnpm-lock.yaml` |
+| License evidence | Installed package metadata claims MIT for all three; authoritative source, notices, security history, and redistribution review remain incomplete |
+| Capability/containment | Reachable in `dist/index.html`; static and browser gates reject remote resources and page requests. React diagnostic and W3C namespace URIs are inert-string allowlist entries, not fetched resources. |
+| Asset disposition | No React package asset file, third-party icon, font, image, or media is shipped; `ASSET_PROVENANCE.json` remains a zero-entry register |
+| Reviewer/decision/date | `UNASSIGNED` / `CANDIDATE_UNREVIEWED` / `null` |
 
 ## 5. Controlled development networking
 

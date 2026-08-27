@@ -63,19 +63,19 @@
   ],
   "evidenceOnlyFiles": [
     {
-      "path": "Govs PLC project Research Report.md",
+      "path": "References for Codex from Scott/Govs PLC project Research Report.md",
       "classification": "FROZEN_RESEARCH_EVIDENCE_NOT_APPROVED_FOR_PRODUCTION_BUNDLE",
       "sha256": "F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55"
     },
     {
-      "path": "PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx",
+      "path": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx",
       "classification": "NORMATIVE_GOVERNANCE_NOT_A_PRODUCTION_ASSET",
       "sha256": "EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612"
     },
     {
       "path": "docs/research/UNRESOLVED_SOURCE_TOKENS.md",
       "classification": "RESEARCH_CONTROL_NOT_APPROVED_FOR_PRODUCTION_BUNDLE",
-      "sha256": "F13CCD241714BD144D1F373D7F90769CC957751BF1F10B7494ABF765A3314D5B"
+      "sha256": "34DDCD05030D844DF727FAE50CC2BD0CE0EACCFA9D6DAA1FEE50DCA99C6321B2"
     }
   ],
   "assets": [],

@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "registerId": "PHASE1-CLOSURE-DEFECTS",
+  "asOf": "2026-08-27",
+  "scope": "Phase 1 corrective closure only",
+  "closureRule": "A defect is RESOLVED only when the remediation and its direct evidence exist. Final candidate acceptance remains Scott's decision.",
+  "summary": {
+    "total": 21,
+    "openCritical": 0,
+    "openHigh": 2,
+    "openMedium": 2,
+    "openLow": 1,
+    "resolved": 16,
+    "remediatedPendingFinalProof": 2
+  },
+  "defects": [
+    {
+      "id": "DEF-001",
+      "severity": "HIGH",
+      "title": "Adversarial audit was incomplete and contained closure placeholders",
+      "status": "REMEDIATED_PENDING_FINAL_PROOF",
+      "resolution": "All required audit sections are being completed and the final DOCX is generated only after immutable validation.",
+      "evidence": ["docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md", "tools/phase1/export_audit_docx.py"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-002",
+      "severity": "CRITICAL",
+      "title": "Forty-eight directive statement units had no explicit reconciliation disposition",
+      "status": "RESOLVED",
+      "resolution": "Every discovered unit is now represented in the schema-v3 reconciliation ledger and maps to issued records.",
+      "evidence": ["requirements/phase1-reconciliation.json", "requirements/phase1-requirements.json", "IMPLEMENTATION_MATRIX.json"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-003",
+      "severity": "HIGH",
+      "title": "Twenty compound source requirements were not split into independently testable records",
+      "status": "RESOLVED",
+      "resolution": "Each source parent is preserved as a superseded lineage parent and 190 stable atomic child IDs carry the separable obligations.",
+      "evidence": ["requirements/phase1-reconciliation.json", "requirements/phase1-requirements.json", "REQUIREMENTS.md"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-004",
+      "severity": "HIGH",
+      "title": "PES-REQ-0003 verbatim field contained implementation-added table prefixes",
+      "status": "RESOLVED",
+      "resolution": "The source-fidelity field is regenerated without the added prefix and is guarded by exact extraction checks.",
+      "evidence": ["tools/phase1/extract_directive_requirements.py", "requirements/phase1-requirements.json", "requirements/phase1-reconciliation.json"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-005",
+      "severity": "CRITICAL",
+      "title": "Integrity verification compared the subject with a manifest recomputed from the same subject",
+      "status": "REMEDIATED_PENDING_FINAL_PROOF",
+      "resolution": "The launcher now extracts an immutable Git-object manifest outside the subject and seals it by SHA-256; final proof requires the closure candidate commit.",
+      "evidence": ["tools/phase1/run_phase1_verification.py", "tools/phase1/verify-phase1.mjs", "tools/phase1/generate_trusted_baseline.py", "docs/governance/PHASE_1_VERIFICATION_PLAN.md"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-006",
+      "severity": "HIGH",
+      "title": "Editor-configuration mutation escaped the prior verifier",
+      "status": "RESOLVED",
+      "resolution": "Exact-project-file-set integrity now detects the byte mutation through VER-INT-0002.",
+      "evidence": ["tools/phase1/verify-phase1.mjs", "tests/phase1/run_phase1_mutations.ps1"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-007",
+      "severity": "CRITICAL",
+      "title": "External URL insertion escaped the prior verifier",
+      "status": "RESOLVED",
+      "resolution": "Narrow production/config scopes are scanned and the prescribed mutation maps to VER-OFF-0001.",
+      "evidence": ["tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "tests/phase1/run_phase1_mutations.ps1"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-008",
+      "severity": "CRITICAL",
+      "title": "Loopback endpoint insertion escaped the prior verifier",
+      "status": "RESOLVED",
+      "resolution": "Narrow production/config scopes are scanned and the prescribed mutation maps to VER-OFF-0002.",
+      "evidence": ["tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "tests/phase1/run_phase1_mutations.ps1"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-009",
+      "severity": "HIGH",
+      "title": "Vendor-facing product text insertion escaped the prior verifier",
+      "status": "RESOLVED",
+      "resolution": "Exact user-facing scopes are scanned for the controlled mark list and the mutation maps to VER-BRN-0001.",
+      "evidence": ["tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "tests/phase1/run_phase1_mutations.ps1"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-010",
+      "severity": "HIGH",
+      "title": "A risk could be marked closed without admissible closure evidence",
+      "status": "RESOLVED",
+      "resolution": "VER-RSK-0001 now requires complete linked evidence, verification, change control, reviewer, date, rationale, and residual risk.",
+      "evidence": ["EVIDENCE_REGISTER.json", "tools/phase1/verify-phase1.mjs", "tests/phase1/run_phase1_mutations.ps1"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-011",
+      "severity": "HIGH",
+      "title": "Deleting ADR-0001 crashed the prior verifier instead of producing a controlled failure",
+      "status": "RESOLVED",
+      "resolution": "Missing ADRs are handled as named VER-ADR-0001 policy failures with exit code 1 and no uncaught exception.",
+      "evidence": ["tools/phase1/verify-phase1.mjs", "tests/phase1/run_phase1_mutations.ps1"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-012",
+      "severity": "MEDIUM",
+      "title": "Historical normalized render digest was malformed at 62 hexadecimal characters",
+      "status": "RESOLVED",
+      "resolution": "The raw page text was recomputed reproducibly and the correct 64-character digest is recorded without rewriting historical evidence.",
+      "evidence": ["evidence/phase1-closure/hash-recomputation/README.md", "evidence/phase1-closure/hash-recomputation/render-text-digest-raw-output.txt"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-013",
+      "severity": "HIGH",
+      "title": "Canonical filenames and controlling-document model conflicted",
+      "status": "RESOLVED",
+      "resolution": "CR-0001 records Scott's separate-phase-directive model and subsequent reference-folder relocation while preserving exact filenames and hashes.",
+      "evidence": ["OPEN_DECISIONS.md", "CHANGELOG_DIRECTIVE.md", "evidence/phase1-closure/canonical-source-hashes.txt"],
+      "owner": "Scott / Codex recordkeeping"
+    },
+    {
+      "id": "DEF-014",
+      "severity": "HIGH",
+      "title": "Repository lacked preserved pre-remediation Git history",
+      "status": "RESOLVED",
+      "resolution": "The starting tree is preserved by a full commit and annotated phase1-pre-remediation-v1 tag before corrective edits.",
+      "evidence": ["evidence/phase1-closure/pre-remediation/STARTING_STATE.md", "evidence/phase1-closure/pre-remediation/file-inventory.tsv"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-015",
+      "severity": "HIGH",
+      "title": "CI was disabled and there was no complete shared closure gate",
+      "status": "RESOLVED",
+      "resolution": "The checked-in workflow is active for push, pull request, and manual dispatch and invokes the exact local gate without evidence upload.",
+      "evidence": [".github/workflows/phase1-governance.yml", "package.json", "OPEN_DECISIONS.md"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-016",
+      "severity": "HIGH",
+      "title": "The Phase 1 repository had no runnable technical foundation",
+      "status": "RESOLVED",
+      "resolution": "A bounded React-to-typed-contract-to-Worker-to-real-Rust/WASM health round trip now builds and runs offline without PLC features.",
+      "evidence": ["apps/foundation-shell/", "packages/foundation-contract/", "crates/foundation-wasm/", "design-qa.md"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-017",
+      "severity": "MEDIUM",
+      "title": "Historical audit stated that scratch evidence had been deleted although it still existed",
+      "status": "RESOLVED",
+      "resolution": "The exact scratch material was preserved under pre-remediation evidence and the historical statement is explicitly labeled as historical rather than silently altered.",
+      "evidence": ["evidence/phase1-closure/pre-remediation/adversarial-scratch/README.md", "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-018",
+      "severity": "MEDIUM",
+      "title": "Empty asset and dependency checks could pass vacuously or contradict actual source use",
+      "status": "RESOLVED",
+      "resolution": "The shipped asset count remains truthfully zero; evidence paths/hashes are exact, direct dependency declarations are fully enumerated, and unauthorized or network-capable declarations fail closed.",
+      "evidence": ["ASSET_PROVENANCE.json", "DEPENDENCY_POLICY.md", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs"],
+      "owner": "Codex"
+    },
+    {
+      "id": "DEF-019",
+      "severity": "MEDIUM",
+      "title": "Toolchain and dependency legal, provenance, and security admission is incomplete",
+      "status": "OPEN_EXTERNAL_REVIEW",
+      "resolution": "Candidate use is exact-version, bounded, local, non-release, and labeled CANDIDATE_UNREVIEWED; release admission remains external.",
+      "evidence": ["docs/governance/TOOLCHAIN_ADMISSION_REGISTER.md", "DEPENDENCY_POLICY.md", "LEGAL_REVIEW_CHECKLIST.md"],
+      "owner": "Scott / professional reviewers"
+    },
+    {
+      "id": "DEF-020",
+      "severity": "MEDIUM",
+      "title": "Historical directive status wording does not match PES-ACC-0005 exactly",
+      "status": "OPEN_OWNER_DECISION",
+      "resolution": "The source remains immutable; CR-0001 resolves document sequencing but does not authorize rewriting the historical DOCX.",
+      "evidence": ["OPEN_DECISIONS.md", "requirements/phase1-requirements.json"],
+      "owner": "Scott"
+    },
+    {
+      "id": "DEF-021",
+      "severity": "LOW",
+      "title": "No remote repository or hosted CI execution evidence exists",
+      "status": "OPEN_EXTERNAL_OPERATION",
+      "resolution": "The active configuration and exact local gate are in scope; remote creation, push, hosted execution, logs, upload, and retention remain blocked by DEC-0002.",
+      "evidence": [".github/workflows/phase1-governance.yml", "OPEN_DECISIONS.md"],
+      "owner": "Scott"
+    }
+  ]
+}

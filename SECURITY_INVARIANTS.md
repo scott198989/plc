@@ -138,6 +138,27 @@ Unknown, corrupt, oversized, hash-mismatched, ambiguous, or executable content f
 
 Trusted Rust semantics, compiler, IR, scheduler, and runtime are compiled to capability-limited WebAssembly unless Scott approves the alternative required by `PES-DEV-0004`. Every semantic/runtime module is inspected before release (`PES-ISO-0014`).
 
+The Phase 1 foundation exercises this boundary without implementing PLC
+semantics. A versioned, exact-key `foundation.health` command crosses one
+inline Web Worker boundary and invokes an embedded first-party Rust module. The
+module is 247 bytes in the observed closure build, declares zero imports, and
+exports only linear memory plus `foundation_health` and
+`foundation_health_len`. Its deterministic payload is converted to the
+reconciled `DomainResult` envelope: `success`, optional `value`, `events`,
+`diagnostics`, `affectedObjectIds`, optional `undoToken`, `beforeHash`, and
+`afterHash`. A health check emits empty event/diagnostic/object arrays and fixed
+equal 64-hex before/after hashes; failures use the same envelope with one
+bounded diagnostic.
+
+The single `file://` artifact uses `default-src 'none'`, `connect-src 'none'`,
+hash-bound inline script/style, `worker-src blob:`, and the narrow
+`'wasm-unsafe-eval'` token required for browser compilation of the embedded
+module. That token does not authorize arbitrary module input: there is no file,
+URL, dynamic import, network, or user-content path to WebAssembly bytes, and
+the build/runtime checks reject any WASM import. Changing this CSP token,
+module byte source, import table, command schema, or DomainResult members
+triggers this document's review rule.
+
 Permitted imports are limited to:
 
 - memory;

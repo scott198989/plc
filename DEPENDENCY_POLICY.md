@@ -95,6 +95,48 @@ using the network, enabling hosted CI, selecting a cloud provider, or uploading
 an artifact. Those actions still require the full admission record and any
 mandatory Scott decision, including `DEC-0002` for remote CI/service use.
 
+### 5.2 Phase 1 corrective-addendum dependency inventory
+
+The Phase 1 Corrective Addendum authorized acquisition and implementation of a
+minimal browser foundation. That authorization permits the exact dependencies
+below to be installed and evaluated for this closure baseline; it does **not**
+constitute production-release, legal, security, or redistribution approval.
+Every registry package remains `CANDIDATE_UNREVIEWED`, and release eligibility
+remains false until Section 5 is completed by assigned reviewers.
+
+The same addendum authorizes an active checked-in CI configuration that declares
+the identical local closure gate. It does not authorize creating or pushing to
+a remote repository, supplying credentials, starting a hosted run, retaining
+hosted logs, or publishing verification artifacts. The workflow is therefore
+active but unexecuted, contains no upload action, and leaves the remaining
+external-operation boundary of `DEC-0002` blocked.
+
+| Dependency | Class and exact resolution | Declared purpose | Lock integrity | Current disposition |
+|---|---|---|---|---|
+| `react` | Direct production `19.2.8` | Deterministic local UI rendering | `sha512-PWaYA1L/q9u2u7xYQi+Y3L3Yfnie7XyLeaJICV1MGD6LprsBxcAqGjYyr0eY3p+QdsA+x/Irkt4Qif8D63+Sbw==` | Package metadata claims MIT; `CANDIDATE_UNREVIEWED` |
+| `react-dom` | Direct production `19.2.8` | Bind the React tree to the local document | `sha512-rVprimfGBG3DR+Tq0IQG2DT5PxKth1WIGDmj5yPmlzr4YBe7uyE+Du4oVqTDXZSHGGGXRtTJEGSSePyQCMBglQ==` | Package metadata claims MIT; `CANDIDATE_UNREVIEWED` |
+| `scheduler` | Transitive production `0.27.0` through `react-dom` | React scheduling implementation | `sha512-eNv+WrVbKu1f3vbYJT/xtiF5syA5HPIMtf9IgY/nKg0sWqzAUEvqY/xm7OcZc/qafLx/iO9FgOmeSAp4v5ti/Q==` | Package metadata claims MIT; `CANDIDATE_UNREVIEWED` |
+| `typescript` | Direct development `6.0.3` | Strict type checking only | `sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw==` | Package metadata claims Apache-2.0; `CANDIDATE_UNREVIEWED`; excluded from output |
+| `vite` | Direct development `8.2.2` | Offline production bundling; no preview server is used | `sha512-cFKLV/PRgAUlIRm5WjMjJ86jrftzpqcgH+Us+DS8mI3CDNiH30Whrz8uHL3+MOLPAgqbMBAqWdAHAphOAM+z/Q==` | Package metadata claims MIT; `CANDIDATE_UNREVIEWED`; excluded from output |
+| `vitest` | Direct development/test `4.1.10` | Contract and state-model unit tests | `sha512-R9jUTe5S4Qb0HCd4TNqpC7oGcrMssMRGXLW80ubjWsW9VH5GF8y1Y0SFLY9AbqSk6nt0PnOx4H4WNJYZ13GUPw==` | Package metadata claims MIT; `CANDIDATE_UNREVIEWED`; excluded from output |
+| `playwright-core` | Direct development/test `1.62.1` | Drive a pre-existing system Chromium executable against `file://` output | `sha512-wPYSwEBJY9GHraISXqyqtx0na0LpO3XEX7jNDhntbex7tzUS7kLnZsOlFruFJB4Hi/rhDMjXGqHewDZ68nYZVw==` | Package metadata claims Apache-2.0; zero package dependencies; `CANDIDATE_UNREVIEWED`; excluded from output |
+| `@types/node` | Direct development `24.13.3` | Type development-only Node build/test scripts | `sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==` | Package metadata claims MIT; `CANDIDATE_UNREVIEWED`; excluded from output |
+| `@types/react` | Direct development `19.2.18` | React source type declarations | `sha512-AnzbBERsrLKtk2XSfTbYRLjQPdy116Sty4q+T+Bp3IC4l6jNBvreVPAHmpq9qhXQM7CXZPjLVmGMw9sy+hxQ3w==` | Package metadata claims MIT; `CANDIDATE_UNREVIEWED`; excluded from output |
+| `@types/react-dom` | Direct development `19.2.5` | React DOM source type declarations | `sha512-fMPwH9v7r/pp43yUd2/Mbiex5KouJwwR3dzHkhLREUC6764VyDsqxhAxv6OFEYR1RhjOyD1naqba8ECDBe7ZQg==` | Package metadata claims MIT; `CANDIDATE_UNREVIEWED`; excluded from output |
+
+`@govs/foundation-contract` and `foundation-wasm` are first-party workspace
+components. The Rust crate has no third-party Cargo dependencies. Installation
+used the committed exact-version catalogs and `--ignore-scripts`; the complete
+resolved development graph, including platform-conditional build-tool
+bindings, is captured by `pnpm-lock.yaml`. The generated production artifact
+contains only first-party source/WASM plus reachable React, React DOM, and
+Scheduler code. Production scans reject networking/device/process APIs,
+external resource references, unexpected WASM imports, and extra output files.
+
+The third-party icon dependency evaluated during implementation was removed.
+The shipped shell uses no font, icon, image, media, or other asset file, so the
+zero-entry truth statement in `ASSET_PROVENANCE.json` remains accurate.
+
 ## 6. License disposition
 
 No license name creates automatic approval. The intended distribution model, jurisdictions, combination/linking method, modifications, shipped artifacts, and notice/source obligations must be reviewed.

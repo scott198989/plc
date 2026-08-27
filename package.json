@@ -10,9 +10,28 @@
     "pnpm": "11.19.0"
   },
   "scripts": {
-    "test": "pnpm verify:phase1",
-    "verify:phase1": "python -B tools/phase1/run_phase1_verification.py",
-    "requirements:extract": "python -B tools/phase1/extract_directive_requirements.py --root .",
-    "requirements:check": "python -B tools/phase1/extract_directive_requirements.py --check --root ."
+    "build": "pnpm build:foundation",
+    "build:foundation": "pnpm wasm:embed && pnpm --filter @govs/foundation-shell build && node tools/foundation/inline-shell.mjs",
+    "check:toolchain": "node tools/foundation/assert-toolchain.mjs",
+    "gate:closure": "pnpm requirements:check && pnpm gate:foundation && pnpm verify:phase1 && pnpm verify:mutations",
+    "gate:foundation": "pnpm check:toolchain && pnpm lint && pnpm typecheck && pnpm test:unit && pnpm build:foundation && pnpm verify:isolation && pnpm test:e2e",
+    "launch:foundation": "node tools/foundation/launch-foundation.mjs",
+    "lint": "pnpm wasm:embed && node tools/foundation/lint-source-policy.mjs && cargo fmt --all --check && cargo clippy --workspace --all-targets --locked -- -D warnings",
+    "test": "pnpm test:unit",
+    "test:e2e": "node tests/foundation/foundation-browser.e2e.mjs",
+    "test:unit": "pnpm wasm:embed && cargo test --workspace --locked && pnpm --filter @govs/foundation-contract test && pnpm --filter @govs/foundation-shell test",
+    "typecheck": "pnpm wasm:embed && pnpm --filter @govs/foundation-contract typecheck && pnpm --filter @govs/foundation-shell typecheck",
+    "verify:isolation": "node tools/foundation/verify-isolation.mjs",
+    "verify:mutations": "node tools/phase1/run_phase1_mutations.mjs --baseline-ref HEAD",
+    "verify:phase1": "node tools/phase1/run_pinned_python.mjs -B tools/phase1/run_phase1_verification.py --baseline-ref HEAD",
+    "wasm:build": "node tools/foundation/build-wasm.mjs",
+    "wasm:embed": "pnpm wasm:build && node tools/foundation/embed-wasm.mjs",
+    "requirements:extract": "node tools/phase1/run_pinned_python.mjs -B tools/phase1/extract_directive_requirements.py --root .",
+    "requirements:check": "node tools/phase1/run_pinned_python.mjs -B tools/phase1/extract_directive_requirements.py --check --root ."
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "playwright-core": "catalog:",
+    "typescript": "catalog:"
   }
 }

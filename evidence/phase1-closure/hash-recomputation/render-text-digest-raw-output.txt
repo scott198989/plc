@@ -1,0 +1,28 @@
+COMMAND
+C:\Users\Scott\.cache\codex-runtimes\codex-primary-runtime\dependencies\python\python.exe evidence/phase1-closure/hash-recomputation/recompute_render_text_digest.py --artifact C:\Users\Scott\AppData\Local\Temp\govs-plc-phase1-adversarial-7d5ac84f63bb4883bb2c32767a2975b2\directive-render.pdf --expected-pages 40
+
+RAW OUTPUT
+PYTHON_VERSION=3.12.13
+PDFPLUMBER_VERSION=0.11.9
+ARTIFACT_PATH=C:\Users\Scott\AppData\Local\Temp\govs-plc-phase1-adversarial-7d5ac84f63bb4883bb2c32767a2975b2\directive-render.pdf
+ARTIFACT_BYTES=594566
+ARTIFACT_SHA256=842EC99ACC6AE9901D89DB027F95628DEB2AB817B781BA9C6E6DFBF8BA17EDBC
+PAGE_COUNT=40
+NORMALIZER=soft-hyphen-remove; newline-to-space; ASCII-alpha-dehyphenate; lowercase; non-[a-z0-9]-run-to-space; strip-page
+COMBINATION=normalized pages joined by one LF; no terminal LF; UTF-8
+NORMALIZED_TEXT_SHA256=44B089F87E65B2FC6A2D40DEA9D19B326A252E28CEA846E119A9381A5A0B1728
+
+INDEPENDENT STORED-RENDER RECOMPUTATION
+PYTHON_VERSION=3.12.13
+PDFPLUMBER_VERSION=0.11.9
+ARTIFACT_PATH=C:\Users\Scott\OneDrive\Desktop\Codex - GOV's PLC\.phase1-verification\docx-visual\phase1-directive-render.pdf
+ARTIFACT_BYTES=594593
+ARTIFACT_SHA256=35DD6EB0A4CD87487B4597CDDD1285D7F47101DD2EE39DC2746BCD99A8589B79
+PAGE_COUNT=40
+NORMALIZER=soft-hyphen-remove; newline-to-space; ASCII-alpha-dehyphenate; lowercase; non-[a-z0-9]-run-to-space; strip-page
+COMBINATION=normalized pages joined by one LF; no terminal LF; UTF-8
+NORMALIZED_TEXT_SHA256=44B089F87E65B2FC6A2D40DEA9D19B326A252E28CEA846E119A9381A5A0B1728
+
+PAGE-BY-PAGE COMPARISON
+PAGE_COUNTS=40,40
+PAGE_MATCHES=40/40

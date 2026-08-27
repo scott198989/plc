@@ -1,0 +1,551 @@
+{
+  "schemaVersion": 1,
+  "baselineId": "phase1-remediation-validation-v1",
+  "hashAlgorithm": "SHA-256",
+  "manifestPath": "tests/phase1/trusted-baseline.json",
+  "scope": "exact-project-file-set",
+  "excludedRoots": [
+    ".git",
+    ".idea",
+    ".phase1-verification",
+    ".pnpm-store",
+    ".vscode",
+    "__pycache__",
+    "coverage",
+    "dist",
+    "node_modules",
+    "playwright-report",
+    "target",
+    "test-results"
+  ],
+  "excludedPaths": [
+    "apps/foundation-shell/src/generated"
+  ],
+  "files": [
+    {
+      "path": ".editorconfig",
+      "bytes": 213,
+      "sha256": "8E608DB783A129601CE441D08BDDE9A05DFF1811F9E5C011681C9A2EEF9E70A5"
+    },
+    {
+      "path": ".gitattributes",
+      "bytes": 689,
+      "sha256": "EB2CF6A1748E48FA34FB18F42F115F82762EAD31E52DA85A784FD3A8B66E5E85"
+    },
+    {
+      "path": ".github/workflows/phase1-governance.yml",
+      "bytes": 1940,
+      "sha256": "4BD962684AE7B673A1C6235A0E6BD9AFC62CF096EA4E888446B84C5A8D4E14EB"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 600,
+      "sha256": "67B7DD205CDFE8400B31E13DE493860A2FFFD94B3D7B6149C1C6B1B5F253DBD0"
+    },
+    {
+      "path": ".python-version",
+      "bytes": 8,
+      "sha256": "40411DC2C2726B4C7024D38318DD8DF45C528B49491EFB45939DD4A829847D94"
+    },
+    {
+      "path": "ADR/0001-no-physical-industrial-communication.md",
+      "bytes": 9656,
+      "sha256": "78A052EC3776CB8049DC1566F105C473F95FCC55C35DD2F93D0838F8D9ACA34B"
+    },
+    {
+      "path": "ADR/0002-original-project-format.md",
+      "bytes": 11458,
+      "sha256": "098247216F077BC4B6A42A16FAA212643625654E87B11EB5C8591E941C966E4D"
+    },
+    {
+      "path": "ADR/0003-unified-plc-ir.md",
+      "bytes": 11972,
+      "sha256": "7AA4628D3E83DB346E77548A720C06F80E7CDF5AE2D2397EA5861B51FAA2AD70"
+    },
+    {
+      "path": "ADR/0004-deterministic-virtual-time.md",
+      "bytes": 11853,
+      "sha256": "6ECD2475A92D113BCAECA128BE7F70550596E7C3DEEDF5F63051E2CE2075BB60"
+    },
+    {
+      "path": "ASSET_PROVENANCE.json",
+      "bytes": 3326,
+      "sha256": "8CF7F7330254FC413A284CE250B18CEEF0DAFC2ACD24372FC5652827C8DD09C2"
+    },
+    {
+      "path": "CHANGELOG_DIRECTIVE.md",
+      "bytes": 12703,
+      "sha256": "E19B520112ECD34D6479825A31EF531BD0E496A34E72C320305C376B9180090D"
+    },
+    {
+      "path": "CLEAN_ROOM_POLICY.md",
+      "bytes": 14742,
+      "sha256": "99A6A31A502F1806329AEC356E77ADC6DC9B98D11A787B55B9E908D00C4C3A8A"
+    },
+    {
+      "path": "CONTRIBUTOR_CLEAN_ROOM_ATTESTATION.md",
+      "bytes": 8842,
+      "sha256": "20B2CCDFC392FDFAE03E3466CDAEC7777BBDD5FEDF5905BF3599995CDECD505B"
+    },
+    {
+      "path": "Cargo.lock",
+      "bytes": 159,
+      "sha256": "7EC23066C34EC7B91D6C8F198F93EAFF85E97156735C632BC98F4565B5514BF1"
+    },
+    {
+      "path": "Cargo.toml",
+      "bytes": 242,
+      "sha256": "8FDEFC9A8388E25D253A2329D69AED5A1F2522DDADD2FD7083263E1F59733A31"
+    },
+    {
+      "path": "DEPENDENCY_POLICY.md",
+      "bytes": 22516,
+      "sha256": "54B008CFE211B78E31326434D6059D93CC8260558169D5865F478F3AE2A5D5BE"
+    },
+    {
+      "path": "EVIDENCE_REGISTER.json",
+      "bytes": 30763,
+      "sha256": "F033930F75A9259BB710E7A909E937A3AAF05152A06E7D2A21CACA7F93503938"
+    },
+    {
+      "path": "IMPLEMENTATION_MATRIX.json",
+      "bytes": 320505,
+      "sha256": "5BA920774739AF4B006657F6855D05C183F3D9DE0A08267C6D177CB08E191514"
+    },
+    {
+      "path": "LEGAL_REVIEW_CHECKLIST.md",
+      "bytes": 12666,
+      "sha256": "0F6BEF7EF42A5286DE3B5CF06D98B5D0899D625DB4E29F14B2DEC6CF04F93B8A"
+    },
+    {
+      "path": "OPEN_DECISIONS.md",
+      "bytes": 12987,
+      "sha256": "D4FE378FE8C6C4DFD7E8705AD7350714162E435DA51ECCBF34D680C2D579C993"
+    },
+    {
+      "path": "README.md",
+      "bytes": 4932,
+      "sha256": "F34C73BB8B88DD069BB3A55A237367FC77173E4235BD167E8AD1D12BD508262A"
+    },
+    {
+      "path": "REQUIREMENTS.md",
+      "bytes": 7199,
+      "sha256": "C81B3426E6814F02DA33E43F628FF820B21CE835CAFB441AEEF986A918D0D41A"
+    },
+    {
+      "path": "RISK_REGISTER.md",
+      "bytes": 3955,
+      "sha256": "944881F0F0905A6D24D0FD8A0BAB583232D4DCDC3C14D3E1AE8F794E978CE5BA"
+    },
+    {
+      "path": "References for Codex from Scott/CODEX AUDIT AFTER RED TEAM.docx",
+      "bytes": 20421,
+      "sha256": "4D85D71CEB36AC0E4892CBF91FCDB4B6CE8FFC27E80DA20D754EE8008ABEB87F"
+    },
+    {
+      "path": "References for Codex from Scott/CODEX RED TEAM AUDIT PHASE 1.docx",
+      "bytes": 18163,
+      "sha256": "515BD6A844AF1A2E71C829BA567214F73CA4E455278157960A3A11F25B8DF5B3"
+    },
+    {
+      "path": "References for Codex from Scott/Govs PLC project Research Report.md",
+      "bytes": 127132,
+      "sha256": "F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55"
+    },
+    {
+      "path": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx",
+      "bytes": 81045,
+      "sha256": "EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612"
+    },
+    {
+      "path": "References for Codex from Scott/PLC Engineering Simulator - Phase 1 Corrective Addendum - Closure and Trusted Baseline.docx",
+      "bytes": 50231,
+      "sha256": "950C5112C34D0218FD1E59CF6C051ACCD01AB92674CD70C96C08A5F1DA2E5A1C"
+    },
+    {
+      "path": "SECURITY_INVARIANTS.md",
+      "bytes": 24599,
+      "sha256": "F095B0071ECA433FD102F824E8C3E671E8350578DF6C71011EDB29D3237865FA"
+    },
+    {
+      "path": "THREAT_MODEL.md",
+      "bytes": 23403,
+      "sha256": "A48C3F06E57CBF5F02CF228ED9094FD2E2301FCD2508A29A5A0E49A6D133B29B"
+    },
+    {
+      "path": "apps/foundation-shell/index.html",
+      "bytes": 444,
+      "sha256": "A1174A477AB557DBE284C815BAF260BEC5AFE163044C140F972A8E4D1FBFC840"
+    },
+    {
+      "path": "apps/foundation-shell/package.json",
+      "bytes": 605,
+      "sha256": "F8E9C8E4293325D75CBF6E4A3DB81F2F3EC381C74A0D92EC6A0A908DC39AA21C"
+    },
+    {
+      "path": "apps/foundation-shell/src/App.tsx",
+      "bytes": 4670,
+      "sha256": "E20B3DEBE58F51C91C41B2F8997D671FE9BC10C5FF1505B98B7465170EC69C86"
+    },
+    {
+      "path": "apps/foundation-shell/src/foundation-client.ts",
+      "bytes": 1486,
+      "sha256": "2BBD8AEDF1F27ADB6EA8B098E8BC634FEFFEBF51026DC2C057CFC20EA962C8CF"
+    },
+    {
+      "path": "apps/foundation-shell/src/foundation.worker.ts",
+      "bytes": 946,
+      "sha256": "9C1B9A8279C691B2502675CE08EA24B472C6D4F5A62E83320DD14EC681533F6F"
+    },
+    {
+      "path": "apps/foundation-shell/src/main.tsx",
+      "bytes": 301,
+      "sha256": "2BACECA3998D0D498283B67759BE1700A75199A806058970086A2B2AECC5DC47"
+    },
+    {
+      "path": "apps/foundation-shell/src/styles.css",
+      "bytes": 8066,
+      "sha256": "3E3962927BD8B292B562E12F8432BD092D32EA27733982F5AF80AD100172E6E7"
+    },
+    {
+      "path": "apps/foundation-shell/src/ui-model.ts",
+      "bytes": 991,
+      "sha256": "CE87874EAEB97D5D1E97E603A21B48A4AB1E955A7E1BC52A647EAD9DBC01FB98"
+    },
+    {
+      "path": "apps/foundation-shell/src/vite-env.d.ts",
+      "bytes": 170,
+      "sha256": "FF76DC9ACCA2A37D022D464A368E5CBE8BE973284E47526D705CAB353A1DCCB7"
+    },
+    {
+      "path": "apps/foundation-shell/src/worker-handler.ts",
+      "bytes": 4778,
+      "sha256": "91363D6412707C2A247E97B08B12AD39B139D253CBC42BB8C9BFD0258DF55B31"
+    },
+    {
+      "path": "apps/foundation-shell/test/ui-model.test.ts",
+      "bytes": 1584,
+      "sha256": "831D07037AE80982410AF604DF0110077024769CAA2E6CC9F679EB93B932B2F6"
+    },
+    {
+      "path": "apps/foundation-shell/tsconfig.app.json",
+      "bytes": 327,
+      "sha256": "39EDDF043303D758C0E511B5F5F1229BD50119CE702A67696663C6384D2C9022"
+    },
+    {
+      "path": "apps/foundation-shell/tsconfig.base.json",
+      "bytes": 436,
+      "sha256": "C550B20C1E11734A6ADAA5C85940C960903F1C3F20452364EFD0BFED26F6A818"
+    },
+    {
+      "path": "apps/foundation-shell/tsconfig.test.json",
+      "bytes": 173,
+      "sha256": "94D33165907B5D9B59B5968CB38617D84106E4D6AB225551107D0C6231F62310"
+    },
+    {
+      "path": "apps/foundation-shell/tsconfig.worker.json",
+      "bytes": 223,
+      "sha256": "6A69A00535A36BD735E62C02738DDCD71A55528B5E95CAF32141F78F889B7ED9"
+    },
+    {
+      "path": "apps/foundation-shell/vite.config.ts",
+      "bytes": 554,
+      "sha256": "9959D6EA3BFAE6F8C7B88CAF1C9ACA8C5090ADF96C7CB28F9AC5448901D6C8CD"
+    },
+    {
+      "path": "crates/foundation-wasm/Cargo.toml",
+      "bytes": 306,
+      "sha256": "CE0B534DAF411FDF78EBB65D812608C56FDA17ACA1021F2282402446C9AC979D"
+    },
+    {
+      "path": "crates/foundation-wasm/src/lib.rs",
+      "bytes": 1644,
+      "sha256": "5EB6C6ADAD4F19A8CEC3F7F2539981C9FC7CBD4AEE2A08EBFAA970D0549A876D"
+    },
+    {
+      "path": "design-qa.md",
+      "bytes": 6979,
+      "sha256": "378D50CA36AF4E4F2E96949CC4CA92A89549BDC60D65FA37A4AFBFD56895B1BE"
+    },
+    {
+      "path": "docs/governance/DOCX_VISUAL_QA.md",
+      "bytes": 4720,
+      "sha256": "5A2DD5710B1EB25D3BCD52F24880866C1171AC28A107BD0D2818C9A66E79DB1D"
+    },
+    {
+      "path": "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md",
+      "bytes": 389474,
+      "sha256": "9F84663D688390DCA88C70BBF9F292DD34C9DA30476B662E3F2A07BA691DF2E7"
+    },
+    {
+      "path": "docs/governance/PHASE_1_CLOSURE_REPORT.md",
+      "bytes": 4256,
+      "sha256": "E66A2BF3AC3B77F41DD5F0F7FE2739CB08A31C078B18FB9C53E2112CDD93A39C"
+    },
+    {
+      "path": "docs/governance/PHASE_1_FINAL_READ_ONLY_REVIEW.md",
+      "bytes": 822,
+      "sha256": "3342C64D58495AC53FE721F84A68533099D742337B6ED9C3D65F08EBC70564A4"
+    },
+    {
+      "path": "docs/governance/PHASE_1_SCOPE_AUDIT.md",
+      "bytes": 8342,
+      "sha256": "46D1854B88103FE7E9B8D8628F99D9F80AA867B569AD7D95EA06CFB178F91F9D"
+    },
+    {
+      "path": "docs/governance/PHASE_1_VERIFICATION_PLAN.md",
+      "bytes": 12160,
+      "sha256": "2661AF35E4149E1A5103EDAA9D3404FB6837C9C42A12D0CE17ACEFFAB4973230"
+    },
+    {
+      "path": "docs/governance/TOOLCHAIN_ADMISSION_REGISTER.md",
+      "bytes": 32981,
+      "sha256": "5C3B5A7727690337CB34F41575F7112579DF94D69E2F2C45A5592AE9F9B9B045"
+    },
+    {
+      "path": "docs/research/UNRESOLVED_SOURCE_TOKENS.md",
+      "bytes": 5860,
+      "sha256": "34DDCD05030D844DF727FAE50CC2BD0CE0EACCFA9D6DAA1FEE50DCA99C6321B2"
+    },
+    {
+      "path": "evidence/phase1-closure/canonical-source-hashes.txt",
+      "bytes": 2100,
+      "sha256": "23FA77819E7D1F0DD35C473D61553AA3A09CC3C71557CE313727DFEB5CE325CF"
+    },
+    {
+      "path": "evidence/phase1-closure/closure-evidence.json",
+      "bytes": 2415,
+      "sha256": "37B8BEF335E338E931DA9B0CFB145741AAB4302C5632FC274BC1E5281DAE7885"
+    },
+    {
+      "path": "evidence/phase1-closure/defect-register.json",
+      "bytes": 10645,
+      "sha256": "BA3EABF3103FF7C9203C99DE9C4515CCCE7EA80A77562CD383D307C47DE6BEBF"
+    },
+    {
+      "path": "evidence/phase1-closure/hash-recomputation/README.md",
+      "bytes": 1675,
+      "sha256": "4D71A0D145DD01338B77322E2DEA5C54B99DD8CD7AF23C109C4FB313A2D9B8B4"
+    },
+    {
+      "path": "evidence/phase1-closure/hash-recomputation/recompute_render_text_digest.py",
+      "bytes": 2707,
+      "sha256": "CC6C637D0D256E5EF41F0CE7F4B3F04CEF673A5D97BF1C86CAB364B9D2D1C7AA"
+    },
+    {
+      "path": "evidence/phase1-closure/hash-recomputation/render-text-digest-raw-output.txt",
+      "bytes": 1582,
+      "sha256": "652582D49BD81D349581880BC534EE9C514E1941805D6A126D876711C8A93F5C"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/STARTING_STATE.md",
+      "bytes": 11439,
+      "sha256": "944F8EFE437232C882D4E2570B834D2271985550E43D0A1F8FAFA2B9667594A4"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/README.md",
+      "bytes": 759,
+      "sha256": "DA197B01B34C7384612B10E99A63A367407DE4B978FBFE882971459F21EC0E81"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/directive-render.pdf",
+      "bytes": 594566,
+      "sha256": "842EC99ACC6AE9901D89DB027F95628DEB2AB817B781BA9C6E6DFBF8BA17EDBC"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/extract_word_pages.ps1",
+      "bytes": 2243,
+      "sha256": "DC380F0373D5371884BC8BD22B40490FDF86DDAB6EBE0AB1ECB18EDEDEF38D00"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/mutation-results.json",
+      "bytes": 176168,
+      "sha256": "8788C9B78B01ACE1B1B24B3F8D5A85ADE3B91C8294DCE2EE9D3500B0021F4469"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/run_mutations.ps1",
+      "bytes": 8914,
+      "sha256": "DB21221AAE51D04F6D9493F13B00B46E57EB71C0D2A446E7559288852F16373D"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/task1_task3.md",
+      "bytes": 103243,
+      "sha256": "E8FDBCC63C7C025889A031495BA7A772BA772C04E71705C828DD09070B79BEC5"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/task2_audit_helper.py",
+      "bytes": 24109,
+      "sha256": "FE8DB308C31FE3A6BE85D5AAF7A4350E2114F1D2C6ED0113F4BA9331F277527E"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/task2_recall.md",
+      "bytes": 176430,
+      "sha256": "D325435BC0D8AC792E7868EDF2EF4452ECF2133BB9368F3F3A3E1BB60C2545EE"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/task5_task8.md",
+      "bytes": 55102,
+      "sha256": "4F8DBCC0A1D083AD0B277BDED2077EBEAA7BF332790AB27E5FB6749783D06C66"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/task7_scope_inventory.md",
+      "bytes": 33188,
+      "sha256": "88F147BC885A731DE4DFC4F22AADC3FBEF73C08681CC6A1569CC94B534C2BA00"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/adversarial-scratch/word-pages.json",
+      "bytes": 79775,
+      "sha256": "84E4030EB085A8A0B74DF96F745D1020D26EA2CDBFF62D0FD6A54E3D39EFE593"
+    },
+    {
+      "path": "evidence/phase1-closure/pre-remediation/file-inventory.tsv",
+      "bytes": 10790,
+      "sha256": "BB951DC0473560F26D864E5BA60D1C2E78F82D9FF7C387E791C989BA546BAFDB"
+    },
+    {
+      "path": "package.json",
+      "bytes": 2337,
+      "sha256": "12DE9C24BEBE18BC3BA2DC51396C4902140703DE7519D8E0956E4DA92ED76817"
+    },
+    {
+      "path": "packages/foundation-contract/package.json",
+      "bytes": 341,
+      "sha256": "3500490C19F19C589E2CD6D8FA072D6FDC743444EAE7328AB09EF2039E385291"
+    },
+    {
+      "path": "packages/foundation-contract/src/index.ts",
+      "bytes": 7990,
+      "sha256": "DB03E3D6679C62DC01CA8DC0B23D71F26B3DB837F32573237C9E442E4412D929"
+    },
+    {
+      "path": "packages/foundation-contract/test/contract.test.ts",
+      "bytes": 2853,
+      "sha256": "4E04F0A307785DEEA1BC0BAA0295CECCC0B295CC3E64C8D15C85121D9C3E7257"
+    },
+    {
+      "path": "packages/foundation-contract/tsconfig.json",
+      "bytes": 422,
+      "sha256": "B694D410434A8178BECEDF2579BDA48C28DD4F6EDD4D2973009B41F4E5326CF6"
+    },
+    {
+      "path": "pnpm-lock.yaml",
+      "bytes": 26201,
+      "sha256": "5BF093858EB517FA1D2BDE56FA8D01BEFF1E1E504A9A94802914BA1E9F5C34CC"
+    },
+    {
+      "path": "pnpm-workspace.yaml",
+      "bytes": 382,
+      "sha256": "C2FD5E66FB6D9E829ADC3E89B8D5F2B6544D203A5ECEB6409FA59A53A678FCD9"
+    },
+    {
+      "path": "requirements/phase1-reconciliation.json",
+      "bytes": 326565,
+      "sha256": "981884224267A4EAA39D10922EE1CD62E900B347E16C274FF5F4EC3DF816B861"
+    },
+    {
+      "path": "requirements/phase1-requirements.json",
+      "bytes": 1940725,
+      "sha256": "C06A9E2296FCF8E6FA3A8B72B1EBBDA39E4928B5DF2235AD5BC1D9AE0E61DE81"
+    },
+    {
+      "path": "rust-toolchain.toml",
+      "bytes": 123,
+      "sha256": "5A2801FC28A8702F89255F09762B747B274D49E98BE93E45E7FA9EE892A0C347"
+    },
+    {
+      "path": "tests/foundation/foundation-browser.e2e.mjs",
+      "bytes": 4105,
+      "sha256": "323AC450BE64D7AD07BA365CBED1B014458C4A382BEE0A7DDE01B6CF27D89328"
+    },
+    {
+      "path": "tests/phase1/policy-contract.json",
+      "bytes": 33230,
+      "sha256": "0190CB3D108AEEE776493073569C52F3F14AA9FD28E3A8D0F18E00FC6A61C90E"
+    },
+    {
+      "path": "tests/phase1/run_phase1_mutations.ps1",
+      "bytes": 19744,
+      "sha256": "DC0D0661A8DE59D01C9EC782FC1A3C54ED3889E28EAE05B47920164D0B039E8B"
+    },
+    {
+      "path": "tools/foundation/assert-toolchain.mjs",
+      "bytes": 2141,
+      "sha256": "50E7371F73EF9DE54DE18E50D4F5C8013440D79C9B4BE794CF1FED0B182DECA3"
+    },
+    {
+      "path": "tools/foundation/build-wasm.mjs",
+      "bytes": 594,
+      "sha256": "DF017F177A884AC73A38F0733133E7426F328ED046308C66E6BE0CD8ED9CA4C6"
+    },
+    {
+      "path": "tools/foundation/embed-wasm.mjs",
+      "bytes": 1864,
+      "sha256": "2A037C1055A83555AACEA931B6731B157967D6F991BE4CE21B9F9356C54B768E"
+    },
+    {
+      "path": "tools/foundation/inline-shell.mjs",
+      "bytes": 2747,
+      "sha256": "9F046A9BFE661073B90E1DEB8A68927965402846E28A556E492085CD1026D59D"
+    },
+    {
+      "path": "tools/foundation/launch-foundation.mjs",
+      "bytes": 634,
+      "sha256": "6FB4F9ED2E48A18331A2B240F18B127F72F4EBD19B48EE26176F363A18A7A373"
+    },
+    {
+      "path": "tools/foundation/lint-source-policy.mjs",
+      "bytes": 2693,
+      "sha256": "A79D9593B685892E030DFEB6ACFAF1B81FF737ADB0758E4B4448EBC9F9620804"
+    },
+    {
+      "path": "tools/foundation/paths.mjs",
+      "bytes": 512,
+      "sha256": "CCF9AB5C3AA45CF00D098298DAA05E42DE08A9B956ECD20D187E6B0038D7F07F"
+    },
+    {
+      "path": "tools/foundation/verify-isolation.mjs",
+      "bytes": 3740,
+      "sha256": "C75DB6505375C09C133586D1F0C925F5AA4ACF528D962419C276220B10222D3C"
+    },
+    {
+      "path": "tools/phase1/export_audit_docx.py",
+      "bytes": 14878,
+      "sha256": "99160851F3CAB547E922C2C456F9D1281C7A03BC381DAFB593E7127F2DA3C357"
+    },
+    {
+      "path": "tools/phase1/extract_directive_requirements.py",
+      "bytes": 96357,
+      "sha256": "2B56A06DE6ADFF8FDA20037C313C081C8D1DFD97239B505E83FF433C350E6FE2"
+    },
+    {
+      "path": "tools/phase1/generate_trusted_baseline.py",
+      "bytes": 4668,
+      "sha256": "E1176CE327A849B74830260317956C6A1168DF955D952EF23428456635ABC72E"
+    },
+    {
+      "path": "tools/phase1/integrate_reconciliation_audit.mjs",
+      "bytes": 6075,
+      "sha256": "8003AB615058BB784E888F9BA74748F134FE1CD962F93DE1BF14F90B69AC33CF"
+    },
+    {
+      "path": "tools/phase1/run_phase1_mutations.mjs",
+      "bytes": 4470,
+      "sha256": "19306257C220DB362465075FC8E6B8FB410291D875FA00E35B43DA0A94A16AF3"
+    },
+    {
+      "path": "tools/phase1/run_phase1_verification.py",
+      "bytes": 8081,
+      "sha256": "268DFF6D1820155BE9C66FDE65DA203D93BBDA9D4354EA455310517F7DB674C4"
+    },
+    {
+      "path": "tools/phase1/run_pinned_python.mjs",
+      "bytes": 2356,
+      "sha256": "DEE7A25AA56C8FA7504EF3AD871628D05334687CD8149D97F3D8DFA7B667C612"
+    },
+    {
+      "path": "tools/phase1/verify-phase1.mjs",
+      "bytes": 79291,
+      "sha256": "D2BEE653160C4733BD1FF35E0947DF449986DC81B88357BCE3158A53C4E6BDB5"
+    }
+  ]
+}

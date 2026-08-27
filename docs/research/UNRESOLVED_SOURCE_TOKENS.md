@@ -1,7 +1,7 @@
 # Unresolved Source Tokens
 
 Status: Phase 1 evidence-control inventory; underlying external sources are unresolved  
-Scanned file: `Govs PLC project Research Report.md`  
+Scanned file: `References for Codex from Scott/Govs PLC project Research Report.md`
 Verified SHA-256: `F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55`  
 Scan date: 2026-08-27  
 Governing requirements: PES-GOV-0003 through PES-GOV-0013; PES-CRM-0006 through PES-CRM-0017; PES-DOC-0004
@@ -163,4 +163,3 @@ turn9search6,3
 - Implementation evidence status: **BLOCKED where a requirement depends on one of these tokens as its sole external support**.
 
 The register may be amended only with verified source metadata and an evidence/change record. The original token and report location should remain in the audit trail after resolution.
-

@@ -1,64 +1,123 @@
 # PLC Engineering Simulator
 
-This repository is the Phase 1 foundation for a professional, brand-neutral,
-offline educational PLC engineering simulator. The governing product boundary
-is simple and permanent:
+This repository is the **Phase 1 closure candidate** for a professional,
+brand-neutral, offline educational PLC engineering simulator. It is awaiting
+Scott's acceptance. Phase 2 product implementation has not begun.
+
+The permanent product boundary is:
 
 > `VirtualUniverse` has no adapter to `PhysicalUniverse`.
 
-Phase 1 establishes the product constitution, clean-room rules, security wall,
-architecture decisions, evidence and provenance systems, decision/risk records,
-and policy verification. It does **not** implement PLC editors, compilation,
-runtime execution, HMI behavior, process simulation, lessons, packaging, public
-branding, or any physical communication capability.
+Phase 1 now contains two deliberately bounded layers:
+
+- A reconciled governance and verification foundation: source authority,
+  clean-room controls, safety invariants, requirements, traceability, risks,
+  decisions, a trusted Git-object manifest, an adversarial mutation gate, and
+  active local/CI configuration.
+- A minimal runnable technical foundation: a local React screen sends one typed
+  `foundation.health` command through the domain boundary and a Web Worker to a
+  real dependency-free Rust/WASM function, validates a structured
+  `DomainResult`, and renders the returned schema version, build identity, and
+  fixed `HEALTHY` state.
+
+It contains no PLC project model, hardware catalog, tag/type system, LAD/FBD/SCL
+editor, compiler, execution runtime, HMI, process simulation, lesson, scenario,
+assessment, industrial protocol, device adapter, physical communication path,
+packaging, or public branding.
 
 ## Controlling sources
 
-- `PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx`
-  is the supplied Phase 1 directive. Its living-document filename remains an
-  open decision; see `OPEN_DECISIONS.md`.
-- `Govs PLC project Research Report.md` is the frozen research baseline. Its
-  SHA-256 is
+Scott's canonical source and evidence documents are preserved under
+`References for Codex from Scott/`:
+
+- `Govs PLC project Research Report.md` — SHA-256
   `F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55`.
+- `PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx`
+  — SHA-256
+  `EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612`.
+- `PLC Engineering Simulator - Phase 1 Corrective Addendum - Closure and Trusted Baseline.docx`
+  — SHA-256
+  `950C5112C34D0218FD1E59CF6C051ACCD01AB92674CD70C96C08A5F1DA2E5A1C`.
 
-The directive outranks research evidence for product requirements. Neither file
-is a legal opinion, trademark clearance, patent clearance, or freedom-to-operate
-analysis.
+The Phase 1 directive outranks research evidence for product requirements. The
+corrective addendum authorizes only bounded Phase 1 closure work and the minimal
+technical foundation. None of these files is a legal opinion, trademark
+clearance, patent clearance, or freedom-to-operate analysis.
 
-## Phase 1 verification
+## Repository foundation
 
-The local verifier uses only the Node.js standard library and performs no
-network access. It deliberately fails unless `node --version` is exactly
-`v24.19.0`; the extractor and local launcher likewise require Python `3.13.12`.
-The launcher checks `PHASE1_NODE`, the current `PATH`, and the bundled Codex
-runtime location, then selects only an exact match:
+- `apps/foundation-shell/` — minimal accessible local UI and worker boundary.
+- `packages/foundation-contract/` — strict typed command and `DomainResult`
+  validation.
+- `crates/foundation-wasm/` — deterministic 247-byte zero-import WASM health
+  implementation.
+- `tools/foundation/` and `tests/foundation/` — toolchain, build, isolation,
+  unit, and real-browser verification.
+- `tools/phase1/` and `tests/phase1/` — deterministic extraction, trusted
+  baseline verification, and the 12-case mutation gate.
+
+All exact package versions are locked. Third-party packages remain explicitly
+`CANDIDATE_UNREVIEWED`; the corrective addendum permits their bounded candidate
+use and evaluation, not production release or legal/security approval.
+
+## Commands
+
+Required toolchain: Node `24.19.0`, pnpm `11.19.0`, Python `3.13.12`, and Rust
+`1.94.0` with `clippy`, `rustfmt`, and `wasm32-unknown-unknown`.
+
+Install the frozen dependency graph without lifecycle scripts:
 
 ```powershell
-pnpm verify:phase1
+pnpm install --frozen-lockfile --ignore-scripts
 ```
 
-The verifier first proves that the committed 247-record registry and matrix are
-the deterministic output of the current hash-bound extractor, then checks
-source hashes, required governance artifacts, ADR invariants,
-machine-readable registers, requirement-ID uniqueness, truth-state integrity,
-and the absence of forbidden feature/package scaffolding, then writes a report
-under `.phase1-verification/`. These checks evaluate the current Phase 1
-repository foundation only; they do not represent reviewer acceptance, product
-verification, or release-isolation proof.
+When an approved pnpm store is already materialized, the restore can be forced
+offline with `--offline` and the selected `--store-dir`.
 
-## Status
+Run the complete minimal-foundation gate:
 
-- Phase 1 governance foundation: in progress. Automated local checks pass only
-  for the current hash-bound snapshot. DOCX structure is current and a complete
-  rendered visual observation found no defect, but the rendering/inspection
-  toolchain is unapproved, so the visual-QA gate remains unmet. Document
-  identity, remote CI, tool admission, contributor attestation, and reviewer
-  acceptance remain unresolved or unverified.
-- Product implementation: not started.
-- Phases 2-4: not authorized by this phase.
-- Packaging and public branding: blocked by `OQ-0001` and `OQ-0002`.
-- Remote CI and report upload: blocked by `DEC-0002`; the checked-in workflow is
-  a disabled proposal, not evidence of a hosted run.
+```powershell
+pnpm gate:foundation
+```
 
-Only `VERIFIED` means complete. File count, package count, a successful build,
-or visible scaffolding never counts as implementation progress.
+Run the full committed closure gate, including exact requirement regeneration,
+foundation checks, trusted-baseline verification, and all twelve isolated
+mutations:
+
+```powershell
+pnpm gate:closure
+```
+
+Build and open the standalone local artifact without a development server:
+
+```powershell
+pnpm build:foundation
+pnpm launch:foundation
+```
+
+The artifact is the single ignored file `dist/index.html`. It uses no remote
+resource, page request, endpoint, device API, or WASM import.
+
+## Requirement truth
+
+The reconciled schema-v3 record distinguishes quantities that the original
+bootstrap conflated:
+
+- 247 source-parent IDs.
+- 484 issued IDs after preserving 20 compound parents and issuing 190 atomic
+  children.
+- 464 atomic records; 463 are completion-eligible.
+- 546 source statement units, all mapped, across 789 explicit relationships.
+- Zero `VERIFIED` requirements. Only `VERIFIED` can count as complete.
+
+## CI and acceptance boundary
+
+`.github/workflows/phase1-governance.yml` is an active, executable declaration
+for push, pull request, and manual dispatch. It runs the same
+`pnpm gate:closure` command and does not upload evidence. This local repository
+has no configured remote; no hosted run, publication, push, credential use, or
+artifact retention is claimed.
+
+The candidate is not accepted or released merely because its automated gate
+passes. Scott's review and acceptance remain required before the separate Phase
+2 master directive can authorize PLC product implementation.

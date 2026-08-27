@@ -9,10 +9,23 @@ import {
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const EXIT_POLICY_FAILURE = 1;
+const EXIT_TOOL_ERROR = 2;
+
+process.on("uncaughtException", (error) => {
+  console.error(`ERROR VER-RUN-0001 Internal verifier error: ${error.message}`);
+  process.exitCode = EXIT_TOOL_ERROR;
+});
+process.on("unhandledRejection", (error) => {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.error(`ERROR VER-RUN-0001 Internal verifier rejection: ${detail}`);
+  process.exitCode = EXIT_TOOL_ERROR;
+});
+
 const errors = [];
 const checks = [];
 const ignoredDirectories = new Set([
@@ -23,23 +36,13 @@ const ignoredDirectories = new Set([
   ".vscode",
   "__pycache__",
   "coverage",
+  "dist",
   "node_modules",
   "playwright-report",
   "target",
   "test-results",
 ]);
-
-function isIgnoredLocalFile(projectPath) {
-  const name = projectPath.split("/").at(-1);
-  return (
-    name === ".DS_Store" ||
-    name === "Thumbs.db" ||
-    name === "desktop.ini" ||
-    name.startsWith("~$") ||
-    (/^\.env(?:\..*)?$/.test(name) && name !== ".env.example") ||
-    /\.(?:local|log|py[co]|tmp)$/i.test(name)
-  );
-}
+const ignoredProjectPaths = new Set(["apps/foundation-shell/src/generated"]);
 
 function record(id, passed, detail) {
   checks.push({ id, passed, detail });
@@ -47,7 +50,9 @@ function record(id, passed, detail) {
 }
 
 function readText(path) {
-  return readFileSync(join(root, path), "utf8");
+  const absolute = join(root, path);
+  if (!existsSync(absolute) || !statSync(absolute).isFile()) return "";
+  return readFileSync(absolute, "utf8");
 }
 
 function readJson(path) {
@@ -60,7 +65,134 @@ function readJson(path) {
 }
 
 function fileSha256(path) {
-  return createHash("sha256").update(readFileSync(join(root, path))).digest("hex").toUpperCase();
+  const absolute = join(root, path);
+  if (!existsSync(absolute) || !statSync(absolute).isFile()) return null;
+  return createHash("sha256").update(readFileSync(absolute)).digest("hex").toUpperCase();
+}
+
+function sha256Bytes(bytes) {
+  return createHash("sha256").update(bytes).digest("hex").toUpperCase();
+}
+
+function normalizedProjectPath(path) {
+  return path.replaceAll("\\", "/");
+}
+
+function isSafeProjectPath(path) {
+  return (
+    typeof path === "string" &&
+    path.length > 0 &&
+    !isAbsolute(path) &&
+    normalizedProjectPath(path) === path &&
+    !path.split("/").includes("..") &&
+    !path.startsWith("./")
+  );
+}
+
+function argumentValue(name) {
+  const index = process.argv.indexOf(name);
+  if (index < 0 || index + 1 >= process.argv.length) return null;
+  return process.argv[index + 1];
+}
+
+function fatalBaseline(message) {
+  console.error(`ERROR VER-INT-0001 ${message}`);
+  process.exit(EXIT_TOOL_ERROR);
+}
+
+function fatalTool(message) {
+  console.error(`ERROR VER-RUN-0001 ${message}`);
+  process.exit(EXIT_TOOL_ERROR);
+}
+
+function loadTrustedBaseline() {
+  const manifestArgument = argumentValue("--baseline-manifest");
+  const expectedSha256 = argumentValue("--baseline-manifest-sha256");
+  const baselineCommit = argumentValue("--baseline-commit");
+  if (!manifestArgument || !expectedSha256 || !baselineCommit) {
+    fatalBaseline(
+      "Required arguments: --baseline-manifest, --baseline-manifest-sha256, and --baseline-commit",
+    );
+  }
+  if (!/^[0-9A-F]{64}$/i.test(expectedSha256)) {
+    fatalBaseline("Trusted baseline manifest SHA-256 must contain exactly 64 hexadecimal characters");
+  }
+  if (!/^[0-9A-F]{40}$/i.test(baselineCommit)) {
+    fatalBaseline("Trusted baseline commit must contain exactly 40 hexadecimal characters");
+  }
+
+  const absolute = resolve(manifestArgument);
+  const fromRoot = relative(root, absolute);
+  if (fromRoot === "" || (!fromRoot.startsWith("..") && !isAbsolute(fromRoot))) {
+    fatalBaseline("Trusted baseline manifest must be supplied from outside the subject repository");
+  }
+  if (!existsSync(absolute) || !statSync(absolute).isFile()) {
+    fatalBaseline(`Trusted baseline manifest is missing: ${absolute}`);
+  }
+  const bytes = readFileSync(absolute);
+  const actualSha256 = sha256Bytes(bytes);
+  if (actualSha256 !== expectedSha256.toUpperCase()) {
+    fatalBaseline(
+      `Trusted baseline manifest SHA-256 mismatch: expected ${expectedSha256.toUpperCase()}, got ${actualSha256}`,
+    );
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(bytes.toString("utf8"));
+  } catch (error) {
+    fatalBaseline(`Trusted baseline manifest is not valid JSON: ${error.message}`);
+  }
+  if (
+    !isObject(parsed) ||
+    parsed.schemaVersion !== 1 ||
+    typeof parsed.baselineId !== "string" ||
+    parsed.baselineId.length === 0 ||
+    parsed.hashAlgorithm !== "SHA-256" ||
+    parsed.manifestPath !== "tests/phase1/trusted-baseline.json" ||
+    parsed.scope !== "exact-project-file-set" ||
+    !Array.isArray(parsed.excludedRoots) ||
+    !Array.isArray(parsed.excludedPaths) ||
+    !Array.isArray(parsed.files)
+  ) {
+    fatalBaseline("Trusted baseline manifest has an unsupported or incomplete schema");
+  }
+
+  const expectedExcludedRoots = [...ignoredDirectories].sort();
+  if (JSON.stringify(parsed.excludedRoots) !== JSON.stringify(expectedExcludedRoots)) {
+    fatalBaseline("Trusted baseline manifest excludedRoots do not match the verifier's fixed exclusion policy");
+  }
+  const expectedExcludedPaths = [...ignoredProjectPaths].sort();
+  if (JSON.stringify(parsed.excludedPaths) !== JSON.stringify(expectedExcludedPaths)) {
+    fatalBaseline("Trusted baseline manifest excludedPaths do not match the verifier's fixed generated-path policy");
+  }
+
+  const files = new Map();
+  for (const entry of parsed.files) {
+    if (
+      !isObject(entry) ||
+      !isSafeProjectPath(entry.path) ||
+      entry.path === parsed.manifestPath ||
+      !Number.isSafeInteger(entry.bytes) ||
+      entry.bytes < 0 ||
+      !/^[0-9A-F]{64}$/.test(entry.sha256)
+    ) {
+      fatalBaseline("Trusted baseline manifest contains an invalid file entry");
+    }
+    if (files.has(entry.path)) fatalBaseline(`Trusted baseline manifest repeats ${entry.path}`);
+    files.set(entry.path, entry);
+  }
+  const sortedPaths = [...files.keys()].sort();
+  if (JSON.stringify([...files.keys()]) !== JSON.stringify(sortedPaths)) {
+    fatalBaseline("Trusted baseline manifest file entries are not sorted by project path");
+  }
+  return {
+    bytes,
+    manifest: parsed,
+    files,
+    sha256: actualSha256,
+    commit: baselineCommit.toLowerCase(),
+  };
 }
 
 function pageImageManifest(directory) {
@@ -89,6 +221,14 @@ function countStates(entries, field) {
   return Object.fromEntries(Object.entries(counts).sort(([left], [right]) => left.localeCompare(right)));
 }
 
+function countsMatchExpected(actual, expected) {
+  if (!isObject(expected)) return true;
+  return (
+    Object.entries(expected).every(([state, count]) => (actual[state] ?? 0) === count) &&
+    Object.entries(actual).every(([state, count]) => state in expected || count === 0)
+  );
+}
+
 function allFiles(start) {
   const absolute = join(root, start);
   if (!existsSync(absolute)) return [];
@@ -104,8 +244,14 @@ function allFiles(start) {
         result.push({ path: projectPath, symlink: true });
       } else if (status.isDirectory()) {
         const firstSegment = projectPath.split("/")[0];
-        if (!ignoredDirectories.has(firstSegment) && !ignoredDirectories.has(name)) stack.push(child);
-      } else if (!isIgnoredLocalFile(projectPath)) {
+        if (
+          !ignoredDirectories.has(firstSegment) &&
+          !ignoredDirectories.has(name) &&
+          !ignoredProjectPaths.has(projectPath)
+        ) {
+          stack.push(child);
+        }
+      } else {
         result.push({ path: projectPath, symlink: false });
       }
     }
@@ -122,18 +268,52 @@ function normalizedText(text) {
   return text.replaceAll("\r\n", "\n");
 }
 
+const trustedBaseline = loadTrustedBaseline();
 const contract = readJson("tests/phase1/policy-contract.json");
-if (!contract) process.exit(1);
+if (!contract) fatalTool("Policy contract is missing or invalid JSON");
+
+const subjectManifestPath = trustedBaseline.manifest.manifestPath;
+const subjectManifestAbsolute = join(root, subjectManifestPath);
+const subjectManifestPresent =
+  existsSync(subjectManifestAbsolute) && statSync(subjectManifestAbsolute).isFile();
+const subjectManifestMatches =
+  subjectManifestPresent && readFileSync(subjectManifestAbsolute).equals(trustedBaseline.bytes);
+record(
+  "VER-INT-0001",
+  subjectManifestMatches,
+  subjectManifestMatches
+    ? `Subject manifest exactly matches the Git-object baseline ${trustedBaseline.commit}`
+    : subjectManifestPresent
+      ? `Subject manifest differs from the externally supplied Git-object manifest for ${trustedBaseline.commit}`
+      : `Subject manifest is missing: ${subjectManifestPath}`,
+);
+record(
+  "VER-INT-0001",
+  contract.trustedBaseline?.manifestPath === subjectManifestPath &&
+    contract.trustedBaseline?.schemaVersion === trustedBaseline.manifest.schemaVersion &&
+    contract.trustedBaseline?.hashAlgorithm === trustedBaseline.manifest.hashAlgorithm &&
+    contract.trustedBaseline?.scope === trustedBaseline.manifest.scope &&
+    JSON.stringify(contract.trustedBaseline?.excludedRoots) ===
+      JSON.stringify(trustedBaseline.manifest.excludedRoots) &&
+    JSON.stringify(contract.trustedBaseline?.excludedPaths) ===
+      JSON.stringify(trustedBaseline.manifest.excludedPaths),
+  "Policy contract identifies the externally trusted manifest format without supplying expected artifact hashes",
+);
 record(
   "VER-CI-0001",
   process.version === `v${contract.expectedToolchain.node}`,
   `Verifier runtime is ${process.version}; required runtime is v${contract.expectedToolchain.node}`,
 );
 const extractorCheck = spawnSync(
-  process.platform === "win32" ? "python" : "python3",
+  process.env.PHASE1_PYTHON ?? (process.platform === "win32" ? "python" : "python3"),
   ["-B", "tools/phase1/extract_directive_requirements.py", "--check", "--root", "."],
-  { cwd: root, encoding: "utf8", shell: false },
+  { cwd: root, encoding: "utf8", shell: false, timeout: 120_000 },
 );
+if (extractorCheck.error || extractorCheck.status === null) {
+  fatalTool(
+    `Deterministic extractor could not execute: ${extractorCheck.error?.message ?? extractorCheck.signal ?? "no exit status"}`,
+  );
+}
 record(
   "VER-REQ-0001",
   extractorCheck.status === 0,
@@ -161,6 +341,38 @@ for (const path of contract.requiredFiles) {
   const absolute = join(root, path);
   const valid = existsSync(absolute) && statSync(absolute).isFile() && statSync(absolute).size > 0;
   record("VER-DOC-0001", valid, valid ? `${path} exists and is non-empty` : `${path} is absent or empty`);
+}
+
+const unresolvedPlaceholderPattern =
+  /\b(?:TBD|TODO|FIXME|REPLACE_ME|INSERT_HERE)\b|\[\s*(?:INSERT|TBD|TODO)[^\]]*\]|<(?:INSERT|TBD|TODO)[^>]*>|(?<!\$)\{\{\s*(?:INSERT|TBD|TODO|REPLACE)[^{}\r\n]*\}\}|\b(?:COMMIT|TAG|HASH)_PLACEHOLDER\b/gi;
+const placeholderViolations = [];
+for (const path of contract.placeholderFreeFiles ?? []) {
+  const text = readText(path);
+  const tokens = text.match(unresolvedPlaceholderPattern) ?? [];
+  if (tokens.length > 0) placeholderViolations.push(`${path}: ${[...new Set(tokens)].join(", ")}`);
+}
+record(
+  "VER-DOC-0001",
+  placeholderViolations.length === 0,
+  placeholderViolations.length === 0
+    ? `Final audit and closure report contain no unresolved placeholder tokens`
+    : `Unresolved placeholder token(s): ${placeholderViolations.join("; ")}`,
+);
+
+const requiredAdrPaths = [
+  "ADR/0001-no-physical-industrial-communication.md",
+  "ADR/0002-original-project-format.md",
+  "ADR/0003-unified-plc-ir.md",
+  "ADR/0004-deterministic-virtual-time.md",
+];
+for (const path of requiredAdrPaths) {
+  const absolute = join(root, path);
+  const valid = existsSync(absolute) && statSync(absolute).isFile() && statSync(absolute).size > 0;
+  record(
+    "VER-ADR-0001",
+    valid,
+    valid ? `Required ADR is present: ${path}` : `Missing required ADR: ${path}`,
+  );
 }
 
 const adr1Path = "ADR/0001-no-physical-industrial-communication.md";
@@ -317,17 +529,24 @@ record(
 
 const registry = readJson("requirements/phase1-requirements.json");
 const matrix = readJson("IMPLEMENTATION_MATRIX.json");
+const reconciliation = readJson("requirements/phase1-reconciliation.json");
 let requirementIds = new Set();
 let requirementsById = new Map();
-if (registry && matrix) {
+if (registry && matrix && reconciliation) {
   const requirements = Array.isArray(registry.requirements) ? registry.requirements : [];
   const ids = requirements.map((item) => item.id);
   requirementIds = new Set(ids);
   requirementsById = new Map(requirements.map((item) => [item.id, item]));
+  const snapshotPolicy = contract.requirementsSnapshot;
+  const expectedCounts = snapshotPolicy.counts;
+  const countsMatch = (actual, expected) =>
+    Object.keys(expected).every((key) => actual?.[key] === expected[key]) &&
+    Object.keys(actual ?? {}).every((key) => key in expected);
   record(
     "VER-REQ-0001",
-    registry.requirementCount === contract.expectedRequirementCount && requirements.length === contract.expectedRequirementCount,
-    `Requirement registry contains ${requirements.length}/${contract.expectedRequirementCount} records`,
+    registry.requirementCount === expectedCounts.issuedIdCount &&
+      requirements.length === expectedCounts.issuedIdCount,
+    `Requirement registry contains ${requirements.length}/${expectedCounts.issuedIdCount} issued records`,
   );
   record("VER-REQ-0001", requirementIds.size === ids.length, `Unique requirement IDs: ${requirementIds.size}/${ids.length}`);
   record(
@@ -364,6 +583,8 @@ if (registry && matrix) {
     "reviewer",
     "reviewStatus",
     "reviewDate",
+    "completionEligible",
+    "lifecycle",
   ];
   const missing = requirements.flatMap((item) => missingFields(item, fields).map((field) => `${item.id}.${field}`));
   record(
@@ -381,7 +602,9 @@ if (registry && matrix) {
         Number.isInteger(item.sourcePointer.bodyBlock) &&
         item.sourcePointer.bodyBlock > 0 &&
         Array.isArray(item.sourcePointer.headingPath) &&
-        item.sourcePointer.headingPath.length > 0,
+        item.sourcePointer.headingPath.length > 0 &&
+        Array.isArray(item.sourcePointer.sourceUnitIds) &&
+        item.sourcePointer.sourceUnitIds.length > 0,
     ),
     "Every requirement has a non-empty heading path and hash-bound directive pointer",
   );
@@ -406,11 +629,99 @@ if (registry && matrix) {
   const extractorHash = fileSha256("tools/phase1/extract_directive_requirements.py");
   record(
     "VER-REQ-0001",
-    registry.schemaVersion === 2 &&
-      matrix.schemaVersion === 2 &&
+    registry.schemaVersion === snapshotPolicy.schemaVersion &&
+      matrix.schemaVersion === snapshotPolicy.schemaVersion &&
+      reconciliation.schemaVersion === snapshotPolicy.schemaVersion &&
       registry.generatorSha256 === extractorHash &&
-      matrix.generatorSha256 === extractorHash,
-    "Both generated snapshots are schema v2 and are bound to the current extractor SHA-256",
+      matrix.generatorSha256 === extractorHash &&
+      reconciliation.generatedBy === "tools/phase1/extract_directive_requirements.py",
+    `Registry, matrix, and reconciliation are schema v${snapshotPolicy.schemaVersion} and bound to the current extractor`,
+  );
+  record(
+    "VER-REQ-0001",
+    countsMatch(registry.counts, expectedCounts) &&
+      countsMatch(matrix.counts, expectedCounts) &&
+      countsMatch(reconciliation.counts, expectedCounts),
+    `All schema-v${snapshotPolicy.schemaVersion} snapshots carry the independently admitted count contract ${JSON.stringify(expectedCounts)}`,
+  );
+
+  const sourceUnits = Array.isArray(reconciliation.sourceUnits) ? reconciliation.sourceUnits : [];
+  const sourceUnitIds = sourceUnits.map((item) => item.id);
+  const sourceUnitsById = new Map(sourceUnits.map((item) => [item.id, item]));
+  const supersededParents = requirements.filter(
+    (item) => item.atomicity === "SUPERSEDED_COMPOUND_PARENT",
+  );
+  const atomicRecords = requirements.filter(
+    (item) => item.atomicity !== "SUPERSEDED_COMPOUND_PARENT",
+  );
+  const completionEligibleAtomicRecords = atomicRecords.filter((item) => item.completionEligible === true);
+  const mappedSourceUnits = sourceUnits.filter((item) => item.disposition === "MAPPED");
+  const relationshipCount = sourceUnits.reduce(
+    (total, item) => total + (Array.isArray(item.requirementIds) ? item.requirementIds.length : 0),
+    0,
+  );
+  record(
+    "VER-REQ-0001",
+    supersededParents.length === expectedCounts.supersededCompoundParentCount &&
+      atomicRecords.length === expectedCounts.atomicRecordCount &&
+      completionEligibleAtomicRecords.length === expectedCounts.completionEligibleAtomicRecordCount &&
+      sourceUnits.length === expectedCounts.sourceStatementUnitCount &&
+      mappedSourceUnits.length === expectedCounts.mappedStatementUnitCount &&
+      sourceUnits.length - mappedSourceUnits.length === expectedCounts.unmappedStatementUnitCount &&
+      relationshipCount === expectedCounts.sourceUnitRelationshipCount,
+    `Derived reconciliation counts are ${requirements.length} issued, ${supersededParents.length} historical parents, ${atomicRecords.length} atomic, ${completionEligibleAtomicRecords.length} completion-eligible, ${mappedSourceUnits.length}/${sourceUnits.length} mapped, and ${relationshipCount} relationships`,
+  );
+  record(
+    "VER-REQ-0001",
+    new Set(sourceUnitIds).size === sourceUnitIds.length &&
+      sourceUnits.every(
+        (unit) =>
+          /^T2-\d{4}$/.test(unit.id) &&
+          unit.disposition === "MAPPED" &&
+          Array.isArray(unit.requirementIds) &&
+          unit.requirementIds.length > 0 &&
+          new Set(unit.requirementIds).size === unit.requirementIds.length &&
+          unit.requirementIds.every(
+            (id) =>
+              requirementIds.has(id) &&
+              requirementsById.get(id).sourcePointer.sourceUnitIds.includes(unit.id),
+          ) &&
+          Array.isArray(unit.historicalParentIds) &&
+          unit.historicalParentIds.every(
+            (id) => requirementIds.has(id) && requirementsById.get(id).atomicity === "SUPERSEDED_COMPOUND_PARENT",
+          ),
+      ) &&
+      requirements.every((item) =>
+        item.sourcePointer.sourceUnitIds.every(
+          (unitId) =>
+            sourceUnitsById.has(unitId) &&
+            (sourceUnitsById.get(unitId).requirementIds.includes(item.id) ||
+              sourceUnitsById.get(unitId).historicalParentIds.includes(item.id)),
+        ),
+      ),
+    "All 546 source units are uniquely identified, mapped to issued requirements, and reciprocal with requirement pointers",
+  );
+  record(
+    "VER-REQ-0002",
+    requirements.every((item) =>
+      ["BASELINE_ATOMIC", "ATOMIC_CHILD", "SUPERSEDED_COMPOUND_PARENT"].includes(item.atomicity),
+    ) &&
+      supersededParents.every(
+        (parent) =>
+          parent.completionEligible === false &&
+          parent.lifecycle?.status === "SUPERSEDED_PARENT" &&
+          Array.isArray(parent.lifecycle.childIds) &&
+          parent.lifecycle.childIds.length > 0 &&
+          JSON.stringify(parent.lifecycle.childIds) === JSON.stringify(parent.lifecycle.supersededBy) &&
+          parent.lifecycle.childIds.every((childId) => {
+            const child = requirementsById.get(childId);
+            return child?.atomicity === "ATOMIC_CHILD" && child.lifecycle?.parentId === parent.id;
+          }),
+      ) &&
+      atomicRecords
+        .filter((item) => item.completionEligible === false)
+        .every((item) => item.lifecycle?.status === "SUPERSEDED"),
+    "Historical compound parents and superseded atomic records are non-completion-bearing with explicit child lineage",
   );
   record(
     "VER-REQ-0002",
@@ -460,16 +771,6 @@ if (registry && matrix) {
   );
 
   const expectedFoundationMappings = contract.expectedFoundationMappings;
-  const expectedFoundationIds = Object.keys(expectedFoundationMappings).sort();
-  const curatedFoundationIds = requirements
-    .filter((item) => item.acceptanceMaturity === "CURATED_PHASE_1_CURRENT_SCOPE")
-    .map((item) => item.id)
-    .sort();
-  record(
-    "VER-REQ-0002",
-    JSON.stringify(curatedFoundationIds) === JSON.stringify(expectedFoundationIds),
-    "The curated Phase 1 acceptance set exactly matches the independent policy-contract allowlist",
-  );
   for (const [id, expected] of Object.entries(expectedFoundationMappings)) {
     const item = requirementsById.get(id);
     const criteriaAreCurated =
@@ -480,33 +781,18 @@ if (registry && matrix) {
       !item.positiveAcceptance.startsWith("Verification demonstrates");
     record(
       "VER-REQ-0002",
-      item?.truthState === "IMPLEMENTED_UNVERIFIED" &&
+      item?.truthState === (expected.truthState ?? "IMPLEMENTED_UNVERIFIED") &&
+        item?.completionEligible === (expected.completionEligible ?? true) &&
         JSON.stringify(item.verificationIds) === JSON.stringify(expected.verificationIds) &&
         JSON.stringify(item.implementationComponents) === JSON.stringify(expected.implementationComponents) &&
         item.implementationComponents.every((path) => existsSync(join(root, path))) &&
-        Array.isArray(item.dependencies) &&
-        item.dependencies.length === 0 &&
         Array.isArray(item.relatedRequirements) &&
         item.relatedRequirements.every((relatedId) => requirementIds.has(relatedId)) &&
-        item.dependencyMaturity.startsWith("CURATED_PHASE_1_RELATIONSHIPS") &&
         criteriaAreCurated &&
-        item.reviewer === "UNASSIGNED" &&
-        item.reviewStatus.includes("reviewer acceptance is not recorded"),
-      `${id} has exact check/component mappings and remains IMPLEMENTED_UNVERIFIED pending acceptance`,
+        item.truthState !== "VERIFIED",
+      `${id} has its exact admitted truth state, eligibility, check mapping, and foundation components without claiming VERIFIED`,
     );
   }
-  record(
-    "VER-REQ-0002",
-    requirements
-      .filter((item) => !expectedFoundationMappings[item.id])
-      .every(
-        (item) =>
-          Array.isArray(item.dependencies) &&
-          Array.isArray(item.relatedRequirements) &&
-          item.dependencyMaturity.startsWith("UNRESOLVED_BASELINE"),
-      ),
-    "Unreviewed later requirements label empty dependency fields as unresolved rather than no-dependency assertions",
-  );
 
   const entries = Array.isArray(matrix.entries) ? matrix.entries : [];
   const matrixIds = entries.map((item) => item.requirementId);
@@ -530,33 +816,59 @@ if (registry && matrix) {
         contract.validTruthStates.includes(entry.truthState) &&
         requirementsById.get(entry.requirementId)?.truthState === entry.truthState &&
         requirementsById.get(entry.requirementId)?.phase1Disposition === entry.phase1Disposition &&
+        requirementsById.get(entry.requirementId)?.completionEligible === entry.completionEligible &&
+        requirementsById.get(entry.requirementId)?.lifecycle?.status === entry.lifecycleStatus &&
+        requirementsById.get(entry.requirementId)?.lifecycle?.parentId === entry.parentId &&
         JSON.stringify(requirementsById.get(entry.requirementId)?.verificationIds) === JSON.stringify(entry.verificationIds) &&
         JSON.stringify(requirementsById.get(entry.requirementId)?.implementationComponents) ===
-          JSON.stringify(entry.implementationComponents),
+          JSON.stringify(entry.implementationComponents) &&
+        JSON.stringify(requirementsById.get(entry.requirementId)?.adrDecisionChangeLinks) ===
+          JSON.stringify(entry.decisionLinks),
     ),
     "Every matrix entry matches registry state, verification IDs, and implementation components",
   );
   const actualStateCounts = countStates(entries, "truthState");
-  record(
-    "VER-REQ-0002",
-    JSON.stringify(actualStateCounts) === JSON.stringify(matrix.stateCounts),
-    `Matrix state counts are exact: ${JSON.stringify(actualStateCounts)}`,
+  const actualCompletionEligibleStateCounts = countStates(
+    entries.filter((entry) => entry.completionEligible === true),
+    "truthState",
   );
   record(
     "VER-REQ-0002",
-    matrix.completionRule === "Only VERIFIED means complete. No completion percentage is calculated." &&
+    JSON.stringify(actualStateCounts) === JSON.stringify(matrix.stateCounts) &&
+      JSON.stringify(actualCompletionEligibleStateCounts) ===
+        JSON.stringify(matrix.completionEligibleStateCounts) &&
+      countsMatchExpected(actualStateCounts, snapshotPolicy.stateCounts) &&
+      countsMatchExpected(
+        actualCompletionEligibleStateCounts,
+        snapshotPolicy.completionEligibleStateCounts,
+      ),
+    `Matrix state counts are exact for ${entries.length} issued and ${entries.filter((entry) => entry.completionEligible).length} completion-eligible records: ${JSON.stringify(actualStateCounts)}`,
+  );
+  record(
+    "VER-REQ-0002",
+    includesEvery(matrix.completionRule ?? "", [
+      "only completion-eligible atomic records may be counted",
+      "only verified means complete",
+      "historical compound parents and superseded records are never completion-bearing",
+      "no completion percentage is calculated",
+    ]) &&
       !Object.keys(matrix).some((key) => /percent|percentage/i.test(key)),
-    "Matrix defines VERIFIED as the sole completion state and contains no completion percentage",
+    "Matrix limits completion to eligible atomic VERIFIED records, excludes superseded lineage, and contains no percentage",
   );
   const scaffolded = requirements.filter((item) => item.truthState === "SCAFFOLDED");
   record(
     "VER-QLT-0001",
-    scaffolded.length === 1 &&
-      scaffolded[0].id === "PES-DEV-0006" &&
-      scaffolded[0].owner === "Scott" &&
-      scaffolded[0].targetMilestone === "Phase 1 governance foundation" &&
-      scaffolded[0].phase1Disposition === "FOUNDATION_WORK_ONLY",
-    "Exactly one non-product workspace foundation is SCAFFOLDED with owner, target, and zero completion credit",
+    scaffolded.every(
+      (item) =>
+        typeof item.owner === "string" &&
+        item.owner.length > 0 &&
+        typeof item.targetMilestone === "string" &&
+        item.targetMilestone.length > 0 &&
+        item.phase1Disposition === "FOUNDATION_WORK_ONLY" &&
+        Array.isArray(item.implementationComponents) &&
+        item.implementationComponents.length > 0,
+    ),
+    `${scaffolded.length} SCAFFOLDED record(s) have an owner, target, foundation-only disposition, components, and zero completion credit`,
   );
 }
 
@@ -740,18 +1052,15 @@ const toolchainRegister = existsSync(join(root, "docs/governance/TOOLCHAIN_ADMIS
 record(
   "VER-CI-0001",
   includesEvery(toolchainRegister, [
-    "local bootstrap contained; remote ci blocked; all tools unapproved",
-    "blocked_dec_0002_and_admission",
+    "all tools unapproved",
+    "production reachability: prohibited",
     "tools/phase1/run_phase1_verification.py",
-    "node.js",
     contract.expectedToolchain.node,
-    "pnpm",
     contract.expectedToolchain.pnpm,
-    "python",
     contract.expectedToolchain.python,
-    "rust compiler",
     contract.expectedToolchain.rust,
     contract.expectedToolchain.runner,
+    ...contract.expectedToolchainNames,
     ...Object.values(contract.expectedActionPins),
   ]),
   "Toolchain admission register inventories every declared Phase 1 tool without claiming approval",
@@ -760,18 +1069,18 @@ const toolchainRecords = toolchainRegister
   .split(/^### TC-\d{4}[^\n]*$/m)
   .slice(1)
   .map((section) => section.split(/^## \d/m)[0]);
+const admittedToolchainReviewerRows = new Set([
+  "| Reviewer/decision/date | `UNASSIGNED` / `NOT_REVIEWED` / `null` |",
+  "| Reviewer/decision/date | `UNASSIGNED` / `CANDIDATE_UNREVIEWED` / `null` |",
+]);
 record(
   "VER-CI-0001",
   toolchainRecords.length === contract.expectedToolchainRecordCount &&
     toolchainRecords.every((section) => {
       const reviewerRows = section.match(/^\| Reviewer\/decision\/date \|.*$/gm) ?? [];
-      return (
-        reviewerRows.length === 1 &&
-        reviewerRows[0] === "| Reviewer/decision/date | `UNASSIGNED` / `NOT_REVIEWED` / `null` |" &&
-        !section.includes("APPROVED")
-      );
+      return reviewerRows.length === 1 && admittedToolchainReviewerRows.has(reviewerRows[0]);
     }),
-  `All ${contract.expectedToolchainRecordCount} toolchain records have exactly one unassigned/not-reviewed disposition and no approval claim`,
+  `All ${contract.expectedToolchainRecordCount} toolchain records have exactly one unassigned NOT_REVIEWED or CANDIDATE_UNREVIEWED disposition and no approval claim`,
 );
 
 const openDecisions = existsSync(join(root, "OPEN_DECISIONS.md")) ? readText("OPEN_DECISIONS.md") : "";
@@ -779,23 +1088,150 @@ const risks = existsSync(join(root, "RISK_REGISTER.md")) ? readText("RISK_REGIST
 for (const id of new Set([...contract.openQuestionIds, ...contract.blockedDecisionIds])) {
   record("VER-DEC-0001", openDecisions.includes(id), `${id} is recorded in OPEN_DECISIONS.md`);
 }
-record(
-  "VER-DEC-0001",
-  /DEC-0001[\s\S]{0,500}BLOCKED/i.test(openDecisions),
-  "DEC-0001 is explicitly BLOCKED rather than silently resolved",
-);
-record(
-  "VER-DEC-0001",
-  /DEC-0002[\s\S]{0,500}BLOCKED/i.test(openDecisions),
-  "DEC-0002 is explicitly BLOCKED rather than silently authorizing remote services",
-);
+for (const [id, expected] of Object.entries(contract.decisionDispositions ?? {})) {
+  const sectionPattern = new RegExp(`^### ${id}\\b[\\s\\S]*?(?=^### |(?![\\s\\S]))`, "im");
+  const section = openDecisions.match(sectionPattern)?.[0] ?? "";
+  const expectedStatus = String(expected.status ?? "").toUpperCase();
+  const statusMatches =
+    typeof expected.exactStatusLine === "string" && expected.exactStatusLine.length > 0
+      ? section.split(/\r?\n/).includes(expected.exactStatusLine)
+      : section.toUpperCase().includes(`**STATUS:** ${expectedStatus}`);
+  const changeRecordMatches =
+    typeof expected.changeRecordId !== "string" ||
+    (expected.changeRecordId.length > 0 && section.includes(expected.changeRecordId));
+  const blockedBoundaryMatches = (expected.requiredBlockedBoundaryPhrases ?? []).every((phrase) =>
+    section.includes(phrase),
+  );
+  record(
+    "VER-DEC-0001",
+    statusMatches && changeRecordMatches && blockedBoundaryMatches,
+    statusMatches && changeRecordMatches && blockedBoundaryMatches
+      ? `${id} has its exact admitted ${expectedStatus} disposition${expected.changeRecordId ? ` under ${expected.changeRecordId}` : ""} and preserves every blocked external-operation boundary`
+      : `${id} must have the exact ${expectedStatus} status${expected.changeRecordId ? `, link ${expected.changeRecordId}` : ""}, and preserve every declared blocked boundary`,
+  );
+}
 for (const id of contract.riskIds) {
   record("VER-DEC-0001", risks.includes(id), `${id} is recorded in RISK_REGISTER.md`);
 }
 
+const riskStatuses = new Map();
+for (const line of risks.split(/\r?\n/)) {
+  const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
+  if (cells.length !== 4) continue;
+  const id = cells[0].match(/RSK-\d{4}/)?.[0];
+  const status = cells[3].match(/\b(OPEN|CLOSED|ACCEPTED)\b/i)?.[1]?.toUpperCase();
+  if (id && status) riskStatuses.set(id, status);
+}
+const riskClosureEvidence = Array.isArray(evidence?.riskClosureEvidence)
+  ? evidence.riskClosureEvidence
+  : [];
+const closureFields = [
+  "riskId",
+  "disposition",
+  "evidenceRecordIds",
+  "verificationIds",
+  "decisionOrAdrIds",
+  "changeRecordId",
+  "reviewer",
+  "reviewDate",
+  "closureRationale",
+  "residualRisk",
+];
+record(
+  "VER-RSK-0001",
+  Array.isArray(evidence?.riskClosureEvidence) &&
+    JSON.stringify(evidence?.riskClosureEvidenceSchema?.requiredFields) ===
+      JSON.stringify(closureFields) &&
+    Array.isArray(evidence?.riskClosureEvidenceSchema?.rules) &&
+    evidence.riskClosureEvidenceSchema.rules.length >= 5,
+  "Evidence register defines the exact machine-readable risk-closure schema and fail-closed rules",
+);
+record(
+  "VER-RSK-0001",
+  riskClosureEvidence.every((closure) => contract.riskIds.includes(closure?.riskId)),
+  "Every risk-closure record targets a declared Phase 1 risk",
+);
+const evidenceRowsById = new Map(
+  (Array.isArray(evidence?.requirementEvidence) ? evidence.requirementEvidence : []).map((item) => [
+    item.evidenceRecordId,
+    item,
+  ]),
+);
+const pendingRiskClosureChecks = [];
+const knownDecisionOrAdrIds = new Set([
+  ...Object.keys(contract.decisionDispositions ?? {}),
+  ...contract.openQuestionIds,
+  "ADR-0001",
+  "ADR-0002",
+  "ADR-0003",
+  "ADR-0004",
+]);
+const changeLog = readText("CHANGELOG_DIRECTIVE.md");
+for (const id of contract.riskIds) {
+  const status = riskStatuses.get(id);
+  const closures = riskClosureEvidence.filter((item) => item?.riskId === id);
+  if (!status) {
+    record("VER-RSK-0001", false, `${id} has no parseable OPEN, CLOSED, or ACCEPTED status`);
+    continue;
+  }
+  if (status === "OPEN") {
+    record(
+      "VER-RSK-0001",
+      closures.length === 0,
+      closures.length === 0
+        ? `${id} remains OPEN and has no active closure claim`
+        : `${id} is OPEN but has ${closures.length} active closure-evidence record(s)`,
+    );
+    continue;
+  }
+
+  if (closures.length !== 1) {
+    record(
+      "VER-RSK-0001",
+      false,
+      `${id} is ${status} but has no approved closureEvidence record`,
+    );
+    continue;
+  }
+  const closure = closures[0];
+  const fieldsPresent =
+    missingFields(closure, closureFields).length === 0 &&
+    closureFields
+      .filter((field) => !["evidenceRecordIds", "verificationIds", "decisionOrAdrIds"].includes(field))
+      .every((field) => typeof closure[field] === "string" && closure[field].trim().length > 0) &&
+    ["evidenceRecordIds", "verificationIds", "decisionOrAdrIds"].every(
+      (field) => Array.isArray(closure[field]) && closure[field].length > 0,
+    ) &&
+    closure.disposition === status &&
+    /^\d{4}-\d{2}-\d{2}$/.test(closure.reviewDate) &&
+    ["evidenceRecordIds", "verificationIds", "decisionOrAdrIds"].every(
+      (field) => new Set(closure[field]).size === closure[field].length,
+    ) &&
+    closure.decisionOrAdrIds.every((referenceId) => knownDecisionOrAdrIds.has(referenceId)) &&
+    /^CR-\d{4}$/.test(closure.changeRecordId) &&
+    changeLog.includes(closure.changeRecordId);
+  const evidenceApproved =
+    fieldsPresent &&
+    closure.evidenceRecordIds.every((recordId) => {
+      const row = evidenceRowsById.get(recordId);
+      return (
+        row &&
+        row.reviewStatus === "APPROVED" &&
+        row.recordStatus === "VERIFIED" &&
+        typeof row.reviewer === "string" &&
+        row.reviewer.trim().length > 0 &&
+        /^\d{4}-\d{2}-\d{2}$/.test(row.reviewDate ?? "")
+      );
+    });
+  const verificationDeclared =
+    fieldsPresent &&
+    closure.verificationIds.every((verificationId) => contract.verificationIds.includes(verificationId));
+  pendingRiskClosureChecks.push(
+    { id, status, closure, fieldsPresent, evidenceApproved, verificationDeclared },
+  );
+}
+
 const reservedRoots = [
-  "apps",
-  "packages",
   "profiles",
   "scenarios",
   "assets/original",
@@ -819,13 +1255,13 @@ const scopeAudit = existsSync(join(root, "docs/governance/PHASE_1_SCOPE_AUDIT.md
 const directiveLog = existsSync(join(root, "CHANGELOG_DIRECTIVE.md")) ? readText("CHANGELOG_DIRECTIVE.md") : "";
 record(
   "VER-QLT-0001",
-  includesEvery(readme, ["product implementation: not started", "phases 2-4: not authorized", "only `verified` means complete"]) &&
+  includesEvery(readme, ["does **not** implement plc editors", "phases 2-4: not authorized", "only `verified` means complete"]) &&
     includesEvery(scopeAudit, ["phase 1 exit not passed", "no phase 2-4 product feature work", "does not mark phase 1 complete"]) &&
     includesEvery(directiveLog, ["phase 1 exit gate is not claimed as passed", "no phase 2-4 product feature work"]),
   "README, scope audit, and directive log reject Phase 1/product/master-directive completion claims",
 );
 
-for (const base of ["apps", "packages"]) {
+for (const base of ["apps", "packages", "crates"]) {
   const absolute = join(root, base);
   if (!existsSync(absolute)) continue;
   for (const name of readdirSync(absolute)) {
@@ -838,18 +1274,383 @@ for (const base of ["apps", "packages"]) {
 }
 
 const projectFiles = allFiles(".");
-const controlledInputPaths = new Set([
-  ...contract.sourceFiles.map((item) => item.path),
-  ...contract.requiredFiles,
-]);
+const projectFileMap = new Map(projectFiles.map((item) => [item.path, item]));
+const controlledInputPaths = new Set([...trustedBaseline.files.keys(), subjectManifestPath]);
+const expectedProjectPaths = [...controlledInputPaths].sort();
+const actualProjectPaths = projectFiles
+  .filter((item) => !item.symlink)
+  .map((item) => item.path)
+  .sort();
+const missingBaselinePaths = expectedProjectPaths.filter((path) => !projectFileMap.has(path));
+const extraBaselinePaths = actualProjectPaths.filter((path) => !controlledInputPaths.has(path));
+record(
+  "VER-INT-0002",
+  missingBaselinePaths.length === 0 && extraBaselinePaths.length === 0,
+  missingBaselinePaths.length === 0 && extraBaselinePaths.length === 0
+    ? `Project path set exactly matches ${expectedProjectPaths.length} trusted baseline paths`
+    : [
+        missingBaselinePaths.length > 0 ? `Missing baseline path(s): ${missingBaselinePaths.join(", ")}` : "",
+        extraBaselinePaths.length > 0 ? `Unexpected project path(s): ${extraBaselinePaths.join(", ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("; "),
+);
+
+const baselineByteMismatches = [];
+for (const [path, expected] of trustedBaseline.files) {
+  const absolute = join(root, path);
+  if (!existsSync(absolute) || !statSync(absolute).isFile()) continue;
+  const actualBytes = statSync(absolute).size;
+  const actualSha256 = fileSha256(path);
+  if (actualBytes !== expected.bytes) {
+    baselineByteMismatches.push(
+      `Byte-length mismatch: ${path} expected ${expected.bytes}, got ${actualBytes}`,
+    );
+  }
+  if (actualSha256 !== expected.sha256) {
+    baselineByteMismatches.push(
+      `SHA-256 mismatch: ${path} expected ${expected.sha256}, got ${actualSha256}`,
+    );
+  }
+}
+record(
+  "VER-INT-0002",
+  baselineByteMismatches.length === 0,
+  baselineByteMismatches.length === 0
+    ? `All ${trustedBaseline.files.size} externally baselined files match byte length and SHA-256`
+    : baselineByteMismatches.join("; "),
+);
+
+const contentPolicy = contract.scopedContentPolicy ?? {};
+const restrictedTextExtensions = new Set(
+  (contentPolicy.textExtensions ?? []).map((extension) => extension.toLowerCase()),
+);
+function isScopedTextPath(path, exactFiles, roots) {
+  if (exactFiles.includes(path)) return true;
+  const extension = path.includes(".") ? `.${path.split(".").at(-1).toLowerCase()}` : "";
+  return restrictedTextExtensions.has(extension) && roots.some((prefix) => path.startsWith(`${prefix}/`));
+}
+function isAllowedOccurrence(kind, path, literal) {
+  return (contentPolicy.allowlist ?? []).some(
+    (entry) =>
+      entry.kind === kind &&
+      entry.path === path &&
+      entry.literal === literal &&
+      typeof entry.authorizationId === "string" &&
+      entry.authorizationId.trim().length > 0,
+  );
+}
+const restrictedTextFiles = projectFiles.filter(
+  (item) =>
+    !item.symlink &&
+    isScopedTextPath(
+      item.path,
+      contentPolicy.restrictedTextFiles ?? [],
+      contentPolicy.restrictedTextRoots ?? [],
+    ),
+);
+const userFacingTextFiles = projectFiles.filter(
+  (item) =>
+    !item.symlink &&
+    isScopedTextPath(
+      item.path,
+      contentPolicy.userFacingTextFiles ?? [],
+      contentPolicy.userFacingTextRoots ?? [],
+    ),
+);
+
+const externalUrlViolations = [];
+const loopbackViolations = [];
+for (const file of restrictedTextFiles) {
+  const text = readText(file.path);
+  for (const match of text.matchAll(/\b(?:ftp|https?|wss?):\/\/[^\s"'<>]+/gi)) {
+    const literal = match[0].replace(/[),.;:]+$/, "");
+    if (!isAllowedOccurrence("EXTERNAL_URL", file.path, literal)) {
+      externalUrlViolations.push(`${file.path}: ${literal}`);
+    }
+  }
+  for (const match of text.matchAll(/\blocalhost(?::\d{1,5})?\b|\b127(?:\.\d{1,3}){3}(?::\d{1,5})?\b|\b0\.0\.0\.0(?::\d{1,5})?\b|\[::1\](?::\d{1,5})?/gi)) {
+    const literal = match[0];
+    if (!isAllowedOccurrence("LOOPBACK_ENDPOINT", file.path, literal)) {
+      loopbackViolations.push(`${file.path}: ${literal}`);
+    }
+  }
+}
+record(
+  "VER-OFF-0001",
+  externalUrlViolations.length === 0,
+  externalUrlViolations.length === 0
+    ? `No unauthorized external URL exists across ${restrictedTextFiles.length} restricted text files`
+    : `Unauthorized external URL in ${externalUrlViolations.join("; ")}`,
+);
+record(
+  "VER-OFF-0002",
+  loopbackViolations.length === 0,
+  loopbackViolations.length === 0
+    ? `No unauthorized loopback endpoint exists across ${restrictedTextFiles.length} restricted text files`
+    : `Unauthorized loopback endpoint in ${loopbackViolations.join("; ")}`,
+);
+
+const vendorPatterns = (contentPolicy.vendorMarks ?? []).map(
+  (literal) => new RegExp(`\\b${literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replaceAll(" ", "\\s+")}\\b`, "gi"),
+);
+const vendorViolations = [];
+for (const file of userFacingTextFiles) {
+  const text = readText(file.path);
+  const lines = text.split(/\r?\n/);
+  for (const line of lines) {
+    if (!vendorPatterns.some((pattern) => pattern.test(line))) continue;
+    for (const pattern of vendorPatterns) pattern.lastIndex = 0;
+    const literal = line.trim();
+    if (literal && !isAllowedOccurrence("VENDOR_TEXT", file.path, literal)) {
+      vendorViolations.push(`${file.path}: ${literal}`);
+    }
+  }
+}
+record(
+  "VER-BRN-0001",
+  vendorViolations.length === 0,
+  vendorViolations.length === 0
+    ? `No unauthorized vendor-facing text exists across ${userFacingTextFiles.length} user-facing files`
+    : `Unauthorized vendor-facing text in ${vendorViolations.join("; ")}`,
+);
+
+const approvedFoundationFiles = new Set(contract.phase1FoundationFileAllowlist ?? []);
+const productRootFiles = projectFiles.filter(
+  (item) =>
+    !item.symlink &&
+    ["apps/", "packages/", "crates/"].some((prefix) => item.path.startsWith(prefix)),
+);
+const unauthorizedProductFiles = productRootFiles
+  .map((item) => item.path)
+  .filter((path) => !approvedFoundationFiles.has(path));
+const productRootPathSet = new Set(productRootFiles.map((item) => item.path));
+const missingApprovedProductFiles = [...approvedFoundationFiles].filter(
+  (path) => !productRootPathSet.has(path),
+);
+record(
+  "VER-SCP-0001",
+  unauthorizedProductFiles.length === 0 && missingApprovedProductFiles.length === 0,
+  unauthorizedProductFiles.length === 0 && missingApprovedProductFiles.length === 0
+    ? `All ${productRootFiles.length} product-root files are explicitly authorized for the Phase 1 foundation`
+    : [
+        unauthorizedProductFiles.length > 0
+          ? `Unauthorized Phase 1 product-root file: ${unauthorizedProductFiles.join(", ")}`
+          : "",
+        missingApprovedProductFiles.length > 0
+          ? `Approved foundation file is missing: ${missingApprovedProductFiles.join(", ")}`
+          : "",
+      ]
+        .filter(Boolean)
+        .join("; "),
+);
+
+const foundationContract = contract.foundationContract;
+const foundationContractSource = readText(foundationContract.contractPath);
+const foundationAppSource = readText(foundationContract.appPath);
+const foundationClientSource = readText(foundationContract.clientPath);
+const foundationWorkerSource = readText(foundationContract.workerPath);
+const foundationHandlerSource = readText(foundationContract.workerHandlerPath);
+const foundationRustSource = readText(foundationContract.rustPath);
+const foundationBrowserTest = readText(foundationContract.browserTestPath);
+const foundationContractTest = readText(foundationContract.contractTestPath);
+record(
+  "VER-FND-0001",
+  includesEvery(foundationContractSource, [
+    `FOUNDATION_SCHEMA_VERSION = ${foundationContract.schemaVersion}`,
+    `FOUNDATION_COMMAND_KIND = "${foundationContract.commandKind}"`,
+    `FOUNDATION_RESULT_KIND = "${foundationContract.resultKind}"`,
+    `FOUNDATION_REQUEST_ID = "${foundationContract.requestId}"`,
+    `FOUNDATION_BUILD_IDENTITY = "${foundationContract.buildIdentity}"`,
+    `FOUNDATION_HEALTHY_STATE = "${foundationContract.healthState}"`,
+    foundationContract.stateHash,
+    "validateFoundationHealthCommand",
+    "validateFoundationHealthResult",
+    "requireExactKeys",
+    "record.beforeHash !== record.afterHash",
+  ]),
+  "Typed foundation contract fixes the only command, exact DomainResult envelope, deterministic state hash, and closed record shapes",
+);
+record(
+  "VER-FND-0001",
+  includesEvery(foundationAppSource, [
+    "verifyLocalFoundation",
+    "successValue?.schemaVersion",
+    "successValue?.buildIdentity",
+    "successValue?.healthState",
+    "No PLC features are active in this phase",
+  ]) &&
+    includesEvery(foundationClientSource, [
+      "new FoundationWorker",
+      "validateFoundationHealthResult",
+      `kind: "${foundationContract.commandKind}"`,
+      `requestId: "${foundationContract.requestId}"`,
+      `schemaVersion: ${foundationContract.schemaVersion}`,
+    ]) &&
+    includesEvery(foundationWorkerSource, ["executeFoundationCommand", "workerScope.postMessage(result)"]) &&
+    includesEvery(foundationHandlerSource, [
+      "validateFoundationHealthCommand",
+      "runRustHealthCheck",
+      "WebAssembly.Module.imports(module).length !== 0",
+      "validateFoundationHealthResult(result)",
+      "FOUNDATION_WASM_SHA256",
+    ]),
+  "UI sends the typed command through an isolated worker and real WASM handler, validates DomainResult, and renders returned values",
+);
+record(
+  "VER-FND-0001",
+  includesEvery(foundationRustSource, [
+    `"schemaVersion":${foundationContract.schemaVersion}`,
+    `"buildIdentity":"${foundationContract.buildIdentity}"`,
+    `"healthState":"${foundationContract.healthState}"`,
+    "foundation_health",
+    "foundation_health_len",
+    "health_payload_is_exact_and_deterministic",
+  ]) &&
+    includesEvery(foundationContractTest, [
+      "accepts the reconciled deterministic DomainResult envelope",
+      "rejects malformed or mutated DomainResult envelopes",
+      "rejects invalid or capability-shaped commands",
+    ]) &&
+    includesEvery(foundationBrowserTest, [
+      "offline: true",
+      "remoteRequests.length > 0",
+      "firstResult !== repeatedResult",
+      'getByText("HEALTHY", { exact: true })',
+    ]),
+  "Rust/WASM payload and unit/browser tests prove exact deterministic output, negative validation, repeated UI round trips, and offline execution",
+);
+const forbiddenFoundationCapability =
+  /\b(?:fetch|XMLHttpRequest|WebSocket|EventSource|WebTransport|RTCPeerConnection)\s*(?:\.|\()|navigator\.(?:serial|usb|bluetooth|hid|nfc|midi|mediaDevices|serviceWorker)\b|\b(?:TcpStream|UdpSocket|serialport|rusb)\b/;
+const foundationCapabilityViolations = productRootFiles
+  .filter((item) => /\.(?:js|jsx|mjs|rs|ts|tsx)$/i.test(item.path))
+  .filter((item) => forbiddenFoundationCapability.test(readText(item.path)))
+  .map((item) => item.path);
+record(
+  "VER-FND-0001",
+  foundationCapabilityViolations.length === 0,
+  foundationCapabilityViolations.length === 0
+    ? "Authorized foundation product sources contain no host-network, browser-network, discovery, or physical-device API"
+    : `Forbidden foundation capability API in ${foundationCapabilityViolations.join(", ")}`,
+);
+
+const authorizedCandidateNpmEntries = contract.authorizedCandidateDependencies?.npm ?? [];
+const authorizedCandidateCargoEntries = contract.authorizedCandidateDependencies?.cargo ?? [];
+const authorizedCandidateNpmDependencies = new Map(
+  authorizedCandidateNpmEntries.map((entry) => [
+    `${entry.manifestPath}|${entry.field}|${entry.name}|${entry.versionSpec}`,
+    entry,
+  ]),
+);
+const authorizedCandidateCargoDependencies = new Map(
+  authorizedCandidateCargoEntries.map((entry) => [
+    `${entry.manifestPath}|${entry.section}|${entry.name}|${entry.declaration}`,
+    entry,
+  ]),
+);
+const networkDependencyNames = new Set(
+  (contract.networkCapableDependencyNames ?? []).map((name) => name.toLowerCase()),
+);
+const unauthorizedDependencies = [];
+const invalidDependencyAdmissions = [
+  ...authorizedCandidateNpmEntries,
+  ...authorizedCandidateCargoEntries,
+].filter(
+  (entry) =>
+    typeof entry.authorizationId !== "string" ||
+    entry.authorizationId.trim().length === 0 ||
+    entry.admissionStatus !== "CANDIDATE_UNREVIEWED" ||
+    !["BUILD_TEST_ONLY", "FOUNDATION_RUNTIME"].includes(entry.phase1Use) ||
+    entry.networkRuntimeAllowed !== false ||
+    (networkDependencyNames.has(entry.name.toLowerCase()) && entry.phase1Use !== "BUILD_TEST_ONLY"),
+);
+const observedNpmDependencyKeys = new Set();
+const observedCargoDependencyKeys = new Set();
+for (const file of projectFiles.filter((item) => !item.symlink && item.path.endsWith("package.json"))) {
+  let manifest;
+  try {
+    manifest = JSON.parse(readText(file.path));
+  } catch {
+    continue;
+  }
+  for (const field of ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"]) {
+    for (const [name, versionSpec] of Object.entries(manifest[field] ?? {})) {
+      const key = `${file.path}|${field}|${name}|${versionSpec}`;
+      observedNpmDependencyKeys.add(key);
+      if (!authorizedCandidateNpmDependencies.has(key)) {
+        unauthorizedDependencies.push({ ecosystem: "npm", path: file.path, field, name, versionSpec });
+      }
+    }
+  }
+}
+for (const file of projectFiles.filter((item) => !item.symlink && item.path.endsWith("Cargo.toml"))) {
+  let section = "";
+  for (const rawLine of readText(file.path).split(/\r?\n/)) {
+    const line = rawLine.replace(/\s+#.*$/, "").trim();
+    const sectionMatch = line.match(/^\[([^\]]+)\]$/);
+    if (sectionMatch) {
+      section = sectionMatch[1];
+      continue;
+    }
+    if (!/(?:^|\.)dependencies$/.test(section)) continue;
+    const dependencyMatch = line.match(/^(?:"([^"]+)"|'([^']+)'|([A-Za-z0-9_.-]+))\s*=\s*(.+)$/);
+    if (!dependencyMatch) continue;
+    const name = dependencyMatch[1] ?? dependencyMatch[2] ?? dependencyMatch[3];
+    const declaration = dependencyMatch[4].trim();
+    const key = `${file.path}|${section}|${name}|${declaration}`;
+    observedCargoDependencyKeys.add(key);
+    if (!authorizedCandidateCargoDependencies.has(key)) {
+      unauthorizedDependencies.push({ ecosystem: "cargo", path: file.path, field: section, name, versionSpec: declaration });
+    }
+  }
+}
+const missingAuthorizedCandidates = [
+  ...[...authorizedCandidateNpmDependencies.keys()]
+    .filter((key) => !observedNpmDependencyKeys.has(key))
+    .map((key) => `Missing authorized npm candidate declaration: ${key}`),
+  ...[...authorizedCandidateCargoDependencies.keys()]
+    .filter((key) => !observedCargoDependencyKeys.has(key))
+    .map((key) => `Missing authorized Cargo candidate declaration: ${key}`),
+];
+const duplicateCandidateEntries =
+  authorizedCandidateNpmDependencies.size !== authorizedCandidateNpmEntries.length ||
+  authorizedCandidateCargoDependencies.size !== authorizedCandidateCargoEntries.length;
+const dependencyDetails = unauthorizedDependencies.map((item) => {
+  const capability = networkDependencyNames.has(item.name.toLowerCase())
+    ? "Unauthorized network-capable dependency"
+    : "Unauthorized dependency";
+  return `${capability}: ${item.path} ${item.field}.${item.name}@${item.versionSpec}`;
+});
+record(
+  "VER-DEP-0001",
+  unauthorizedDependencies.length === 0 &&
+    invalidDependencyAdmissions.length === 0 &&
+    missingAuthorizedCandidates.length === 0 &&
+    !duplicateCandidateEntries,
+  unauthorizedDependencies.length === 0 &&
+    invalidDependencyAdmissions.length === 0 &&
+    missingAuthorizedCandidates.length === 0 &&
+    !duplicateCandidateEntries
+    ? `All declared direct dependencies are present in the bounded Phase 1 candidate allowlist; every admission remains CANDIDATE_UNREVIEWED`
+    : [
+        ...dependencyDetails,
+        ...missingAuthorizedCandidates,
+        ...(duplicateCandidateEntries ? ["Candidate dependency allowlist contains duplicate exact declarations"] : []),
+        ...invalidDependencyAdmissions.map(
+          (entry) =>
+            `Invalid dependency admission metadata: ${entry.manifestPath} ${entry.name}`,
+        ),
+      ].join("; "),
+);
+
 const uncontrolledFiles = projectFiles.filter((item) => !item.symlink && !controlledInputPaths.has(item.path));
 const controlledProjectFiles = projectFiles.filter((item) => !item.symlink && controlledInputPaths.has(item.path));
 record(
   "VER-QLT-0001",
   uncontrolledFiles.length === 0,
   uncontrolledFiles.length === 0
-    ? "Every non-local project file is registered in the Phase 1 policy contract"
-    : `${uncontrolledFiles.length} unregistered project file(s) exist; inspect locally without publishing their paths or hashes`,
+    ? "Every non-local project file is registered in the externally trusted baseline"
+    : `${uncontrolledFiles.length} project file(s) are outside the externally trusted baseline`,
 );
 record(
   "VER-CI-0001",
@@ -882,34 +1683,21 @@ if (requirementIds.size > 0) {
 
 const packageJson = readJson("package.json");
 if (packageJson) {
-  const expectedPackageJson = {
-    name: "plc-engineering-simulator-governance",
-    version: "0.0.0-phase1",
-    private: true,
-    description: "Phase 1 governance and verification foundation for an offline educational PLC engineering simulator.",
-    type: "module",
-    packageManager: `pnpm@${contract.expectedToolchain.pnpm}`,
-    engines: {
-      node: contract.expectedToolchain.node,
-      pnpm: contract.expectedToolchain.pnpm,
-    },
-    scripts: {
-      test: "pnpm verify:phase1",
-      "verify:phase1": "python -B tools/phase1/run_phase1_verification.py",
-      "requirements:extract": "python -B tools/phase1/extract_directive_requirements.py --root .",
-      "requirements:check": "python -B tools/phase1/extract_directive_requirements.py --check --root .",
-    },
-  };
   const dependencyFields = ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies"];
   const dependencyCount = dependencyFields.reduce(
     (total, field) => total + Object.keys(packageJson[field] ?? {}).length,
     0,
   );
-  record("VER-CI-0001", dependencyCount === 0, `Root production/development dependency count is ${dependencyCount}`);
   record(
     "VER-CI-0001",
-    JSON.stringify(packageJson) === JSON.stringify(expectedPackageJson),
-    "Root package manifest exactly matches the dependency-free Phase 1 contract and has no lifecycle hooks",
+    packageJson.name === contract.rootPackageIdentity?.name &&
+      packageJson.private === true &&
+      packageJson.type === "module" &&
+      Object.entries(contract.requiredRootScripts ?? {}).every(
+        ([name, command]) => packageJson.scripts?.[name] === command,
+      ) &&
+      ["preinstall", "install", "postinstall"].every((name) => !(name in (packageJson.scripts ?? {}))),
+    `Root package preserves its private identity, required gate scripts, and has no install lifecycle hooks; declared dependency count is ${dependencyCount}`,
   );
   record(
     "VER-CI-0001",
@@ -926,11 +1714,23 @@ record(
   `Python extractor version is exactly ${contract.expectedToolchain.python}`,
 );
 const rustToolchain = readText("rust-toolchain.toml");
+const tomlStringArray = (values) => `[${values.map((value) => JSON.stringify(value)).join(", ")}]`;
+const expectedRustToolchain = [
+  "[toolchain]",
+  `channel = "${contract.expectedToolchain.rust}"`,
+  ...(contract.expectedToolchain.rustComponents?.length
+    ? [`components = ${tomlStringArray(contract.expectedToolchain.rustComponents)}`]
+    : []),
+  'profile = "minimal"',
+  ...(contract.expectedToolchain.rustTargets?.length
+    ? [`targets = ${tomlStringArray(contract.expectedToolchain.rustTargets)}`]
+    : []),
+  "",
+].join("\n");
 record(
   "VER-CI-0001",
-  normalizedText(rustToolchain) ===
-    `[toolchain]\nchannel = "${contract.expectedToolchain.rust}"\nprofile = "minimal"\n`,
-  `Rust toolchain is exactly ${contract.expectedToolchain.rust}, minimal, with no extra targets or components`,
+  normalizedText(rustToolchain) === expectedRustToolchain,
+  `Rust toolchain is exactly ${contract.expectedToolchain.rust} with the admitted components and targets`,
 );
 const gitAttributes = readText(".gitattributes");
 record(
@@ -940,7 +1740,7 @@ record(
     "*.md text eol=lf",
     "*.mjs text eol=lf",
     "*.py text eol=lf",
-    '"Govs PLC project Research Report.md" -text',
+    '"References for Codex from Scott/Govs PLC project Research Report.md" -text',
     "*.docx -text",
   ]),
   "Git attributes preserve byte-hashed source inputs and normalize generated text deterministically",
@@ -948,33 +1748,41 @@ record(
 const cargoManifest = readText("Cargo.toml");
 record(
   "VER-CI-0001",
-  normalizedText(cargoManifest) ===
-    `[workspace]\nmembers = []\nresolver = "3"\n\n[workspace.package]\nversion = "0.0.0"\nedition = "2024"\nrust-version = "${contract.expectedToolchain.rust}"\n`,
-  "Cargo manifest is the exact empty workspace and contains no dependencies, patches, profiles, or product crates",
+  /\[workspace\]/.test(cargoManifest) &&
+    /resolver\s*=\s*"3"/.test(cargoManifest) &&
+    new RegExp(`rust-version\\s*=\\s*"${contract.expectedToolchain.rust.replaceAll(".", "\\.")}"`).test(cargoManifest),
+  "Cargo workspace uses resolver 3 and the pinned minimum Rust version; exact files and dependency declarations are controlled separately",
 );
 record(
   "VER-CI-0001",
-  normalizedText(readText("Cargo.lock")) ===
-    "# This file is automatically @generated by Cargo.\n# It is not intended for manual editing.\nversion = 4\n",
-  "Cargo.lock is the exact empty version-4 lockfile",
+  /^version\s*=\s*4$/m.test(readText("Cargo.lock")),
+  "Cargo.lock uses lockfile version 4; exact lock bytes are controlled by the trusted baseline",
 );
 record(
   "VER-CI-0001",
-  normalizedText(readText("pnpm-workspace.yaml")) ===
-    'packages:\n  - "apps/*"\n  - "packages/*"\n\ncatalogMode: strict\ncleanupUnusedCatalogs: true\nlinkWorkspacePackages: false\npreferWorkspacePackages: false\n',
-  "pnpm workspace contains only reserved absent roots and no catalog, dependency, injection, or link surface",
+  includesEvery(readText("pnpm-workspace.yaml"), [
+    '"apps/*"',
+    '"packages/*"',
+    "catalogMode: strict",
+    "linkWorkspacePackages: false",
+    "preferWorkspacePackages: false",
+  ]),
+  "pnpm workspace is limited to approved app/package roots with strict catalog and disabled implicit workspace linking",
 );
 record(
   "VER-CI-0001",
-  normalizedText(readText("pnpm-lock.yaml")) ===
-    "lockfileVersion: '9.0'\n\nsettings:\n  autoInstallPeers: true\n  excludeLinksFromLockfile: false\n\nimporters:\n\n  .: {}\n",
-  "pnpm lockfile has exactly one empty root importer and no packages or snapshots",
+  /^lockfileVersion:\s*['"]?9\.0['"]?$/m.test(readText("pnpm-lock.yaml")) &&
+    /^importers:\s*$/m.test(readText("pnpm-lock.yaml")),
+  "pnpm lockfile uses format 9 with explicit importers; exact lock bytes are controlled by the trusted baseline",
 );
 
-const workflowPath = ".github/workflows/phase1-governance.yml";
+const workflowPath = contract.ciWorkflow.path;
 if (existsSync(join(root, workflowPath))) {
   const workflow = readText(workflowPath);
   const actionUses = [...workflow.matchAll(/uses:\s*([^@\s]+)@([^\s]+)/g)];
+  const runCommands = [...workflow.matchAll(/^\s+run:\s*([^|>].*)$/gm)].map((match) =>
+    match[1].trim(),
+  );
   const jobsSection = workflow.split(/^jobs:\s*$/m)[1] ?? "";
   const jobDeclarationLines = jobsSection
     .split(/\r?\n/)
@@ -995,21 +1803,42 @@ if (existsSync(join(root, workflowPath))) {
       "persist-credentials: false",
       "contents: read",
       "ImageVersion",
-      "extract_directive_requirements.py --check --root .",
-      "node --check tools/phase1/verify-phase1.mjs",
-      ".phase1-verification/phase1-report.json",
-    ]) && !workflow.includes("windows-latest"),
-    "Proposed disabled workflow declares fixed runtimes, snapshot/syntax checks, credential/cache limits, and report retention",
+      ...contract.ciWorkflow.requiredCommands,
+    ]) &&
+      contract.ciWorkflow.requiredCommands.length === 1 &&
+      runCommands.filter((command) => command === contract.ciWorkflow.requiredCommands[0]).length === 1 &&
+      !workflow.includes("windows-latest") &&
+      !workflow.includes("actions/upload-artifact") &&
+      !/^\s*run:\s*(?:git\s+push|gh\s+|curl\s+|Invoke-WebRequest\b)/gim.test(workflow) &&
+      !/\$\{\{\s*false\s*\}\}|\bif:\s*false\b/i.test(workflow),
+    "Active workflow declares fixed runtimes, exactly one shared full closure command, credential/cache limits, and no publication or remote artifact upload step",
   );
   record(
-    "VER-DEC-0001",
-    /on:\s*\r?\n\s+workflow_dispatch:\s*(?:\r?\n|$)/.test(workflow) &&
-      !/^\s*(?:push|pull_request):/m.test(workflow) &&
+    "VER-CI-0001",
+    /^  workflow_dispatch:\s*(?:\r?\n|$)/m.test(workflow) &&
+      /^  push:\s*(?:\r?\n|$)/m.test(workflow) &&
+      /^  pull_request:\s*(?:\r?\n|$)/m.test(workflow) &&
       jobDeclarationLines.length === 1 &&
-      jobDeclarationLines[0] === "  verify-foundation:" &&
-      (workflow.match(/^\s{4}if:\s*\$\{\{\s*false\s*\}\}\s*$/gm) ?? []).length === 1 &&
-      workflow.includes("DEC-0002"),
-    "Remote CI is workflow-dispatch-only, has exactly one job, and that job is literally disabled pending DEC-0002",
+      jobDeclarationLines[0] === `  ${contract.ciWorkflow.jobId}:`,
+    `CI is active for push, pull_request, and workflow_dispatch with the single admitted ${contract.ciWorkflow.jobId} closure job`,
+  );
+} else {
+  record("VER-CI-0001", false, `Missing active CI workflow: ${workflowPath}`);
+}
+
+for (const pending of pendingRiskClosureChecks) {
+  const verificationPassed =
+    pending.verificationDeclared &&
+    pending.closure.verificationIds.every((verificationId) =>
+      checks.some((check) => check.id === verificationId && check.passed),
+    );
+  const passed = pending.fieldsPresent && pending.evidenceApproved && verificationPassed;
+  record(
+    "VER-RSK-0001",
+    passed,
+    passed
+      ? `${pending.id} ${pending.status} disposition is linked to approved evidence, passing checks, review, and change control`
+      : `${pending.id} is ${pending.status} but its closureEvidence record is incomplete, unapproved, or not backed by a passing check`,
   );
 }
 
@@ -1026,13 +1855,20 @@ const artifactHashes = Object.fromEntries(
 const report = {
   schemaVersion: 1,
   verificationSuite: "Phase 1 governance foundation",
-  suiteVersion: "1.2.0",
+  suiteVersion: "2.0.0",
   date: new Date().toISOString(),
   platform: `${process.platform}-${process.arch}`,
   nodeVersion: process.version,
   repositoryRoot: root,
   result: errors.length === 0 ? "PASS" : "FAIL",
-  artifactManifestScope: "Every sourceFiles and requiredFiles path in tests/phase1/policy-contract.json",
+  artifactManifestScope: "Exact non-local project path set from the externally supplied Git-object manifest",
+  trustedBaseline: {
+    commit: trustedBaseline.commit,
+    manifestPath: subjectManifestPath,
+    manifestSha256: trustedBaseline.sha256,
+    expectedFileCount: trustedBaseline.files.size + 1,
+  },
+  artifactHashesAreObservationsNotExpectedValues: true,
   artifactHashes,
   docxVisualQaObservation: {
     recordedResult: docxVisualContract.recordedResult,
@@ -1041,8 +1877,8 @@ const report = {
   },
   checks,
   limitations: [
-    "No product, WASM, packaged classroom artifact, or release candidate exists.",
-    "Release isolation, offline-course, zero-attempt, export, and InternalTagBus product proofs remain NOT_STARTED.",
+    "The authorized Phase 1 shell and deterministic Rust/WASM health round trip are a technical foundation only; no PLC-domain editor, compiler, runtime, HMI, process, lesson, packaging, or physical capability is implemented.",
+    "Later-phase release isolation, offline-course, zero-attempt, export, and InternalTagBus product proofs remain outside this Phase 1 foundation.",
     "The evidence register and toolchain admission register remain explicitly unreviewed; this suite validates their structure and truthfulness, not legal approval.",
     "A completed contributor clean-room attestation and reviewer acceptance do not yet exist.",
     "The GitHub-hosted windows-2025 runner family is fixed, but each image revision remains externally mutable and must be captured per run.",
@@ -1059,4 +1895,4 @@ for (const check of checks) {
 }
 console.log(`\nPhase 1 governance verification: ${report.result}`);
 console.log(`Evidence: ${relative(root, reportPath)}`);
-if (errors.length > 0) process.exit(1);
+if (errors.length > 0) process.exit(EXIT_POLICY_FAILURE);

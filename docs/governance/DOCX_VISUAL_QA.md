@@ -2,7 +2,7 @@
 
 Status: **OBSERVATION PASS FOR THE CURRENT SOURCE HASH; NOT ADMISSIBLE AS PHASE 1 GATE EVIDENCE**  
 Observation date: 2026-08-27  
-Source: `PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx`  
+Source: `References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx`
 Source SHA-256: `EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612`
 
 ## Method

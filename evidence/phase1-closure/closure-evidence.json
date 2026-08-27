@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "PHASE1-CLOSURE-EVIDENCE",
+  "asOf": "2026-08-27",
+  "status": "PRE_CANDIDATE_VALIDATION",
+  "acceptanceAuthority": "Scott",
+  "phase2Authorized": false,
+  "preRemediation": {
+    "commit": "90705431d13eddbdef519f52356caef5f5f07c96",
+    "annotatedTag": "phase1-pre-remediation-v1",
+    "tagObject": "bec2d44991b53b73b50b1536dea8708506376094",
+    "startingState": "evidence/phase1-closure/pre-remediation/STARTING_STATE.md"
+  },
+  "canonicalHashes": {
+    "research": "F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55",
+    "directive": "EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612",
+    "correctiveAddendum": "950C5112C34D0218FD1E59CF6C051ACCD01AB92674CD70C96C08A5F1DA2E5A1C",
+    "redTeamAudit": "515BD6A844AF1A2E71C829BA567214F73CA4E455278157960A3A11F25B8DF5B3",
+    "postRedTeamAudit": "4D85D71CEB36AC0E4892CBF91FCDB4B6CE8FFC27E80DA20D754EE8008ABEB87F"
+  },
+  "requirements": {
+    "sourceParents": 247,
+    "issuedIds": 484,
+    "compoundParents": 20,
+    "atomicChildren": 190,
+    "atomicRecords": 464,
+    "completionEligibleAtomicRecords": 463,
+    "sourceStatementUnits": 546,
+    "mappedStatementUnits": 546,
+    "unmappedStatementUnits": 0,
+    "relationships": 789,
+    "verifiedRequirements": 0
+  },
+  "foundation": {
+    "result": "PASS",
+    "command": "pnpm gate:foundation",
+    "rustTests": "2/2",
+    "contractTests": "16/16",
+    "uiTests": "2/2",
+    "browserModes": ["desktop", "mobile"],
+    "networkRequests": 0,
+    "wasmImports": 0,
+    "domainHealth": "HEALTHY",
+    "artifactPath": "dist/index.html",
+    "visualQa": "design-qa.md"
+  },
+  "immutableVerification": {
+    "status": "PENDING_CANDIDATE_COMMIT",
+    "expectedCleanBaselineExit": 0,
+    "expectedPolicyFailureExit": 1,
+    "expectedTrustOrToolErrorExit": 2,
+    "mutationEvidencePath": ".phase1-verification/mutations/mutation-results.json",
+    "prescribedMutations": 12
+  },
+  "candidate": {
+    "commitResolution": "git rev-parse phase1-closure-candidate-v1^{}",
+    "annotatedTag": "phase1-closure-candidate-v1",
+    "gitNoteRef": "refs/notes/phase1-closure-evidence",
+    "status": "NOT_YET_FROZEN"
+  },
+  "openExternalBoundaries": [
+    "Scott acceptance",
+    "toolchain and dependency legal/provenance/security admission",
+    "historical PES-ACC-0005 wording decision",
+    "remote repository and hosted CI authorization/execution"
+  ]
+}

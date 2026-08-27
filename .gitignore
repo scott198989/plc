@@ -4,6 +4,7 @@ node_modules/
 target/
 __pycache__/
 *.py[cod]
+apps/foundation-shell/src/generated/
 
 # Build, test, and coverage output
 dist/
@@ -12,6 +13,7 @@ coverage/
 artifacts/
 test-results/
 playwright-report/
+.phase1-verification/foundation/
 
 # Local application state and secrets
 .env

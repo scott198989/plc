@@ -1,0 +1,2237 @@
+# Phase 1 Directive — Adversarial Normative-Statement Recall Audit
+
+## Audit result
+
+- In-scope normative statements: **546**
+- Mapped to one or more Phase 1 requirement IDs: **498**
+- UNMAPPED: **48**
+- Source-page coverage: **40/40 pages walked**; pages 37 and 39 contain no in-scope statement.
+
+The 48 unmapped statements are substantive recall defects: they are normative source obligations but have no owning or materially equivalent numbered Phase 1 requirement statement. The complete 546-statement ledger follows below; repository registries, matrices, reports, and verifier output were not used as source truth.
+
+## Source evidence and method
+
+- Source DOCX: ``C:\Users\Scott\OneDrive\Desktop\Codex - GOV's PLC\PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx``
+- DOCX SHA-256: ``EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612``
+- Full-page rendered PDF used only to anchor source page numbers: ``C:\Users\Scott\OneDrive\Desktop\Codex - GOV's PLC\.phase1-verification\docx-visual\phase1-directive-render.pdf``
+- Rendered PDF SHA-256: ``35DD6EB0A4CD87487B4597CDDD1285D7F47101DD2EE39DC2746BCD99A8589B79``
+- Extraction: the DOCX body was walked in document order directly from `word/document.xml`; every one of the 40 rendered pages was independently extracted with `pdfplumber` to assign page anchors.
+- Trigger scope: case-insensitive `shall`, `must` (including `must not`), `never`, `is prohibited`, `is forbidden`, `is required`, and limited-permission `may … only` forms. A modal list/table/line lead-in propagates to its individual children. The DomainResult minimum-field list was conservatively included because its two-sentence introductory paragraph contains `shall` and ends with the field-list lead-in.
+- Unit of count: a modal lead-in is one statement; each separately testable child bullet, table row, or schema line governed by that lead-in is another statement. Separate modal sentences in one paragraph are separate statements.
+- Exclusions: structural braces (`DomainResult {` and `}`) and Appendix E's descriptive crosswalk row `Binding MUST/MUST NOT rules | Final Codex marching orders` are not normative statements.
+- Mapping rule: an embedded/owning `PES-*` ID controls its sentence and modal children. An unnumbered statement is cross-mapped only where a numbered statement elsewhere in the same source materially restates the obligation. Topic similarity, a repository implementation, or a verifier assertion is insufficient.
+- Statement forms counted: explicit=294, explicit table row=7, inherited bullet=192, inherited line=37, inherited table row=16.
+
+## Major defects
+
+- **Unnumbered normative-keyword semantics: 3 statements** (p. 4).
+- **Unnumbered DomainResult minimum-field schema: 8 statements** (p. 22).
+- **Top-level governance-file obligations lacking a materially equivalent numbered owner: 7 statements** (p. 27).
+- **Unnumbered atomic requirement-record schema: 17 statements** (p. 30).
+- **Unnumbered BLOCKED-decision record schema: 12 statements** (p. 32).
+- **Open-question acceptance-budget obligation without a PES requirement owner: 1 statements** (p. 36).
+
+## Every unmapped source statement
+
+- **T2-0008** — p. 4; § Normative Keywords; explicit table row; mapping: **UNMAPPED**
+  - Verbatim: ``MUST / SHALL | Required. Violation blocks merge, release, or acceptance.``
+  - Basis: UNMAPPED.
+- **T2-0009** — p. 4; § Normative Keywords; explicit table row; mapping: **UNMAPPED**
+  - Verbatim: ``MUST NOT / SHALL NOT | Prohibited. Presence blocks merge, release, or acceptance.``
+  - Basis: UNMAPPED.
+- **T2-0010** — p. 4; § Normative Keywords; explicit table row; mapping: **UNMAPPED**
+  - Verbatim: ``MAY | Optional and permitted only inside the approved scope.``
+  - Basis: UNMAPPED.
+- **T2-0287** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``success``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0288** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``value?``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0289** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``events[]``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0290** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``diagnostics[]``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0291** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``affectedObjectIds[]``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0292** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``undoToken?``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0293** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``beforeHash``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0294** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``afterHash``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0363** — p. 27; § 9.2 Required top-level governance files; explicit; mapping: **UNMAPPED**
+  - Verbatim: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0366** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``LEGAL_REVIEW_CHECKLIST.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0369** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``REQUIREMENTS.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0370** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``IMPLEMENTATION_MATRIX.*``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0373** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``DEPENDENCY_POLICY.*``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0374** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``OPEN_DECISIONS.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0375** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``RISK_REGISTER.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0418** — p. 30; § 10.2 Atomic record schema; explicit; mapping: **UNMAPPED**
+  - Verbatim: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0419** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``stable ID;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0420** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``short title;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0421** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``normative keyword;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0422** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``one atomic, testable statement;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0423** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``rationale;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0424** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``scope/component;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0425** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``source pointer and research classification;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0426** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``IP class and disposition;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0427** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``dependencies;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0428** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``target software release or milestone;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0429** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``current truth state;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0430** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``positive acceptance condition;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0431** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``negative acceptance condition;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0432** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``verification IDs;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0433** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``ADR/decision/change links;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0434** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``owner and reviewer.``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0468** — p. 32; § 11.3 BLOCKED decision record; explicit; mapping: **UNMAPPED**
+  - Verbatim: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0469** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Decision ID:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0470** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Affected requirement IDs:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0471** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Known facts:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0472** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Unknown or conflicting point:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0473** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Why Codex cannot decide safely:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0474** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Option A and impact:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0475** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Option B and impact:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0476** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Option C and impact, if useful:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0477** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Recommended option:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0478** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Exact approval or evidence needed:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0479** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Work that can continue:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0544** — p. 36; § 13.3 Open decisions carried forward; explicit table row; mapping: **UNMAPPED**
+  - Verbatim: ``OQ-0008 | Accessibility conformance target and performance/capacity budgets | Must be objective before experience acceptance | Phase 3``
+  - Basis: UNMAPPED.
+
+## Complete source recall ledger
+
+<!-- LEDGER_START -->
+
+### Page 1 — 1 statement(s)
+
+- **T2-0001** — p. 1; § Front matter; explicit; mapping: ``PES-MSN-0003``, ``PES-SCP-0002``
+  - Verbatim: ``The product shall simulate engineering decisions and consequences with high training-transfer fidelity while remaining permanently incapable of communicating with or operating physical industrial equipment.``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+
+### Page 2 — 4 statement(s)
+
+- **T2-0002** — p. 2; § Front matter; explicit; mapping: ``PES-MSN-0003``, ``PES-FID-0002``
+  - Verbatim: ``It shall provide high causal, behavioral, workflow, and training-transfer fidelity inside a wholly fictional VirtualUniverse.``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0003** — p. 2; § Front matter; explicit; mapping: ``PES-SCP-0002``, ``PES-ISO-0001``, ``PES-ISO-0002``
+  - Verbatim: ``It shall never communicate with, discover, configure, commission, download to, or operate physical industrial equipment.``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0004** — p. 2; § Front matter; explicit; mapping: ``PES-ACC-0007``
+  - Verbatim: ``Unless Scott separately orders otherwise, Codex shall not begin product implementation from this incomplete directive.``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0005** — p. 2; § Front matter; explicit; mapping: ``PES-GOV-0019``, ``PES-ACC-0007``
+  - Verbatim: ``Reserved headings are not implementation requirements and shall not be inferred.``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+
+### Page 3 — 2 statement(s)
+
+- **T2-0006** — p. 3; § How to Use This Directive; explicit; mapping: ``PES-REQ-0004``
+  - Verbatim: ``Never renumber or reuse one.``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0007** — p. 3; § How to Use This Directive; explicit; mapping: ``PES-ISO-0001``, ``PES-CRM-0001``, ``PES-FID-0002``
+  - Verbatim: ``Never trade away the safety wall, clean-room rules, or causal-fidelity doctrine for speed, convenience, visual similarity, or a demo.``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+
+### Page 4 — 17 statement(s)
+
+- **T2-0008** — p. 4; § Normative Keywords; explicit table row; mapping: **UNMAPPED**
+  - Verbatim: ``MUST / SHALL | Required. Violation blocks merge, release, or acceptance.``
+  - Basis: UNMAPPED.
+- **T2-0009** — p. 4; § Normative Keywords; explicit table row; mapping: **UNMAPPED**
+  - Verbatim: ``MUST NOT / SHALL NOT | Prohibited. Presence blocks merge, release, or acceptance.``
+  - Basis: UNMAPPED.
+- **T2-0010** — p. 4; § Normative Keywords; explicit table row; mapping: **UNMAPPED**
+  - Verbatim: ``MAY | Optional and permitted only inside the approved scope.``
+  - Basis: UNMAPPED.
+- **T2-0011** — p. 4; § 1.1 Authority hierarchy; explicit; mapping: ``PES-GOV-0001``
+  - Verbatim: ``[PES-GOV-0001] MUST interpret this project using the following order:``
+  - Basis: owning source requirement ID.
+- **T2-0012** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0001``
+  - Verbatim: ``Applicable law, binding licenses, and the immutable product safety constraints in this directive form the outer boundary.``
+  - Modal lead-in: ``[PES-GOV-0001] MUST interpret this project using the following order:``
+  - Basis: owning source requirement ID.
+- **T2-0013** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0001``
+  - Verbatim: ``Scott's explicit, approved product decisions govern product intent.``
+  - Modal lead-in: ``[PES-GOV-0001] MUST interpret this project using the following order:``
+  - Basis: owning source requirement ID.
+- **T2-0014** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0001``
+  - Verbatim: ``This living Codex Master Implementation Directive governs what shall be built.``
+  - Modal lead-in: ``[PES-GOV-0001] MUST interpret this project using the following order:``
+  - Basis: owning source requirement ID.
+- **T2-0015** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0001``
+  - Verbatim: ``The frozen research report supplies technical, workflow, and risk evidence.``
+  - Modal lead-in: ``[PES-GOV-0001] MUST interpret this project using the following order:``
+  - Basis: owning source requirement ID.
+- **T2-0016** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0001``
+  - Verbatim: ``Approved decision records and ADRs govern implementation choices only within the authority left to them.``
+  - Modal lead-in: ``[PES-GOV-0001] MUST interpret this project using the following order:``
+  - Basis: owning source requirement ID.
+- **T2-0017** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0001``
+  - Verbatim: ``Code, tests, tickets, comments, mockups, and developer assumptions are subordinate to all items above.``
+  - Modal lead-in: ``[PES-GOV-0001] MUST interpret this project using the following order:``
+  - Basis: owning source requirement ID.
+- **T2-0018** — p. 4; § 1.1 Authority hierarchy; explicit; mapping: ``PES-GOV-0002``
+  - Verbatim: ``[PES-GOV-0002] MUST NOT use a lower authority to weaken, reinterpret, or silently override a higher authority.``
+  - Basis: owning source requirement ID.
+- **T2-0019** — p. 4; § 1.1 Authority hierarchy; explicit; mapping: ``PES-GOV-0003``
+  - Verbatim: ``[PES-GOV-0003] MUST treat the research report's labels accurately:``
+  - Basis: owning source requirement ID.
+- **T2-0020** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0003``
+  - Verbatim: ``DOCUMENTED identifies publicly supported behavior or facts.``
+  - Modal lead-in: ``[PES-GOV-0003] MUST treat the research report's labels accurately:``
+  - Basis: owning source requirement ID.
+- **T2-0021** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0003``
+  - Verbatim: ``INFERENCE identifies a reasoned conclusion, not a documented exact behavior.``
+  - Modal lead-in: ``[PES-GOV-0003] MUST treat the research report's labels accurately:``
+  - Basis: owning source requirement ID.
+- **T2-0022** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0003``
+  - Verbatim: ``PROPOSED identifies simulator behavior recommended by the report.``
+  - Modal lead-in: ``[PES-GOV-0003] MUST treat the research report's labels accurately:``
+  - Basis: owning source requirement ID.
+- **T2-0023** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0003``
+  - Verbatim: ``LEGAL INTERPRETATION is risk analysis, not legal advice.``
+  - Modal lead-in: ``[PES-GOV-0003] MUST treat the research report's labels accurately:``
+  - Basis: owning source requirement ID.
+- **T2-0024** — p. 4; § 1.1 Authority hierarchy; inherited bullet; mapping: ``PES-GOV-0003``
+  - Verbatim: ``ENGINEERING RECOMMENDATION is an implementation or product judgment.``
+  - Modal lead-in: ``[PES-GOV-0003] MUST treat the research report's labels accurately:``
+  - Basis: owning source requirement ID.
+
+### Page 5 — 13 statement(s)
+
+- **T2-0025** — p. 5; § 1.1 Authority hierarchy; explicit; mapping: ``PES-GOV-0004``
+  - Verbatim: ``[PES-GOV-0004] MUST treat adopted requirements in this directive as normative regardless of the research label from which they originated.``
+  - Basis: owning source requirement ID.
+- **T2-0026** — p. 5; § 1.1 Authority hierarchy; explicit; mapping: ``PES-GOV-0004``
+  - Verbatim: ``The source label remains attached for traceability and shall not be rewritten as stronger evidence.``
+  - Basis: owning source requirement ID.
+- **T2-0027** — p. 5; § 1.1 Authority hierarchy; explicit; mapping: ``PES-GOV-0005``
+  - Verbatim: ``[PES-GOV-0005] MUST NOT claim that the research report is a legal opinion, patent clearance, trademark clearance, freedom-to-operate analysis, or guarantee of legality.``
+  - Basis: owning source requirement ID.
+- **T2-0028** — p. 5; § 1.2 Conflict protocol; explicit; mapping: ``PES-GOV-0006``
+  - Verbatim: ``[PES-GOV-0006] MUST create a BLOCKED decision record when two authorities appear to conflict.``
+  - Basis: owning source requirement ID.
+- **T2-0029** — p. 5; § 1.2 Conflict protocol; explicit; mapping: ``PES-GOV-0006``
+  - Verbatim: ``The record shall quote or precisely identify both statements, explain the conflict, list the affected requirement IDs and components, and state the minimum decision needed.``
+  - Basis: owning source requirement ID.
+- **T2-0030** — p. 5; § 1.2 Conflict protocol; explicit; mapping: ``PES-GOV-0007``
+  - Verbatim: ``[PES-GOV-0007] MUST NOT resolve an authority conflict by selecting the easiest implementation, the closest vendor behavior, or the broadest feature scope.``
+  - Basis: owning source requirement ID.
+- **T2-0031** — p. 5; § 1.2 Conflict protocol; explicit; mapping: ``PES-GOV-0008``
+  - Verbatim: ``[PES-GOV-0008] MUST construe ambiguity conservatively when physical capability, external communication, proprietary expression, user data, assessment integrity, or safety claims could be affected.``
+  - Basis: owning source requirement ID.
+- **T2-0032** — p. 5; § 1.2 Conflict protocol; explicit; mapping: ``PES-GOV-0009``
+  - Verbatim: ``[PES-GOV-0009] MUST treat any proposal to add physical industrial communication as a proposal for a different product.``
+  - Basis: owning source requirement ID.
+- **T2-0033** — p. 5; § 1.3 Frozen research baseline; explicit; mapping: ``PES-GOV-0010``
+  - Verbatim: ``[PES-GOV-0010] MUST use the research report identified by filename and SHA-256 in Document Control as the Phase 1 baseline.``
+  - Basis: owning source requirement ID.
+- **T2-0034** — p. 5; § 1.3 Frozen research baseline; explicit; mapping: ``PES-GOV-0011``
+  - Verbatim: ``[PES-GOV-0011] MUST NOT expand scope automatically when a newer TIA release, IEC edition, browser capability, framework version, or industrial technology appears.``
+  - Basis: owning source requirement ID.
+- **T2-0035** — p. 5; § 1.3 Frozen research baseline; explicit; mapping: ``PES-GOV-0012``
+  - Verbatim: ``[PES-GOV-0012] MUST process new research through an evidence record and an approved change record before it changes a normative requirement.``
+  - Basis: owning source requirement ID.
+- **T2-0036** — p. 5; § 1.3 Frozen research baseline; explicit; mapping: ``PES-GOV-0013``
+  - Verbatim: ``[PES-GOV-0013] MUST replace fragile research citation tokens with stable evidence records containing source title, publisher, version/date, durable location, access date, and the claim supported.``
+  - Basis: owning source requirement ID.
+- **T2-0037** — p. 5; § 1.3 Frozen research baseline; explicit; mapping: ``PES-GOV-0013``
+  - Verbatim: ``An unresolved source remains unresolved; Codex shall not invent bibliographic details.``
+  - Basis: owning source requirement ID.
+
+### Page 6 — 21 statement(s)
+
+- **T2-0038** — p. 6; § 2.1 Mission; explicit; mapping: ``PES-MSN-0001``
+  - Verbatim: ``[PES-MSN-0001] MUST build an original, professional PLC engineering and automation simulation environment for classroom learning, independent study, guided troubleshooting, and instructor-led assessment.``
+  - Basis: owning source requirement ID.
+- **T2-0039** — p. 6; § 2.1 Mission; explicit; mapping: ``PES-MSN-0002``
+  - Verbatim: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0040** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Create or open a simulator-native project.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0041** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Add fictional virtual controllers and devices.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0042** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Configure virtual racks, modules, channels, addresses, logical networks, and topology.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0043** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Create tags, constants, data types, and data blocks.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0044** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``create OB, FC, FB, instance DB, and global DB program structures.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0045** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Program in LAD, FBD, and SCL (Structured Text).``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0046** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Compile genuine project, hardware, language, type, and dependency semantics.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0047** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Repair real inconsistencies and rebuild.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0048** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Start a fictional controller instance.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0049** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Review an internal Virtual Load Preview.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0050** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Perform an atomic Virtual Download to a VirtualControllerId.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0051** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Use RUN, STOP, monitoring, watch, modify, force, and trace semantics.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0052** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Operate a deterministic virtual process and virtual HMI.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0053** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Diagnose causal code, hardware, network-graph, process, and HMI faults.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0054** — p. 6; § 2.1 Mission; inherited bullet; mapping: ``PES-MSN-0002``
+  - Verbatim: ``Correct the underlying cause and verify the result.``
+  - Modal lead-in: ``[PES-MSN-0002] MUST make the student perform a recognizable modern PLC engineering lifecycle:``
+  - Basis: owning source requirement ID.
+- **T2-0055** — p. 6; § 2.1 Mission; explicit; mapping: ``PES-MSN-0003``
+  - Verbatim: ``[PES-MSN-0003] MUST make the engineering decisions and consequences authentic enough to transfer into an authorized laboratory workflow while keeping product identity, code, assets, devices, project formats, runtime, and communication capability original.``
+  - Basis: owning source requirement ID.
+- **T2-0056** — p. 6; § 2.1 Mission; explicit; mapping: ``PES-MSN-0004``
+  - Verbatim: ``[PES-MSN-0004] MUST NOT be industrial-control software, a hardware configuration utility, a protocol client, a controller emulator, a firmware emulator, a TIA clone, or a Siemens-branded product.``
+  - Basis: owning source requirement ID.
+- **T2-0057** — p. 6; § 2.1 Mission; explicit; mapping: ``PES-MSN-0005``
+  - Verbatim: ``[PES-MSN-0005] MUST define "fully functional" as fully functional inside VirtualUniverse.``
+  - Basis: owning source requirement ID.
+- **T2-0058** — p. 6; § 2.1 Mission; explicit; mapping: ``PES-MSN-0005``
+  - Verbatim: ``The phrase never implies physical compatibility, real controller deployment, vendor-project compatibility, safety certification, or industrial suitability.``
+  - Basis: owning source requirement ID.
+
+### Page 7 — 8 statement(s)
+
+- **T2-0059** — p. 7; § 2.2 Intended users and environments; explicit; mapping: ``PES-MSN-0007``
+  - Verbatim: ``[PES-MSN-0007] MUST operate in an offline classroom or home-study environment with no cloud service, remote font, CDN, telemetry service, license server, analytics endpoint, or internet connection required.``
+  - Basis: owning source requirement ID.
+- **T2-0060** — p. 7; § 2.2 Intended users and environments; explicit; mapping: ``PES-MSN-0008``
+  - Verbatim: ``[PES-MSN-0008] MUST support a professional unassisted workflow for students and a separate explanatory/teaching experience without changing the underlying engineering semantics.``
+  - Basis: owning source requirement ID.
+- **T2-0061** — p. 7; § 2.2 Intended users and environments; explicit; mapping: ``PES-MSN-0009``
+  - Verbatim: ``[PES-MSN-0009] MUST keep all claims educational.``
+  - Basis: owning source requirement ID.
+- **T2-0062** — p. 7; § 2.2 Intended users and environments; explicit; mapping: ``PES-MSN-0009``
+  - Verbatim: ``It shall not claim certification, equivalence, endorsement, production readiness, or suitability for real machine control.``
+  - Basis: owning source requirement ID.
+- **T2-0063** — p. 7; § 2.3 Governing success definition; explicit; mapping: ``PES-ACC-0001``
+  - Verbatim: ``[PES-ACC-0001] MUST judge success by causal and workflow transfer: the same kinds of engineering decisions should produce the same kinds of engineering consequences.``
+  - Basis: owning source requirement ID.
+- **T2-0064** — p. 7; § 2.3 Governing success definition; explicit; mapping: ``PES-ACC-0002``
+  - Verbatim: ``[PES-ACC-0002] MUST count the product as failing if a polished UI masks fake compilation, canned diagnostics, a non-semantic editor, nondeterministic runtime, conflated offline/online state, or scenario-specific hard-coding.``
+  - Basis: owning source requirement ID.
+- **T2-0065** — p. 7; § 2.3 Governing success definition; explicit; mapping: ``PES-ACC-0003``
+  - Verbatim: ``[PES-ACC-0003] MUST count the product as failing if any production code path can address, enumerate, connect to, send to, load to, commission, or operate a physical industrial target.``
+  - Basis: owning source requirement ID.
+- **T2-0066** — p. 7; § 2.3 Governing success definition; explicit; mapping: ``PES-ACC-0004``
+  - Verbatim: ``[PES-ACC-0004] MUST target zero students leaving training with the belief that a simulator project can be loaded into a physical PLC.``
+  - Basis: owning source requirement ID.
+
+### Page 8 — 12 statement(s)
+
+- **T2-0067** — p. 8; § 3.1 Canonical product vocabulary; explicit; mapping: ``PES-VOC-0001``
+  - Verbatim: ``[PES-VOC-0001] MUST use Teacher Mode as the public and schema/API canonical name.``
+  - Basis: owning source requirement ID.
+- **T2-0068** — p. 8; § 3.1 Canonical product vocabulary; explicit; mapping: ``PES-VOC-0002``
+  - Verbatim: ``[PES-VOC-0002] MUST present the textual PLC language as SCL (Structured Text) on first use and may use SCL thereafter.``
+  - Basis: owning source requirement ID.
+- **T2-0069** — p. 8; § 3.1 Canonical product vocabulary; explicit; mapping: ``PES-VOC-0003``
+  - Verbatim: ``[PES-VOC-0003] MUST use fictional brand-neutral device categories such as Compact Controller, Modular Controller, Performance Controller, Technology Controller, Distributed I/O Station, Basic Operator Panel, Advanced Operator Panel, Variable-Speed Drive, and Servo Drive.``
+  - Basis: owning source requirement ID.
+- **T2-0070** — p. 8; § 3.1 Canonical product vocabulary; explicit; mapping: ``PES-VOC-0004``
+  - Verbatim: ``[PES-VOC-0004] MUST NOT use actual Siemens model numbers or marks as active catalog identities.``
+  - Basis: owning source requirement ID.
+- **T2-0071** — p. 8; § 3.1 Canonical product vocabulary; explicit; mapping: ``PES-VOC-0005``
+  - Verbatim: ``[PES-VOC-0005] MUST NOT use shorthand such as "clone TIA," "simulate an S7," "connect virtually to an IP," "download like the real target," or "fully compatible" in requirements, UI, documentation, tests, marketing, or code comments.``
+  - Basis: owning source requirement ID.
+- **T2-0072** — p. 8; § 3.2 Product modes share one kernel; explicit; mapping: ``PES-EDU-0001``
+  - Verbatim: ``[PES-EDU-0001] MUST make Engineering Mode, Learning Lens, and Teacher Mode use one project model, compiler, diagnostic system, virtual runtime, process state, HMI state, and persistence system.``
+  - Basis: owning source requirement ID.
+- **T2-0073** — p. 8; § 3.2 Product modes share one kernel; explicit; mapping: ``PES-EDU-0002``
+  - Verbatim: ``[PES-EDU-0002] MUST NOT implement a separate simplified compiler or runtime for lessons.``
+  - Basis: owning source requirement ID.
+- **T2-0074** — p. 8; § 3.2 Product modes share one kernel; explicit; mapping: ``PES-EDU-0003``
+  - Verbatim: ``[PES-EDU-0003] MUST keep Learning Lens observational.``
+  - Basis: owning source requirement ID.
+- **T2-0075** — p. 8; § 3.2 Product modes share one kernel; explicit; mapping: ``PES-EDU-0003``
+  - Verbatim: ``It may pause, step, slow, inspect, annotate, and explain deterministic execution; it shall not alter program truth, compiler results, type rules, device state, or grading outcomes.``
+  - Basis: owning source requirement ID.
+- **T2-0076** — p. 8; § 3.2 Product modes share one kernel; explicit; mapping: ``PES-EDU-0004``
+  - Verbatim: ``[PES-EDU-0004] MUST make Teacher Mode act through ordinary domain commands, scenario events, process faults, and virtual hardware faults.``
+  - Basis: owning source requirement ID.
+- **T2-0077** — p. 8; § 3.2 Product modes share one kernel; explicit; mapping: ``PES-EDU-0005``
+  - Verbatim: ``[PES-EDU-0005] MUST NOT let Teacher Mode insert compiler errors, runtime diagnostics, HMI alarms, expected values, or "correct" program state directly.``
+  - Basis: owning source requirement ID.
+- **T2-0078** — p. 8; § 3.2 Product modes share one kernel; explicit; mapping: ``PES-EDU-0006``
+  - Verbatim: ``[PES-EDU-0006] MUST NOT make Teacher Mode an online AI dependency.``
+  - Basis: owning source requirement ID.
+
+### Page 9 — 17 statement(s)
+
+- **T2-0079** — p. 9; § 3.3 Profile and version claims; explicit; mapping: ``PES-PROF-0001``
+  - Verbatim: ``[PES-PROF-0001] MUST use a V21-era workflow as the principal frozen training reference for the first complete product baseline.``
+  - Basis: owning source requirement ID.
+- **T2-0080** — p. 9; § 3.3 Profile and version claims; explicit; mapping: ``PES-PROF-0002``
+  - Verbatim: ``[PES-PROF-0002] MUST implement a version-neutral semantic core and declarative TrainingProfile capability manifests.``
+  - Basis: owning source requirement ID.
+- **T2-0081** — p. 9; § 3.3 Profile and version claims; explicit; mapping: ``PES-PROF-0003``
+  - Verbatim: ``[PES-PROF-0003] MUST keep project schema version independent from TrainingProfile version.``
+  - Basis: owning source requirement ID.
+- **T2-0082** — p. 9; § 3.3 Profile and version claims; explicit; mapping: ``PES-PROF-0004``
+  - Verbatim: ``[PES-PROF-0004] MUST pin a project's selected profile and capability-manifest version.``
+  - Basis: owning source requirement ID.
+- **T2-0083** — p. 9; § 3.3 Profile and version claims; explicit; mapping: ``PES-PROF-0004``
+  - Verbatim: ``Opening or migrating a project shall not silently change runtime semantics.``
+  - Basis: owning source requirement ID.
+- **T2-0084** — p. 9; § 3.3 Profile and version claims; explicit; mapping: ``PES-PROF-0005``
+  - Verbatim: ``[PES-PROF-0005] MUST treat V19-era and V20-era profiles as the first compatibility targets after the primary profile.``
+  - Basis: owning source requirement ID.
+- **T2-0085** — p. 9; § 3.3 Profile and version claims; explicit; mapping: ``PES-PROF-0005``
+  - Verbatim: ``Until their behavior is specified and tested, they shall be marked DEFERRED rather than presented as functioning profiles.``
+  - Basis: owning source requirement ID.
+- **T2-0086** — p. 9; § 3.3 Profile and version claims; explicit; mapping: ``PES-PROF-0006``
+  - Verbatim: ``[PES-PROF-0006] MUST NOT claim exact controller-family fidelity for behavior the research report marks unresolved, including detailed OB priorities, recursion, optimized layouts, force edge cases, or vendor-specific SCL extensions.``
+  - Basis: owning source requirement ID.
+- **T2-0087** — p. 9; § 4.1 Required fidelity; explicit; mapping: ``PES-FID-0001``
+  - Verbatim: ``[PES-FID-0001] MUST prioritize fidelity in this order:``
+  - Basis: owning source requirement ID.
+- **T2-0088** — p. 9; § 4.1 Required fidelity; inherited bullet; mapping: ``PES-FID-0001``
+  - Verbatim: ``Safety and physical isolation.``
+  - Modal lead-in: ``[PES-FID-0001] MUST prioritize fidelity in this order:``
+  - Basis: owning source requirement ID.
+- **T2-0089** — p. 9; § 4.1 Required fidelity; inherited bullet; mapping: ``PES-FID-0001``
+  - Verbatim: ``Correct domain semantics and causality.``
+  - Modal lead-in: ``[PES-FID-0001] MUST prioritize fidelity in this order:``
+  - Basis: owning source requirement ID.
+- **T2-0090** — p. 9; § 4.1 Required fidelity; inherited bullet; mapping: ``PES-FID-0001``
+  - Verbatim: ``Training-transfer workflow and state consequences.``
+  - Modal lead-in: ``[PES-FID-0001] MUST prioritize fidelity in this order:``
+  - Basis: owning source requirement ID.
+- **T2-0091** — p. 9; § 4.1 Required fidelity; inherited bullet; mapping: ``PES-FID-0001``
+  - Verbatim: ``Determinism, inspectability, and diagnostic navigation.``
+  - Modal lead-in: ``[PES-FID-0001] MUST prioritize fidelity in this order:``
+  - Basis: owning source requirement ID.
+- **T2-0092** — p. 9; § 4.1 Required fidelity; inherited bullet; mapping: ``PES-FID-0001``
+  - Verbatim: ``Professional interaction quality and accessibility.``
+  - Modal lead-in: ``[PES-FID-0001] MUST prioritize fidelity in this order:``
+  - Basis: owning source requirement ID.
+- **T2-0093** — p. 9; § 4.1 Required fidelity; inherited bullet; mapping: ``PES-FID-0001``
+  - Verbatim: ``Original visual polish.``
+  - Modal lead-in: ``[PES-FID-0001] MUST prioritize fidelity in this order:``
+  - Basis: owning source requirement ID.
+- **T2-0094** — p. 9; § 4.1 Required fidelity; explicit; mapping: ``PES-FID-0002``
+  - Verbatim: ``[PES-FID-0002] MUST implement causal fidelity rather than screenshot fidelity.``
+  - Basis: owning source requirement ID.
+- **T2-0095** — p. 9; § 4.1 Required fidelity; explicit; mapping: ``PES-FID-0003``
+  - Verbatim: ``[PES-FID-0003] MUST preserve meaningful distinctions that commercial engineering software teaches, including saved versus unsaved, built versus dirty, hardware build versus software build, offline source versus loaded artifact, loaded versus matching, RUN versus STOP, monitoring off versus on, raw process value versus CPU-visible value, modify versus force, initial versus actual versus retained value, and incoming versus cleared diagnostics.``
+  - Basis: owning source requirement ID.
+
+### Page 10 — 8 statement(s)
+
+- **T2-0096** — p. 10; § 4.1 Required fidelity; explicit; mapping: ``PES-FID-0004``
+  - Verbatim: ``[PES-FID-0004] MUST make failure arise from a domain invariant, parser, resolver, type checker, compiler rule, build state, runtime state, process state, HMI state, or explicit virtual fault.``
+  - Basis: owning source requirement ID.
+- **T2-0097** — p. 10; § 4.1 Required fidelity; explicit; mapping: ``PES-FID-0005``
+  - Verbatim: ``[PES-FID-0005] MUST keep invalid structures editable where appropriate while preventing invalid executable output.``
+  - Basis: owning source requirement ID.
+- **T2-0098** — p. 10; § 4.1 Required fidelity; explicit; mapping: ``PES-FID-0005``
+  - Verbatim: ``An invalid LAD or FBD graph shall not produce executable IR.``
+  - Basis: owning source requirement ID.
+- **T2-0099** — p. 10; § 4.1 Required fidelity; explicit; mapping: ``PES-FID-0006``
+  - Verbatim: ``[PES-FID-0006] MUST preserve stable identity through rename, maintain unresolved references through deletion, and restore original identity through undo.``
+  - Basis: owning source requirement ID.
+- **T2-0100** — p. 10; § 4.1 Required fidelity; explicit; mapping: ``PES-FID-0007``
+  - Verbatim: ``[PES-FID-0007] MUST make diagnostics navigable to stable object identity and, when applicable, source range, graph node, pin, slot, channel, tag, or related object.``
+  - Basis: owning source requirement ID.
+- **T2-0101** — p. 10; § 4.1 Required fidelity; explicit; mapping: ``PES-FID-0008``
+  - Verbatim: ``[PES-FID-0008] MUST NOT treat visual resemblance, screenshots, animated progress, or canned demo success as fidelity evidence.``
+  - Basis: owning source requirement ID.
+- **T2-0102** — p. 10; § 4.2 Included product envelope; explicit; mapping: ``PES-SCP-0001``
+  - Verbatim: ``[PES-SCP-0001] MUST interpret this envelope as a promise to specify and implement genuine behavior in later phases, not authorization to create empty panels or placeholder APIs now.``
+  - Basis: owning source requirement ID.
+- **T2-0103** — p. 10; § 4.3 Permanently excluded; explicit; mapping: ``PES-SCP-0002``
+  - Verbatim: ``[PES-SCP-0002] MUST NOT include any capability to communicate with or operate physical PLCs, HMIs, drives, remote I/O, gateways, instruments, sensors, actuators, robots, industrial networks, or host-connected devices.``
+  - Basis: owning source requirement ID.
+
+### Page 11 — 12 statement(s)
+
+- **T2-0104** — p. 11; § 4.3 Permanently excluded; explicit; mapping: ``PES-SCP-0003``
+  - Verbatim: ``[PES-SCP-0003] MUST NOT implement Siemens firmware, binaries, proprietary project formats, protocol payloads, device packages, engineering APIs, iconography, diagnostic prose, hardware illustrations, or vendor load artifacts.``
+  - Basis: owning source requirement ID.
+- **T2-0105** — p. 11; § 4.3 Permanently excluded; explicit; mapping: ``PES-SCP-0004``
+  - Verbatim: ``[PES-SCP-0004] MUST NOT import or export a file intended to be accepted by a physical PLC, HMI, drive, vendor engineering system, or industrial communication tool.``
+  - Basis: owning source requirement ID.
+- **T2-0106** — p. 11; § 4.3 Permanently excluded; explicit; mapping: ``PES-SCP-0005``
+  - Verbatim: ``[PES-SCP-0005] MUST NOT provide safety-rated programming, validation, certification, or claims.``
+  - Basis: owning source requirement ID.
+- **T2-0107** — p. 11; § 4.3 Permanently excluded; explicit; mapping: ``PES-SCP-0005``
+  - Verbatim: ``Ordinary educational interlocks shall be labeled non-safety-rated.``
+  - Basis: owning source requirement ID.
+- **T2-0108** — p. 11; § 4.3 Permanently excluded; explicit; mapping: ``PES-SCP-0006``
+  - Verbatim: ``[PES-SCP-0006] MUST NOT provide remote collaboration, a cloud project server, telemetry, cloud grading, cloud AI, or a production local HTTP/WebSocket server.``
+  - Basis: owning source requirement ID.
+- **T2-0109** — p. 11; § 4.4 Deferred and gated features; explicit; mapping: ``PES-SCP-0008``
+  - Verbatim: ``[PES-SCP-0008] MUST mark those features DEFERRED until later phases define semantics, risks, and acceptance tests.``
+  - Basis: owning source requirement ID.
+- **T2-0110** — p. 11; § 4.4 Deferred and gated features; explicit; mapping: ``PES-SCP-0009``
+  - Verbatim: ``[PES-SCP-0009] MUST NOT expose a deferred feature as an enabled control, working catalog item, selectable profile, successful command, or release claim.``
+  - Basis: owning source requirement ID.
+- **T2-0111** — p. 11; § 4.4 Deferred and gated features; explicit; mapping: ``PES-SCP-0010``
+  - Verbatim: ``[PES-SCP-0010] MUST require professional legal review before implementing behaviorally close auto-tuning, advanced motion trajectories, specialized drive models, unusual commissioning workflows, advanced digital-twin algorithms, or any Class 7 or Class 8 item.``
+  - Basis: owning source requirement ID.
+- **T2-0112** — p. 11; § 5.1 Constitutional invariant; explicit; mapping: ``PES-ISO-0001``
+  - Verbatim: ``[PES-ISO-0001] MUST enforce this statement as a permanent product-scope and security invariant.``
+  - Basis: owning source requirement ID.
+- **T2-0113** — p. 11; § 5.1 Constitutional invariant; explicit; mapping: ``PES-ISO-0002``
+  - Verbatim: ``[PES-ISO-0002] MUST NOT create a disabled adapter, generic PLC connection interface, transport provider, driver abstraction, protocol plugin, future-facing physical seam, feature flag, experimental connector, or "simulator now, hardware later" architecture.``
+  - Basis: owning source requirement ID.
+- **T2-0114** — p. 11; § 5.1 Constitutional invariant; explicit; mapping: ``PES-ISO-0003``
+  - Verbatim: ``[PES-ISO-0003] MUST model a controller session only by opaque VirtualControllerId and simulator state.``
+  - Basis: owning source requirement ID.
+- **T2-0115** — p. 11; § 5.1 Constitutional invariant; explicit; mapping: ``PES-ISO-0003``
+  - Verbatim: ``The domain API shall contain no hostname, IP endpoint, URL, port, socket, interface index, MAC address used as a host target, USB identity, serial handle, Bluetooth identity, or generic connection string.``
+  - Basis: owning source requirement ID.
+
+### Page 12 — 21 statement(s)
+
+- **T2-0116** — p. 12; § 5.1 Constitutional invariant; explicit; mapping: ``PES-ISO-0004``
+  - Verbatim: ``[PES-ISO-0004] MUST represent virtual addresses with opaque domain value types such as VirtualIpAddress.``
+  - Basis: owning source requirement ID.
+- **T2-0117** — p. 12; § 5.1 Constitutional invariant; explicit; mapping: ``PES-ISO-0004``
+  - Verbatim: ``They shall not convert into host endpoint types.``
+  - Basis: owning source requirement ID.
+- **T2-0118** — p. 12; § 5.1 Constitutional invariant; explicit; mapping: ``PES-ISO-0005``
+  - Verbatim: ``[PES-ISO-0005] MUST implement fictional device discovery only as an in-memory query whose result is a subset of VirtualUniverse devices.``
+  - Basis: owning source requirement ID.
+- **T2-0119** — p. 12; § 5.1 Constitutional invariant; explicit; mapping: ``PES-ISO-0006``
+  - Verbatim: ``[PES-ISO-0006] MUST implement Virtual Download only as an atomic internal build-artifact transaction against a VirtualControllerId.``
+  - Basis: owning source requirement ID.
+- **T2-0120** — p. 12; § 5.1 Constitutional invariant; explicit; mapping: ``PES-ISO-0007``
+  - Verbatim: ``[PES-ISO-0007] MUST implement controller/process/HMI value exchange only through typed internal messages and InternalTagBus.``
+  - Basis: owning source requirement ID.
+- **T2-0121** — p. 12; § 5.2 Forbidden communication capabilities; explicit; mapping: ``PES-ISO-0008``
+  - Verbatim: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0122** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0008``
+  - Verbatim: ``S7, S7comm, or S7comm-plus;``
+  - Modal lead-in: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0123** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0008``
+  - Verbatim: ``PROFINET DCP, PROFINET I/O, or PROFIBUS;``
+  - Modal lead-in: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0124** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0008``
+  - Verbatim: ``EtherNet/IP or CIP;``
+  - Modal lead-in: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0125** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0008``
+  - Verbatim: ``Modbus TCP or RTU;``
+  - Modal lead-in: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0126** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0008``
+  - Verbatim: ``external OPC UA;``
+  - Modal lead-in: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0127** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0008``
+  - Verbatim: ``EtherCAT, CAN, CANopen, DeviceNet, BACnet, MQTT, or other physical/industrial transports;``
+  - Modal lead-in: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0128** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0008``
+  - Verbatim: ``vendor PLC, HMI, drive, or I/O SDKs;``
+  - Modal lead-in: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0129** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0008``
+  - Verbatim: ``TIA Openness, Siemens engineering DLLs, or PLCSIM APIs;``
+  - Modal lead-in: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0130** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0008``
+  - Verbatim: ``physical device discovery or host NIC enumeration;``
+  - Modal lead-in: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0131** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0008``
+  - Verbatim: ``raw Ethernet, packet capture, or industrial protocol frames.``
+  - Modal lead-in: ``[PES-ISO-0008] MUST NOT contain or expose implementations of:``
+  - Basis: owning source requirement ID.
+- **T2-0132** — p. 12; § 5.2 Forbidden communication capabilities; explicit; mapping: ``PES-ISO-0009``
+  - Verbatim: ``[PES-ISO-0009] MUST NOT let shipped production code invoke or expose:``
+  - Basis: owning source requirement ID.
+- **T2-0133** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0009``
+  - Verbatim: ``TCP, UDP, raw sockets, TLS, DNS, HTTP, HTTPS, local HTTP, localhost servers, or generic socket APIs;``
+  - Modal lead-in: ``[PES-ISO-0009] MUST NOT let shipped production code invoke or expose:``
+  - Basis: owning source requirement ID.
+- **T2-0134** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0009``
+  - Verbatim: ``fetch, XMLHttpRequest, WebSocket, WebRTC, EventSource to an endpoint, sendBeacon, WebTransport, or service-worker network interception;``
+  - Modal lead-in: ``[PES-ISO-0009] MUST NOT let shipped production code invoke or expose:``
+  - Basis: owning source requirement ID.
+- **T2-0135** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0009``
+  - Verbatim: ``WebSerial, WebUSB, WebBluetooth, WebHID, WebNFC, WebMIDI, or later equivalent device APIs;``
+  - Modal lead-in: ``[PES-ISO-0009] MUST NOT let shipped production code invoke or expose:``
+  - Basis: owning source requirement ID.
+- **T2-0136** — p. 12; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0009``
+  - Verbatim: ``serial ports, USB, Bluetooth, pcap, native device enumeration, or arbitrary filesystem devices;``
+  - Modal lead-in: ``[PES-ISO-0009] MUST NOT let shipped production code invoke or expose:``
+  - Basis: owning source requirement ID.
+
+### Page 13 — 17 statement(s)
+
+- **T2-0137** — p. 13; § 5.2 Forbidden communication capabilities; inherited bullet; mapping: ``PES-ISO-0009``
+  - Verbatim: ``child-process execution, shell commands, dynamic library loading, native FFI, dlopen, arbitrary native bridges, or plugins able to reach those capabilities.``
+  - Modal lead-in: ``[PES-ISO-0009] MUST NOT let shipped production code invoke or expose:``
+  - Basis: owning source requirement ID.
+- **T2-0138** — p. 13; § 5.2 Forbidden communication capabilities; explicit; mapping: ``PES-ISO-0010``
+  - Verbatim: ``[PES-ISO-0010] MUST apply the prohibition to the entire shipped classroom product, including UI, project model, compiler, runtime, process engine, diagnostics, HMI, Teacher Mode, Learning Lens, importers, exporters, scripting, packaging glue, and production dependencies.``
+  - Basis: owning source requirement ID.
+- **T2-0139** — p. 13; § 5.3 Narrow host allowlist; explicit; mapping: ``PES-SEC-0001``
+  - Verbatim: ``[PES-SEC-0001] MAY permit only these host capabilities in the production product:``
+  - Basis: owning source requirement ID.
+- **T2-0140** — p. 13; § 5.3 Narrow host allowlist; inherited bullet; mapping: ``PES-SEC-0001``
+  - Verbatim: ``local rendering and user interaction;``
+  - Modal lead-in: ``[PES-SEC-0001] MAY permit only these host capabilities in the production product:``
+  - Basis: owning source requirement ID.
+- **T2-0141** — p. 13; § 5.3 Narrow host allowlist; inherited bullet; mapping: ``PES-SEC-0001``
+  - Verbatim: ``explicit user-initiated open/save of simulator-native project, archive, CSV, JSON, image, or report files approved by later requirements;``
+  - Modal lead-in: ``[PES-SEC-0001] MAY permit only these host capabilities in the production product:``
+  - Basis: owning source requirement ID.
+- **T2-0142** — p. 13; § 5.3 Narrow host allowlist; inherited bullet; mapping: ``PES-SEC-0001``
+  - Verbatim: ``controlled application-local persistence;``
+  - Modal lead-in: ``[PES-SEC-0001] MAY permit only these host capabilities in the production product:``
+  - Basis: owning source requirement ID.
+- **T2-0143** — p. 13; § 5.3 Narrow host allowlist; inherited bullet; mapping: ``PES-SEC-0001``
+  - Verbatim: ``typed UI-to-worker messaging;``
+  - Modal lead-in: ``[PES-SEC-0001] MAY permit only these host capabilities in the production product:``
+  - Basis: owning source requirement ID.
+- **T2-0144** — p. 13; § 5.3 Narrow host allowlist; inherited bullet; mapping: ``PES-SEC-0001``
+  - Verbatim: ``memory allocation;``
+  - Modal lead-in: ``[PES-SEC-0001] MAY permit only these host capabilities in the production product:``
+  - Basis: owning source requirement ID.
+- **T2-0145** — p. 13; § 5.3 Narrow host allowlist; inherited bullet; mapping: ``PES-SEC-0001``
+  - Verbatim: ``simulator-controlled monotonic virtual time inputs;``
+  - Modal lead-in: ``[PES-SEC-0001] MAY permit only these host capabilities in the production product:``
+  - Basis: owning source requirement ID.
+- **T2-0146** — p. 13; § 5.3 Narrow host allowlist; inherited bullet; mapping: ``PES-SEC-0001``
+  - Verbatim: ``printing or local document export only when a later requirement approves it and no external resource is loaded.``
+  - Modal lead-in: ``[PES-SEC-0001] MAY permit only these host capabilities in the production product:``
+  - Basis: owning source requirement ID.
+- **T2-0147** — p. 13; § 5.3 Narrow host allowlist; explicit; mapping: ``PES-SEC-0002``
+  - Verbatim: ``[PES-SEC-0002] MUST expose file persistence as bounded document operations, not arbitrary path traversal, executable launch, shell access, device files, or general-purpose host filesystem access.``
+  - Basis: owning source requirement ID.
+- **T2-0148** — p. 13; § 5.3 Narrow host allowlist; explicit; mapping: ``PES-SEC-0003``
+  - Verbatim: ``[PES-SEC-0003] MUST ensure typed UI-to-worker IPC carries domain messages only.``
+  - Basis: owning source requirement ID.
+- **T2-0149** — p. 13; § 5.3 Narrow host allowlist; explicit; mapping: ``PES-SEC-0003``
+  - Verbatim: ``It shall not accept arbitrary code, URLs, shell strings, native method names, or generic transport descriptors.``
+  - Basis: owning source requirement ID.
+- **T2-0150** — p. 13; § 5.4 Production versus development boundary; explicit; mapping: ``PES-SEC-0005``
+  - Verbatim: ``[PES-SEC-0005] MUST keep those development capabilities outside production dependency graphs, shipped bundles, runtime permissions, and user-reachable code.``
+  - Basis: owning source requirement ID.
+- **T2-0151** — p. 13; § 5.4 Production versus development boundary; explicit; mapping: ``PES-SEC-0006``
+  - Verbatim: ``[PES-SEC-0006] MUST build the production classroom application without a local web server.``
+  - Basis: owning source requirement ID.
+- **T2-0152** — p. 13; § 5.4 Production versus development boundary; explicit; mapping: ``PES-SEC-0006``
+  - Verbatim: ``Assets, workers, fonts, WASM, help, and examples shall be bundled and loaded locally without HTTP or WebSocket.``
+  - Basis: owning source requirement ID.
+- **T2-0153** — p. 13; § 5.4 Production versus development boundary; explicit; mapping: ``PES-SEC-0007``
+  - Verbatim: ``[PES-SEC-0007] MUST enforce a production Content Security Policy with at least connect-src 'none' and default-deny restrictions on external scripts, styles, fonts, images, media, objects, frames, forms, manifests, base-URI changes, and unsolicited navigation.``
+  - Basis: owning source requirement ID.
+
+### Page 14 — 14 statement(s)
+
+- **T2-0154** — p. 14; § 5.4 Production versus development boundary; explicit; mapping: ``PES-SEC-0008``
+  - Verbatim: ``[PES-SEC-0008] MUST NOT include a network updater inside the trusted product.``
+  - Basis: owning source requirement ID.
+- **T2-0155** — p. 14; § 5.4 Production versus development boundary; explicit; mapping: ``PES-SEC-0008``
+  - Verbatim: ``If a future updater is approved, it must be a separately packaged, separately permissioned product absent from classroom builds and unable to be invoked by trusted simulator code.``
+  - Basis: owning source requirement ID.
+- **T2-0156** — p. 14; § 5.5 Threat and claim boundary; explicit; mapping: ``PES-SEC-0009``
+  - Verbatim: ``[PES-SEC-0009] MUST claim that the unmodified shipped product has no physical-industrial communication code path or capability.``
+  - Basis: owning source requirement ID.
+- **T2-0157** — p. 14; § 5.5 Threat and claim boundary; explicit; mapping: ``PES-SEC-0009``
+  - Verbatim: ``It shall not claim that a maliciously modified binary or compromised host operating system is metaphysically incapable of networking.``
+  - Basis: owning source requirement ID.
+- **T2-0158** — p. 14; § 5.5 Threat and claim boundary; explicit; mapping: ``PES-SEC-0010``
+  - Verbatim: ``[PES-SEC-0010] MUST make zero-egress evidence process-scoped to the application and its child processes, while distinguishing unrelated host traffic.``
+  - Basis: owning source requirement ID.
+- **T2-0159** — p. 14; § 5.5 Threat and claim boundary; explicit; mapping: ``PES-SEC-0011``
+  - Verbatim: ``[PES-SEC-0011] MUST fail release on attempted network syscalls or endpoint resolution even if a firewall blocks packets.``
+  - Basis: owning source requirement ID.
+- **T2-0160** — p. 14; § 5.6 Untrusted files and scripting; explicit; mapping: ``PES-SEC-0012``
+  - Verbatim: ``[PES-SEC-0012] MUST treat every imported project, archive, CSV, JSON, library, scenario, image, or future script as untrusted input.``
+  - Basis: owning source requirement ID.
+- **T2-0161** — p. 14; § 5.6 Untrusted files and scripting; explicit; mapping: ``PES-SEC-0013``
+  - Verbatim: ``[PES-SEC-0013] MUST apply schema validation, canonical path validation, archive traversal prevention, duplicate-entry detection, compression-ratio limits, uncompressed-size limits, file-count limits, nesting limits, string/array/object limits, image-dimension limits, and deterministic resource budgets.``
+  - Basis: owning source requirement ID.
+- **T2-0162** — p. 14; § 5.6 Untrusted files and scripting; explicit; mapping: ``PES-SEC-0014``
+  - Verbatim: ``[PES-SEC-0014] MUST NOT execute code from a project, archive, library, scenario, HMI object, lesson, or sample.``
+  - Basis: owning source requirement ID.
+- **T2-0163** — p. 14; § 5.6 Untrusted files and scripting; explicit; mapping: ``PES-SEC-0015``
+  - Verbatim: ``[PES-SEC-0015] MUST NOT use eval, Function constructors, dynamic native modules, arbitrary JavaScript, arbitrary WebAssembly, macros, shell commands, or executable embedded content.``
+  - Basis: owning source requirement ID.
+- **T2-0164** — p. 14; § 5.6 Untrusted files and scripting; explicit; mapping: ``PES-SEC-0016``
+  - Verbatim: ``[PES-SEC-0016] MUST make any future HMI or assessment scripting a capability-limited original DSL or interpreter with deterministic execution, explicit resource limits, no host objects, no dynamic imports, no network, no filesystem, no process access, and no escape to general-purpose code.``
+  - Basis: owning source requirement ID.
+- **T2-0165** — p. 14; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0011``
+  - Verbatim: ``[PES-ISO-0011] MUST make every isolation test release-blocking.``
+  - Basis: owning source requirement ID.
+- **T2-0166** — p. 14; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0012``
+  - Verbatim: ``[PES-ISO-0012] MUST scan production dependency graphs, lockfiles, optional dependencies, aliases, native modules, dynamic imports, WASM imports, and packaged output for prohibited capabilities.``
+  - Basis: owning source requirement ID.
+- **T2-0167** — p. 14; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0013``
+  - Verbatim: ``[PES-ISO-0013] MUST statically scan trusted and shipped source for forbidden browser, Node, native, FFI, subprocess, device, networking, and industrial APIs.``
+  - Basis: owning source requirement ID.
+
+### Page 15 — 12 statement(s)
+
+- **T2-0168** — p. 15; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0014``
+  - Verbatim: ``[PES-ISO-0014] MUST inspect every semantic/runtime WASM module.``
+  - Basis: owning source requirement ID.
+- **T2-0169** — p. 15; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0015``
+  - Verbatim: ``[PES-ISO-0015] MUST run the complete product and course suite with all network adapters disabled or removed.``
+  - Basis: owning source requirement ID.
+- **T2-0170** — p. 15; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0016``
+  - Verbatim: ``[PES-ISO-0016] MUST run zero-egress and zero-attempt tests covering project creation, virtual addresses, discovery, compilation, virtual load, RUN/STOP, HMI, monitoring, watch, modify, force, trace, diagnostics, faults, lessons, grading, save, and export.``
+  - Basis: owning source requirement ID.
+- **T2-0171** — p. 15; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0017``
+  - Verbatim: ``[PES-ISO-0017] MUST fuzz all user-text and address-bearing fields with loopback, private, public, multicast, broadcast, IPv6, hostnames, URLs, industrial-looking ports, UNC paths, device paths, and malformed endpoint strings.``
+  - Basis: owning source requirement ID.
+- **T2-0172** — p. 15; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0017``
+  - Verbatim: ``All values shall remain inert data.``
+  - Basis: owning source requirement ID.
+- **T2-0173** — p. 15; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0018``
+  - Verbatim: ``[PES-ISO-0018] MUST prove that device discovery results remain unchanged in the presence of a live LAN containing real or PLC-like devices.``
+  - Basis: owning source requirement ID.
+- **T2-0174** — p. 15; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0019``
+  - Verbatim: ``[PES-ISO-0019] MUST prove at type, deserialization, reflection, and UI boundaries that Virtual Download accepts only VirtualControllerId.``
+  - Basis: owning source requirement ID.
+- **T2-0175** — p. 15; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0020``
+  - Verbatim: ``[PES-ISO-0020] MUST prove every HMI binding resolves only through InternalTagBus.``
+  - Basis: owning source requirement ID.
+- **T2-0176** — p. 15; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0021``
+  - Verbatim: ``[PES-ISO-0021] MUST prove exports contain no vendor project, firmware, load binary, deployable industrial payload, protocol frame, executable, or file directly accepted by a physical industrial tool.``
+  - Basis: owning source requirement ID.
+- **T2-0177** — p. 15; § 5.7 Release-blocking isolation proof; explicit; mapping: ``PES-ISO-0022``
+  - Verbatim: ``[PES-ISO-0022] MUST retain machine-readable evidence for each isolation gate with artifact hash, test version, date, platform, result, and logs sufficient to reproduce the test.``
+  - Basis: owning source requirement ID.
+- **T2-0178** — p. 15; § 6.1 Independent implementation; explicit; mapping: ``PES-CRM-0001``
+  - Verbatim: ``[PES-CRM-0001] MUST use original expression and independent implementation.``
+  - Basis: owning source requirement ID.
+- **T2-0179** — p. 15; § 6.1 Independent implementation; explicit; mapping: ``PES-CRM-0002``
+  - Verbatim: ``[PES-CRM-0002] MUST treat educational purpose as the mission, not permission to copy and not a substitute for legal analysis.``
+  - Basis: owning source requirement ID.
+
+### Page 16 — 18 statement(s)
+
+- **T2-0180** — p. 16; § 6.1 Independent implementation; explicit; mapping: ``PES-CRM-0004``
+  - Verbatim: ``[PES-CRM-0004] MUST NOT copy Siemens screens, layout composition, icons, help prose, diagnostic prose or numbers, artwork, device illustrations, completion databases, project formats, compiler components, firmware behavior, or proprietary algorithms.``
+  - Basis: owning source requirement ID.
+- **T2-0181** — p. 16; § 6.1 Independent implementation; explicit; mapping: ``PES-CRM-0005``
+  - Verbatim: ``[PES-CRM-0005] MUST use original names, event codes, visual language, device identities, project structures, schemas, source representations, sample projects, and user documentation.``
+  - Basis: owning source requirement ID.
+- **T2-0182** — p. 16; § 6.2 IP classification; explicit; mapping: ``PES-CRM-0007``
+  - Verbatim: ``Every externally inspired requirement shall be classified before implementation:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0183** — p. 16; § 6.2 IP classification; inherited table row; mapping: ``PES-CRM-0001``
+  - Verbatim: ``1 | Functional behavior | Independently implement``
+  - Modal lead-in: ``Every externally inspired requirement shall be classified before implementation:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0184** — p. 16; § 6.2 IP classification; inherited table row; mapping: ``PES-CRM-0008``
+  - Verbatim: ``2 | Industry or IEC convention | Implement from lawfully licensed standards or public behavior``
+  - Modal lead-in: ``Every externally inspired requirement shall be classified before implementation:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0185** — p. 16; § 6.2 IP classification; inherited table row; mapping: ``PES-CRM-0003``, ``PES-CRM-0004``, ``PES-CRM-0005``
+  - Verbatim: ``3 | Workflow behavior | Preserve useful workflow logic; redesign visuals and expression``
+  - Modal lead-in: ``Every externally inspired requirement shall be classified before implementation:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0186** — p. 16; § 6.2 IP classification; inherited table row; mapping: ``PES-CRM-0004``, ``PES-CRM-0005``
+  - Verbatim: ``4 | Vendor-specific expression | Redesign``
+  - Modal lead-in: ``Every externally inspired requirement shall be classified before implementation:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0187** — p. 16; § 6.2 IP classification; inherited table row; mapping: ``PES-CRM-0012``, ``PES-CRM-0013``
+  - Verbatim: ``5 | Branding or trademark | Replace or exclude``
+  - Modal lead-in: ``Every externally inspired requirement shall be classified before implementation:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0188** — p. 16; § 6.2 IP classification; inherited table row; mapping: ``PES-CRM-0001``, ``PES-CRM-0004``, ``PES-CRM-0005``
+  - Verbatim: ``6 | Proprietary technology | Create an original simulated equivalent``
+  - Modal lead-in: ``Every externally inspired requirement shall be classified before implementation:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0189** — p. 16; § 6.2 IP classification; inherited table row; mapping: ``PES-SCP-0010``
+  - Verbatim: ``7 | Patent or licensing concern | BLOCKED pending focused review``
+  - Modal lead-in: ``Every externally inspired requirement shall be classified before implementation:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0190** — p. 16; § 6.2 IP classification; inherited table row; mapping: ``PES-CRM-0006``, ``PES-SCP-0010``
+  - Verbatim: ``8 | Uncertain or high-risk | BLOCKED pending professional legal review``
+  - Modal lead-in: ``Every externally inspired requirement shall be classified before implementation:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0191** — p. 16; § 6.2 IP classification; inherited table row; mapping: ``PES-SCP-0002``, ``PES-ISO-0001``, ``PES-ISO-0002``
+  - Verbatim: ``9 | Physical industrial communication | Permanently EXCLUDED``
+  - Modal lead-in: ``Every externally inspired requirement shall be classified before implementation:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0192** — p. 16; § 6.2 IP classification; explicit; mapping: ``PES-CRM-0006``
+  - Verbatim: ``[PES-CRM-0006] MUST default an unclassified or uncertain item to Class 8, not "probably permitted."``
+  - Basis: owning source requirement ID.
+- **T2-0193** — p. 16; § 6.2 IP classification; explicit; mapping: ``PES-CRM-0007``
+  - Verbatim: ``[PES-CRM-0007] MUST NOT begin implementation of a research-derived behavior until its requirement record contains an IP classification and disposition.``
+  - Basis: owning source requirement ID.
+- **T2-0194** — p. 16; § 6.3 Permitted and forbidden sources; explicit; mapping: ``PES-CRM-0009``
+  - Verbatim: ``[PES-CRM-0009] MUST NOT use:``
+  - Basis: owning source requirement ID.
+- **T2-0195** — p. 16; § 6.3 Permitted and forbidden sources; inherited bullet; mapping: ``PES-CRM-0009``
+  - Verbatim: ``Siemens source code, leaked code, leaked manuals, partner-only material, or confidential training material;``
+  - Modal lead-in: ``[PES-CRM-0009] MUST NOT use:``
+  - Basis: owning source requirement ID.
+- **T2-0196** — p. 16; § 6.3 Permitted and forbidden sources; inherited bullet; mapping: ``PES-CRM-0009``
+  - Verbatim: ``decompiled or disassembled output;``
+  - Modal lead-in: ``[PES-CRM-0009] MUST NOT use:``
+  - Basis: owning source requirement ID.
+- **T2-0197** — p. 16; § 6.3 Permitted and forbidden sources; inherited bullet; mapping: ``PES-CRM-0009``
+  - Verbatim: ``executable resources, extracted icons, resource packages, or memory scraping;``
+  - Modal lead-in: ``[PES-CRM-0009] MUST NOT use:``
+  - Basis: owning source requirement ID.
+
+### Page 17 — 20 statement(s)
+
+- **T2-0198** — p. 17; § 6.3 Permitted and forbidden sources; inherited bullet; mapping: ``PES-CRM-0009``
+  - Verbatim: ``protocol captures intended to reproduce vendor communications;``
+  - Modal lead-in: ``[PES-CRM-0009] MUST NOT use:``
+  - Basis: owning source requirement ID.
+- **T2-0199** — p. 17; § 6.3 Permitted and forbidden sources; inherited bullet; mapping: ``PES-CRM-0009``
+  - Verbatim: ``encrypted project-format cracking;``
+  - Modal lead-in: ``[PES-CRM-0009] MUST NOT use:``
+  - Basis: owning source requirement ID.
+- **T2-0200** — p. 17; § 6.3 Permitted and forbidden sources; inherited bullet; mapping: ``PES-CRM-0009``
+  - Verbatim: ``pirated software, license bypass, access-control circumvention, or API hooking;``
+  - Modal lead-in: ``[PES-CRM-0009] MUST NOT use:``
+  - Basis: owning source requirement ID.
+- **T2-0201** — p. 17; § 6.3 Permitted and forbidden sources; inherited bullet; mapping: ``PES-CRM-0009``
+  - Verbatim: ``screenshots, manual diagrams, copied tables, copied hardware illustrations, or copied diagnostic text as implementation assets.``
+  - Modal lead-in: ``[PES-CRM-0009] MUST NOT use:``
+  - Basis: owning source requirement ID.
+- **T2-0202** — p. 17; § 6.3 Permitted and forbidden sources; explicit; mapping: ``PES-CRM-0010``
+  - Verbatim: ``[PES-CRM-0010] MUST prohibit observation of an installed TIA Portal product for implementation verification until counsel reviews the applicable license terms and approves a written observation procedure.``
+  - Basis: owning source requirement ID.
+- **T2-0203** — p. 17; § 6.3 Permitted and forbidden sources; explicit; mapping: ``PES-CRM-0011``
+  - Verbatim: ``[PES-CRM-0011] MUST keep screenshots and vendor assets out of production source, design files, tickets, code-generation prompts, training corpora, mockups, and asset pipelines unless counsel approves a quarantined evidence process.``
+  - Basis: owning source requirement ID.
+- **T2-0204** — p. 17; § 6.3 Permitted and forbidden sources; explicit; mapping: ``PES-CRM-0011``
+  - Verbatim: ``Quarantined evidence shall never be shipped.``
+  - Basis: owning source requirement ID.
+- **T2-0205** — p. 17; § 6.4 Trademark, trade dress, and public language; explicit; mapping: ``PES-CRM-0012``
+  - Verbatim: ``[PES-CRM-0012] MUST NOT use Siemens, SIMATIC, TIA Portal, S7, WinCC, or PLCSIM marks as product identity, catalog identity, installer branding, repository branding, splash-screen branding, store listing, domain name, or implied affiliation.``
+  - Basis: owning source requirement ID.
+- **T2-0206** — p. 17; § 6.4 Trademark, trade dress, and public language; explicit; mapping: ``PES-CRM-0013``
+  - Verbatim: ``[PES-CRM-0013] MUST NOT copy or sample a Siemens color system, icon silhouette family, device illustration style, typography, spacing system, screen composition, or overall trade dress.``
+  - Basis: owning source requirement ID.
+- **T2-0207** — p. 17; § 6.4 Trademark, trade dress, and public language; explicit; mapping: ``PES-CRM-0014``
+  - Verbatim: ``[PES-CRM-0014] MUST hold every public comparative statement mentioning Siemens or TIA Portal as BLOCKED until trademark counsel approves the exact wording and notices.``
+  - Basis: owning source requirement ID.
+- **T2-0208** — p. 17; § 6.4 Trademark, trade dress, and public language; explicit; mapping: ``PES-CRM-0015``
+  - Verbatim: ``[PES-CRM-0015] MUST treat the working title in this directive as descriptive only.``
+  - Basis: owning source requirement ID.
+- **T2-0209** — p. 17; § 6.5 Evidence and contamination control; explicit; mapping: ``PES-CRM-0016``
+  - Verbatim: ``[PES-CRM-0016] MUST create CLEAN_ROOM_POLICY.md before feature implementation.``
+  - Basis: owning source requirement ID.
+- **T2-0210** — p. 17; § 6.5 Evidence and contamination control; explicit; mapping: ``PES-CRM-0017``
+  - Verbatim: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0211** — p. 17; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``requirement ID;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0212** — p. 17; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``paraphrased observed behavior;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0213** — p. 17; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``source title, publisher, version/date, durable location, and access date;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0214** — p. 17; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``report classification;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0215** — p. 17; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``IP class and disposition;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0216** — p. 17; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``simulator-owned implementation requirement;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0217** — p. 17; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``forbidden shortcut;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+
+### Page 18 — 22 statement(s)
+
+- **T2-0218** — p. 18; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``author;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0219** — p. 18; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``reviewer;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0220** — p. 18; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``review status and date;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0221** — p. 18; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``implementation component;``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0222** — p. 18; § 6.5 Evidence and contamination control; inherited bullet; mapping: ``PES-CRM-0017``
+  - Verbatim: ``verification IDs.``
+  - Modal lead-in: ``[PES-CRM-0017] MUST maintain a requirement evidence register with:``
+  - Basis: owning source requirement ID.
+- **T2-0223** — p. 18; § 6.5 Evidence and contamination control; explicit; mapping: ``PES-CRM-0018``
+  - Verbatim: ``[PES-CRM-0018] MUST quarantine a contribution suspected of contamination.``
+  - Basis: owning source requirement ID.
+- **T2-0224** — p. 18; § 6.5 Evidence and contamination control; explicit; mapping: ``PES-CRM-0018``
+  - Verbatim: ``It shall not enter builds, prompts, generated assets, or derived work until reviewed.``
+  - Basis: owning source requirement ID.
+- **T2-0225** — p. 18; § 6.5 Evidence and contamination control; explicit; mapping: ``PES-CRM-0019``
+  - Verbatim: ``[PES-CRM-0019] MUST perform a clean rewrite without reusing tainted code, prose, assets, naming, layouts, or extracted structure when contamination is confirmed.``
+  - Basis: owning source requirement ID.
+- **T2-0226** — p. 18; § 6.5 Evidence and contamination control; explicit; mapping: ``PES-CRM-0020``
+  - Verbatim: ``[PES-CRM-0020] MUST require contributor attestation that no forbidden source, asset, reverse-engineering output, protocol capture, or confidential material was used.``
+  - Basis: owning source requirement ID.
+- **T2-0227** — p. 18; § 6.6 Asset and dependency provenance; explicit; mapping: ``PES-CRM-0021``
+  - Verbatim: ``[PES-CRM-0021] MUST register every shipped image, icon, font, sound, animation, template, sample project, translation, and other non-code asset with:``
+  - Basis: owning source requirement ID.
+- **T2-0228** — p. 18; § 6.6 Asset and dependency provenance; inherited bullet; mapping: ``PES-CRM-0021``
+  - Verbatim: ``asset ID;``
+  - Modal lead-in: ``[PES-CRM-0021] MUST register every shipped image, icon, font, sound, animation, template, sample project, translation, and other non-code asset with:``
+  - Basis: owning source requirement ID.
+- **T2-0229** — p. 18; § 6.6 Asset and dependency provenance; inherited bullet; mapping: ``PES-CRM-0021``
+  - Verbatim: ``author/source;``
+  - Modal lead-in: ``[PES-CRM-0021] MUST register every shipped image, icon, font, sound, animation, template, sample project, translation, and other non-code asset with:``
+  - Basis: owning source requirement ID.
+- **T2-0230** — p. 18; § 6.6 Asset and dependency provenance; inherited bullet; mapping: ``PES-CRM-0021``
+  - Verbatim: ``license and evidence location;``
+  - Modal lead-in: ``[PES-CRM-0021] MUST register every shipped image, icon, font, sound, animation, template, sample project, translation, and other non-code asset with:``
+  - Basis: owning source requirement ID.
+- **T2-0231** — p. 18; § 6.6 Asset and dependency provenance; inherited bullet; mapping: ``PES-CRM-0021``
+  - Verbatim: ``created date;``
+  - Modal lead-in: ``[PES-CRM-0021] MUST register every shipped image, icon, font, sound, animation, template, sample project, translation, and other non-code asset with:``
+  - Basis: owning source requirement ID.
+- **T2-0232** — p. 18; § 6.6 Asset and dependency provenance; inherited bullet; mapping: ``PES-CRM-0021``
+  - Verbatim: ``hash algorithm and original hash;``
+  - Modal lead-in: ``[PES-CRM-0021] MUST register every shipped image, icon, font, sound, animation, template, sample project, translation, and other non-code asset with:``
+  - Basis: owning source requirement ID.
+- **T2-0233** — p. 18; § 6.6 Asset and dependency provenance; inherited bullet; mapping: ``PES-CRM-0021``
+  - Verbatim: ``derivative chain and modifications;``
+  - Modal lead-in: ``[PES-CRM-0021] MUST register every shipped image, icon, font, sound, animation, template, sample project, translation, and other non-code asset with:``
+  - Basis: owning source requirement ID.
+- **T2-0234** — p. 18; § 6.6 Asset and dependency provenance; inherited bullet; mapping: ``PES-CRM-0021``
+  - Verbatim: ``generated-asset disclosure where applicable;``
+  - Modal lead-in: ``[PES-CRM-0021] MUST register every shipped image, icon, font, sound, animation, template, sample project, translation, and other non-code asset with:``
+  - Basis: owning source requirement ID.
+- **T2-0235** — p. 18; § 6.6 Asset and dependency provenance; inherited bullet; mapping: ``PES-CRM-0021``
+  - Verbatim: ``reviewer, review status, and approval date.``
+  - Modal lead-in: ``[PES-CRM-0021] MUST register every shipped image, icon, font, sound, animation, template, sample project, translation, and other non-code asset with:``
+  - Basis: owning source requirement ID.
+- **T2-0236** — p. 18; § 6.6 Asset and dependency provenance; explicit; mapping: ``PES-CRM-0022``
+  - Verbatim: ``[PES-CRM-0022] MUST reject unregistered or unapproved assets in CI.``
+  - Basis: owning source requirement ID.
+- **T2-0237** — p. 18; § 6.6 Asset and dependency provenance; explicit; mapping: ``PES-CRM-0023``
+  - Verbatim: ``[PES-CRM-0023] MUST NOT trace screenshots or icons, redraw vendor artwork, recolor vendor assets, or sample vendor branding as proof of originality.``
+  - Basis: owning source requirement ID.
+- **T2-0238** — p. 18; § 6.6 Asset and dependency provenance; explicit; mapping: ``PES-CRM-0024``
+  - Verbatim: ``[PES-CRM-0024] MUST generate an SBOM for release artifacts and review direct, transitive, optional, native, font, and asset licenses.``
+  - Basis: owning source requirement ID.
+- **T2-0239** — p. 18; § 6.6 Asset and dependency provenance; explicit; mapping: ``PES-CRM-0025``
+  - Verbatim: ``[PES-CRM-0025] MUST block dependencies whose license obligations are incompatible with the intended distribution or cannot be satisfied and documented.``
+  - Basis: owning source requirement ID.
+
+### Page 19 — 11 statement(s)
+
+- **T2-0240** — p. 19; § 6.7 Original native file boundary; explicit; mapping: ``PES-PRJ-0001``
+  - Verbatim: ``[PES-PRJ-0001] MUST use only simulator-native, brand-neutral project and archive formats.``
+  - Basis: owning source requirement ID.
+- **T2-0241** — p. 19; § 6.7 Original native file boundary; explicit; mapping: ``PES-PRJ-0002``
+  - Verbatim: ``[PES-PRJ-0002] MUST use the provisional internal extensions .vlabproj for a project package and .vlabarchive for an archive until an approved product-name decision replaces them.``
+  - Basis: owning source requirement ID.
+- **T2-0242** — p. 19; § 6.7 Original native file boundary; explicit; mapping: ``PES-PRJ-0003``
+  - Verbatim: ``[PES-PRJ-0003] MUST make a project package a documented, versioned, non-executable container of canonical UTF-8 data and simulator-owned binary-neutral assets.``
+  - Basis: owning source requirement ID.
+- **T2-0243** — p. 19; § 6.7 Original native file boundary; explicit; mapping: ``PES-PRJ-0004``
+  - Verbatim: ``[PES-PRJ-0004] MUST place a manifest in every project/archive containing schema version, pinned TrainingProfile ID and version, object-index version, required capabilities, file inventory, SHA-256 hashes, creation application version, and migration history.``
+  - Basis: owning source requirement ID.
+- **T2-0244** — p. 19; § 6.7 Original native file boundary; explicit; mapping: ``PES-PRJ-0005``
+  - Verbatim: ``[PES-PRJ-0005] MUST make project integrity failures visible and fail closed.``
+  - Basis: owning source requirement ID.
+- **T2-0245** — p. 19; § 6.7 Original native file boundary; explicit; mapping: ``PES-PRJ-0005``
+  - Verbatim: ``It shall not silently discard unknown, corrupt, oversized, or hash-mismatched content.``
+  - Basis: owning source requirement ID.
+- **T2-0246** — p. 19; § 6.7 Original native file boundary; explicit; mapping: ``PES-PRJ-0006``
+  - Verbatim: ``[PES-PRJ-0006] MUST NOT use .apXX, .zapXX, a Siemens library format, PLCopen XML, vendor source export, or another real-tool format unless a later separately researched and legally approved directive explicitly adds a non-physical interoperability feature.``
+  - Basis: owning source requirement ID.
+- **T2-0247** — p. 19; § 6.7 Original native file boundary; explicit; mapping: ``PES-PRJ-0007``
+  - Verbatim: ``[PES-PRJ-0007] MUST distinguish simulator-native CSV/JSON interchange from vendor or physical deployment.``
+  - Basis: owning source requirement ID.
+- **T2-0248** — p. 19; § 6.7 Original native file boundary; explicit; mapping: ``PES-PRJ-0007``
+  - Verbatim: ``Native exports shall contain no executable code and shall be documented as simulator-only.``
+  - Basis: owning source requirement ID.
+- **T2-0249** — p. 19; § 7.1 Trust zones; explicit table row; mapping: ``PES-SEC-0012``, ``PES-SEC-0013``, ``PES-SEC-0014``
+  - Verbatim: ``Untrusted content | imported projects, archives, CSV/JSON, images, future libraries/scenarios/scripts | Validate, limit, never execute``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0250** — p. 19; § 7.1 Trust zones; explicit table row; mapping: ``PES-SEC-0004``, ``PES-SEC-0005``
+  - Verbatim: ``Development environment | package managers, compilers, test servers, CI tools | May use development capabilities but shall not enter production``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+
+### Page 20 — 20 statement(s)
+
+- **T2-0251** — p. 20; § 7.1 Trust zones; explicit; mapping: ``PES-SEC-0017``
+  - Verbatim: ``[PES-SEC-0017] MUST document the trust boundary in SECURITY_INVARIANTS.md and keep package ownership aligned to it.``
+  - Basis: owning source requirement ID.
+- **T2-0252** — p. 20; § 7.1 Trust zones; explicit; mapping: ``PES-SEC-0018``
+  - Verbatim: ``[PES-SEC-0018] MUST keep persistence and presentation code from bypassing domain commands or writing trusted semantic state directly.``
+  - Basis: owning source requirement ID.
+- **T2-0253** — p. 20; § 7.1 Trust zones; explicit; mapping: ``PES-SEC-0019``
+  - Verbatim: ``[PES-SEC-0019] MUST use explicit serialization schemas at trust boundaries.``
+  - Basis: owning source requirement ID.
+- **T2-0254** — p. 20; § 7.1 Trust zones; explicit; mapping: ``PES-SEC-0019``
+  - Verbatim: ``"Any," untagged arbitrary maps, dynamic class loading, and reflection-based invocation shall not cross into the semantic core.``
+  - Basis: owning source requirement ID.
+- **T2-0255** — p. 20; § 7.1 Trust zones; explicit; mapping: ``PES-SEC-0020``
+  - Verbatim: ``[PES-SEC-0020] MUST validate message kind, schema version, payload size, object IDs, capability authorization, and state preconditions before a worker or core service executes a command.``
+  - Basis: owning source requirement ID.
+- **T2-0256** — p. 20; § 7.2 Teacher/student data boundary; explicit; mapping: ``PES-TCH-0001``
+  - Verbatim: ``[PES-TCH-0001] MUST keep teacher-authored answer keys, hidden faults, checkpoints, and scoring rules logically separate from student-visible project state.``
+  - Basis: owning source requirement ID.
+- **T2-0257** — p. 20; § 7.2 Teacher/student data boundary; explicit; mapping: ``PES-TCH-0002``
+  - Verbatim: ``[PES-TCH-0002] MUST be honest that an offline local file cannot provide absolute secrecy against a student with full filesystem or process access.``
+  - Basis: owning source requirement ID.
+- **T2-0258** — p. 20; § 7.2 Teacher/student data boundary; explicit; mapping: ``PES-TCH-0002``
+  - Verbatim: ``It shall provide role-appropriate UI separation, protected packaging where useful, integrity checking, and audit evidence without claiming cryptographic impossibility unless a later design proves it.``
+  - Basis: owning source requirement ID.
+- **T2-0259** — p. 20; § 7.2 Teacher/student data boundary; explicit; mapping: ``PES-TCH-0003``
+  - Verbatim: ``[PES-TCH-0003] MUST store student identity minimally.``
+  - Basis: owning source requirement ID.
+- **T2-0260** — p. 20; § 7.2 Teacher/student data boundary; explicit; mapping: ``PES-TCH-0003``
+  - Verbatim: ``The default classroom model shall support local pseudonymous student IDs and shall not require names, email addresses, cloud accounts, or telemetry.``
+  - Basis: owning source requirement ID.
+- **T2-0261** — p. 20; § 7.2 Teacher/student data boundary; explicit; mapping: ``PES-TCH-0004``
+  - Verbatim: ``[PES-TCH-0004] MUST let teachers configure local audit-log retention and export.``
+  - Basis: owning source requirement ID.
+- **T2-0262** — p. 20; § 7.2 Teacher/student data boundary; explicit; mapping: ``PES-TCH-0004``
+  - Verbatim: ``Later phases shall define exact defaults and privacy behavior before Teacher Mode is released.``
+  - Basis: owning source requirement ID.
+- **T2-0263** — p. 20; § 7.2 Teacher/student data boundary; explicit; mapping: ``PES-TCH-0005``
+  - Verbatim: ``[PES-TCH-0005] MUST NOT transmit grades, logs, project files, or identifiers outside the local product.``
+  - Basis: owning source requirement ID.
+- **T2-0264** — p. 20; § 7.3 Security acceptance posture; explicit; mapping: ``PES-SEC-0021``
+  - Verbatim: ``[PES-SEC-0021] MUST fuzz every parser and deserializer that accepts untrusted content.``
+  - Basis: owning source requirement ID.
+- **T2-0265** — p. 20; § 7.3 Security acceptance posture; explicit; mapping: ``PES-SEC-0022``
+  - Verbatim: ``[PES-SEC-0022] MUST make parse, validation, and migration failures structured and recoverable.``
+  - Basis: owning source requirement ID.
+- **T2-0266** — p. 20; § 7.3 Security acceptance posture; explicit; mapping: ``PES-SEC-0022``
+  - Verbatim: ``Catch-and-return-success is forbidden.``
+  - Basis: owning source requirement ID.
+- **T2-0267** — p. 20; § 7.3 Security acceptance posture; explicit; mapping: ``PES-SEC-0023``
+  - Verbatim: ``[PES-SEC-0023] MUST keep resource use deterministic or explicitly bounded.``
+  - Basis: owning source requirement ID.
+- **T2-0268** — p. 20; § 7.3 Security acceptance posture; explicit; mapping: ``PES-SEC-0023``
+  - Verbatim: ``A project shall not allocate unbounded memory, unbounded recursion, unbounded event queues, or unbounded archive expansion.``
+  - Basis: owning source requirement ID.
+- **T2-0269** — p. 20; § 7.3 Security acceptance posture; explicit; mapping: ``PES-SEC-0024``
+  - Verbatim: ``[PES-SEC-0024] MUST disable recursion unless a later verified TrainingProfile explicitly enables and constrains it.``
+  - Basis: owning source requirement ID.
+- **T2-0270** — p. 20; § 7.3 Security acceptance posture; explicit; mapping: ``PES-SEC-0025``
+  - Verbatim: ``[PES-SEC-0025] MUST record security-relevant changes to CSP, package trust boundaries, import/export surfaces, worker IPC, file formats, or scripting in an ADR and threat-model update.``
+  - Basis: owning source requirement ID.
+
+### Page 21 — 8 statement(s)
+
+- **T2-0271** — p. 21; § 8.1 System topology; explicit; mapping: ``PES-ARC-0001``
+  - Verbatim: ``[PES-ARC-0001] MUST enforce dependency direction.``
+  - Basis: owning source requirement ID.
+- **T2-0272** — p. 21; § 8.1 System topology; explicit; mapping: ``PES-ARC-0001``
+  - Verbatim: ``UI code shall not contain authoritative PLC semantics; runtime code shall not parse editor layout; Teacher Mode shall not bypass commands; persistence shall not manufacture valid state.``
+  - Basis: owning source requirement ID.
+- **T2-0273** — p. 21; § 8.1 System topology; explicit; mapping: ``PES-ARC-0002``
+  - Verbatim: ``[PES-ARC-0002] MUST keep the semantic core platform-neutral and deterministic.``
+  - Basis: owning source requirement ID.
+- **T2-0274** — p. 21; § 8.1 System topology; explicit; mapping: ``PES-ARC-0003``
+  - Verbatim: ``[PES-ARC-0003] MUST make every extension point domain-specific.``
+  - Basis: owning source requirement ID.
+- **T2-0275** — p. 21; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0004``
+  - Verbatim: ``[PES-ARC-0004] MUST represent every semantically referenceable project, hardware, network, language, HMI, library, process, lesson, scenario, assessment, diagnostic source, and runtime target object with an immutable UUID.``
+  - Basis: owning source requirement ID.
+- **T2-0276** — p. 21; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0005``
+  - Verbatim: ``[PES-ARC-0005] MUST use RFC 9562 UUID version 4 by default for newly created objects.``
+  - Basis: owning source requirement ID.
+- **T2-0277** — p. 21; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0005``
+  - Verbatim: ``Display names, addresses, paths, array positions, block numbers, and source coordinates shall not serve as identity.``
+  - Basis: owning source requirement ID.
+- **T2-0278** — p. 21; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0006``
+  - Verbatim: ``[PES-ARC-0006] MUST preserve UUID on rename, move, readdress, regroup, interface-compatible edit, and undo restoration.``
+  - Basis: owning source requirement ID.
+
+### Page 22 — 22 statement(s)
+
+- **T2-0279** — p. 22; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0007``
+  - Verbatim: ``[PES-ARC-0007] MUST create a new UUID for copy, template instantiation when independent, and imported objects intentionally duplicated as new objects.``
+  - Basis: owning source requirement ID.
+- **T2-0280** — p. 22; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0008``
+  - Verbatim: ``[PES-ARC-0008] MUST retain a tombstone for deleted referenced objects for as long as a live reference, undo record, migration record, diagnostic, audit event, or snapshot requires it.``
+  - Basis: owning source requirement ID.
+- **T2-0281** — p. 22; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0009``
+  - Verbatim: ``[PES-ARC-0009] MUST represent unresolved references explicitly with the target UUID and reference kind.``
+  - Basis: owning source requirement ID.
+- **T2-0282** — p. 22; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0009``
+  - Verbatim: ``Deletion shall not silently erase or retarget usages.``
+  - Basis: owning source requirement ID.
+- **T2-0283** — p. 22; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0010``
+  - Verbatim: ``[PES-ARC-0010] MUST detect UUID collision on import.``
+  - Basis: owning source requirement ID.
+- **T2-0284** — p. 22; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0010``
+  - Verbatim: ``It shall reject ambiguous merge or perform an explicit, fully traced remap only when the import operation is defined to create independent objects.``
+  - Basis: owning source requirement ID.
+- **T2-0285** — p. 22; § 8.2 Stable identity and project graph; explicit; mapping: ``PES-ARC-0011``
+  - Verbatim: ``[PES-ARC-0011] MUST maintain typed dependency edges and source/editor locations sufficient for where-used, caller/callee, type/DB usage, HMI binding, hardware-to-tag mapping, unresolved-reference filtering, and diagnostic navigation.``
+  - Basis: owning source requirement ID.
+- **T2-0286** — p. 22; § 8.3 Command, transaction, event, and audit model; explicit; mapping: ``PES-ARC-0012``
+  - Verbatim: ``Every meaningful mutation shall be a domain command.``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0287** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``success``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0288** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``value?``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0289** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``events[]``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0290** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``diagnostics[]``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0291** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``affectedObjectIds[]``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0292** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``undoToken?``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0293** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``beforeHash``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0294** — p. 22; § 8.3 Command, transaction, event, and audit model; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``afterHash``
+  - Modal lead-in: ``Every meaningful mutation shall be a domain command. The minimum conceptual result is:``
+  - Basis: UNMAPPED.
+- **T2-0295** — p. 22; § 8.3 Command, transaction, event, and audit model; explicit; mapping: ``PES-ARC-0012``
+  - Verbatim: ``[PES-ARC-0012] MUST route create, rename, delete, restore, move, copy, retype, bind, connect, disconnect, configure, compile request, load request, CPU state change, modify, force, fault, reset, lesson action, and migration through typed domain commands or explicitly read-only queries.``
+  - Basis: owning source requirement ID.
+- **T2-0296** — p. 22; § 8.3 Command, transaction, event, and audit model; explicit; mapping: ``PES-ARC-0013``
+  - Verbatim: ``[PES-ARC-0013] MUST make commands atomic with respect to their declared transaction boundary.``
+  - Basis: owning source requirement ID.
+- **T2-0297** — p. 22; § 8.3 Command, transaction, event, and audit model; explicit; mapping: ``PES-ARC-0013``
+  - Verbatim: ``Failure shall leave either the previous valid state or a separately modeled unresolved/invalid engineering state, never a half-applied hidden mutation.``
+  - Basis: owning source requirement ID.
+- **T2-0298** — p. 22; § 8.3 Command, transaction, event, and audit model; explicit; mapping: ``PES-ARC-0014``
+  - Verbatim: ``[PES-ARC-0014] MUST make undo/redo use command/event semantics and restore exact stable identity where the original object is restored.``
+  - Basis: owning source requirement ID.
+- **T2-0299** — p. 22; § 8.3 Command, transaction, event, and audit model; explicit; mapping: ``PES-ARC-0015``
+  - Verbatim: ``[PES-ARC-0015] MUST record deterministic event ordering, affected object IDs, before/after hashes, and command provenance sufficient for crash recovery, replay, Teacher Mode audit, and testing.``
+  - Basis: owning source requirement ID.
+- **T2-0300** — p. 22; § 8.3 Command, transaction, event, and audit model; explicit; mapping: ``PES-ARC-0016``
+  - Verbatim: ``[PES-ARC-0016] MUST NOT let UI components write domain objects directly or let a lesson mutate serialized files behind the domain model.``
+  - Basis: owning source requirement ID.
+
+### Page 23 — 13 statement(s)
+
+- **T2-0301** — p. 23; § 8.4 Canonical type system and semantic editors; explicit; mapping: ``PES-TYP-0001``
+  - Verbatim: ``[PES-TYP-0001] MUST create one canonical recursive type system shared by tags, DBs, block interfaces, LAD, FBD, SCL, addresses, runtime memory, watch/modify/force, trace, HMI bindings, assessment expressions, and profiles.``
+  - Basis: owning source requirement ID.
+- **T2-0302** — p. 23; § 8.4 Canonical type system and semantic editors; explicit; mapping: ``PES-TYP-0002``
+  - Verbatim: ``[PES-TYP-0002] MUST keep named-type identity distinct from structural shape and give type members stable identity.``
+  - Basis: owning source requirement ID.
+- **T2-0303** — p. 23; § 8.4 Canonical type system and semantic editors; explicit; mapping: ``PES-ARC-0017``
+  - Verbatim: ``[PES-ARC-0017] MUST represent LAD as a semantic graph/AST.``
+  - Basis: owning source requirement ID.
+- **T2-0304** — p. 23; § 8.4 Canonical type system and semantic editors; explicit; mapping: ``PES-ARC-0018``
+  - Verbatim: ``[PES-ARC-0018] MUST represent FBD as a typed port graph with stable node, port, and edge identity plus explicit execution dependencies.``
+  - Basis: owning source requirement ID.
+- **T2-0305** — p. 23; § 8.4 Canonical type system and semantic editors; explicit; mapping: ``PES-ARC-0019``
+  - Verbatim: ``[PES-ARC-0019] MUST represent SCL with an independently implemented lexer, parser, AST, source ranges, scope resolver, control-flow model, and original language-service metadata.``
+  - Basis: owning source requirement ID.
+- **T2-0306** — p. 23; § 8.4 Canonical type system and semantic editors; explicit; mapping: ``PES-ARC-0020``
+  - Verbatim: ``[PES-ARC-0020] MUST share instruction definitions, type checking, conversions, call signatures, diagnostics, and runtime semantics across language frontends.``
+  - Basis: owning source requirement ID.
+- **T2-0307** — p. 23; § 8.4 Canonical type system and semantic editors; explicit; mapping: ``PES-ARC-0021``
+  - Verbatim: ``[PES-ARC-0021] MUST NOT execute LAD from screen coordinates, use a regex-only compiler, use eval for SCL, or maintain separate inconsistent runtimes for LAD, FBD, and SCL.``
+  - Basis: owning source requirement ID.
+- **T2-0308** — p. 23; § 8.5 Unified typed IR and one runtime; explicit; mapping: ``PES-IR-0001``
+  - Verbatim: ``[PES-IR-0001] MUST lower LAD, FBD, and SCL semantic models into one versioned, typed, serializable PLC IR.``
+  - Basis: owning source requirement ID.
+- **T2-0309** — p. 23; § 8.5 Unified typed IR and one runtime; explicit; mapping: ``PES-IR-0002``
+  - Verbatim: ``[PES-IR-0002] MUST centralize arithmetic, conversions, comparisons, calls, timers, counters, storage access, monitor probes, source mappings, and error semantics in the shared compiler/runtime path.``
+  - Basis: owning source requirement ID.
+- **T2-0310** — p. 23; § 8.5 Unified typed IR and one runtime; explicit; mapping: ``PES-IR-0003``
+  - Verbatim: ``[PES-IR-0003] MUST make build artifacts immutable and fingerprinted.``
+  - Basis: owning source requirement ID.
+- **T2-0311** — p. 23; § 8.5 Unified typed IR and one runtime; explicit; mapping: ``PES-IR-0003``
+  - Verbatim: ``A build shall identify project snapshot hash, compiler version, IR version, TrainingProfile ID/version, dependency closure, diagnostics, and source map.``
+  - Basis: owning source requirement ID.
+- **T2-0312** — p. 23; § 8.5 Unified typed IR and one runtime; explicit; mapping: ``PES-IR-0004``
+  - Verbatim: ``[PES-IR-0004] MUST NOT produce a runnable artifact when a blocking error exists.``
+  - Basis: owning source requirement ID.
+- **T2-0313** — p. 23; § 8.5 Unified typed IR and one runtime; explicit; mapping: ``PES-IR-0005``
+  - Verbatim: ``[PES-IR-0005] MUST reserve instrumentation points keyed by semantic node and source identity so monitoring, trace, Learning Lens, diagnostics, and assessment can observe one execution without changing it.``
+  - Basis: owning source requirement ID.
+
+### Page 24 — 22 statement(s)
+
+- **T2-0314** — p. 24; § 8.6 Deterministic virtual time, scheduling, and replay; explicit; mapping: ``PES-DET-0001``
+  - Verbatim: ``[PES-DET-0001] MUST use simulator-controlled monotonic virtual time for the PLC scheduler, timers, counters with temporal behavior, process physics, trace, scenarios, lesson triggers, and assessment timing.``
+  - Basis: owning source requirement ID.
+- **T2-0315** — p. 24; § 8.6 Deterministic virtual time, scheduling, and replay; explicit; mapping: ``PES-DET-0002``
+  - Verbatim: ``[PES-DET-0002] MUST NOT use wall-clock timers such as browser setTimeout as authoritative PLC or process time.``
+  - Basis: owning source requirement ID.
+- **T2-0316** — p. 24; § 8.6 Deterministic virtual time, scheduling, and replay; explicit; mapping: ``PES-DET-0003``
+  - Verbatim: ``[PES-DET-0003] MUST define stable ordering for events sharing the same virtual timestamp and priority.``
+  - Basis: owning source requirement ID.
+- **T2-0317** — p. 24; § 8.6 Deterministic virtual time, scheduling, and replay; explicit; mapping: ``PES-DET-0004``
+  - Verbatim: ``[PES-DET-0004] MUST include deterministic seed, event sequence, TrainingProfile hash, build hash, initial snapshot hash, simulator version, and scheduler version in replay identity.``
+  - Basis: owning source requirement ID.
+- **T2-0318** — p. 24; § 8.6 Deterministic virtual time, scheduling, and replay; explicit; mapping: ``PES-DET-0005``
+  - Verbatim: ``[PES-DET-0005] MUST distinguish virtual timestamp from engineering-display wall-clock timestamp.``
+  - Basis: owning source requirement ID.
+- **T2-0319** — p. 24; § 8.6 Deterministic virtual time, scheduling, and replay; explicit; mapping: ``PES-DET-0006``
+  - Verbatim: ``[PES-DET-0006] MUST guarantee that the same supported build, snapshot, profile, seed, and ordered events produce equivalent observable tag streams, outputs, diagnostics, trace data, HMI updates, and assessment results.``
+  - Basis: owning source requirement ID.
+- **T2-0320** — p. 24; § 8.6 Deterministic virtual time, scheduling, and replay; explicit; mapping: ``PES-DET-0007``
+  - Verbatim: ``[PES-DET-0007] MUST reserve scan-start, input-sample, program-execution, output-commit, process-update, trace/diagnostic/HMI publication, and scan-end boundaries.``
+  - Basis: owning source requirement ID.
+- **T2-0321** — p. 24; § 8.7 Separate state layers; explicit; mapping: ``PES-ARC-0022``
+  - Verbatim: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0322** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``editable offline project source;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0323** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``saved project state;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0324** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``hardware build state;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0325** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``software build state;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0326** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``HMI build state;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0327** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``immutable build artifact;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0328** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``loaded virtual-controller artifact;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0329** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``current virtual runtime values;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0330** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``declared initial/start values;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0331** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``loaded baselines;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0332** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``retained values;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0333** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``raw virtual-process values;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0334** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``CPU-visible values;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0335** — p. 24; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``one-shot modifications;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+
+### Page 25 — 11 statement(s)
+
+- **T2-0336** — p. 25; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``persistent force overlays;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0337** — p. 25; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``runtime snapshots;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0338** — p. 25; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``project/runtime equality or mismatch;``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0339** — p. 25; § 8.7 Separate state layers; inherited bullet; mapping: ``PES-ARC-0022``
+  - Verbatim: ``monitoring active state.``
+  - Modal lead-in: ``[PES-ARC-0022] MUST keep these layers distinct:``
+  - Basis: owning source requirement ID.
+- **T2-0340** — p. 25; § 8.7 Separate state layers; explicit; mapping: ``PES-ARC-0023``
+  - Verbatim: ``[PES-ARC-0023] MUST model "go online" as a virtual session and comparison.``
+  - Basis: owning source requirement ID.
+- **T2-0341** — p. 25; § 8.7 Separate state layers; explicit; mapping: ``PES-ARC-0023``
+  - Verbatim: ``It shall not automatically compile, download, synchronize, or equalize states.``
+  - Basis: owning source requirement ID.
+- **T2-0342** — p. 25; § 8.7 Separate state layers; explicit; mapping: ``PES-ARC-0024``
+  - Verbatim: ``[PES-ARC-0024] MUST model Virtual Download as preview plus explicit approval/cancellation and atomic commit/rollback.``
+  - Basis: owning source requirement ID.
+- **T2-0343** — p. 25; § 8.7 Separate state layers; explicit; mapping: ``PES-ARC-0025``
+  - Verbatim: ``[PES-ARC-0025] MUST make ForceRegistry global runtime state independent of any open table or pane.``
+  - Basis: owning source requirement ID.
+- **T2-0344** — p. 25; § 8.8 Diagnostics and causal faults; explicit; mapping: ``PES-DIA-0001``
+  - Verbatim: ``[PES-DIA-0001] MUST use original simulator codes and prose.``
+  - Basis: owning source requirement ID.
+- **T2-0345** — p. 25; § 8.8 Diagnostics and causal faults; explicit; mapping: ``PES-DIA-0001``
+  - Verbatim: ``It shall not copy vendor numbers or messages.``
+  - Basis: owning source requirement ID.
+- **T2-0346** — p. 25; § 8.8 Diagnostics and causal faults; explicit; mapping: ``PES-DIA-0002``
+  - Verbatim: ``[PES-DIA-0002] MUST distinguish immutable build diagnostics from lifecycle-bearing runtime diagnostic events while permitting a unified UI.``
+  - Basis: owning source requirement ID.
+
+### Page 26 — 10 statement(s)
+
+- **T2-0347** — p. 26; § 8.8 Diagnostics and causal faults; explicit; mapping: ``PES-DIA-0003``
+  - Verbatim: ``[PES-DIA-0003] MUST derive diagnostics from ordinary validators, compiler rules, runtime transitions, device/process state, HMI consistency, persistence validation, or fault providers.``
+  - Basis: owning source requirement ID.
+- **T2-0348** — p. 26; § 8.8 Diagnostics and causal faults; explicit; mapping: ``PES-DIA-0004``
+  - Verbatim: ``[PES-DIA-0004] MUST let Teacher Mode invoke commands such as RemoveModule, DisconnectVirtualLink, ChangeTagType, SetSensorFault, or SetActuatorFault and let ordinary engines derive the consequence.``
+  - Basis: owning source requirement ID.
+- **T2-0349** — p. 26; § 8.8 Diagnostics and causal faults; explicit; mapping: ``PES-DIA-0005``
+  - Verbatim: ``[PES-DIA-0005] MUST NOT let a scenario, lesson, demo, or UI directly insert an expected compiler diagnostic, runtime fault, alarm, trace, monitored value, or passing assessment result.``
+  - Basis: owning source requirement ID.
+- **T2-0350** — p. 26; § 8.8 Diagnostics and causal faults; explicit; mapping: ``PES-DIA-0006``
+  - Verbatim: ``[PES-DIA-0006] MUST retain navigation targets, related object identities, virtual timestamps, lifecycle correlation, and deterministic replay ordering.``
+  - Basis: owning source requirement ID.
+- **T2-0351** — p. 26; § 8.9 Internal buses and future seams; explicit; mapping: ``PES-ARC-0026``
+  - Verbatim: ``[PES-ARC-0026] MUST define InternalTagBus as typed, quality-aware, timestamped internal publication/subscription.``
+  - Basis: owning source requirement ID.
+- **T2-0352** — p. 26; § 8.9 Internal buses and future seams; explicit; mapping: ``PES-ARC-0026``
+  - Verbatim: ``It shall operate by in-process calls or typed worker IPC, never localhost or network transport.``
+  - Basis: owning source requirement ID.
+- **T2-0353** — p. 26; § 8.9 Internal buses and future seams; explicit; mapping: ``PES-ARC-0027``
+  - Verbatim: ``[PES-ARC-0027] MUST reserve typed domain registries for project object kinds, editors, properties, commands, validators, compilers, capability gates, navigation targets, fault providers, serializers, and migrations.``
+  - Basis: owning source requirement ID.
+- **T2-0354** — p. 26; § 8.9 Internal buses and future seams; explicit; mapping: ``PES-ARC-0028``
+  - Verbatim: ``[PES-ARC-0028] MUST reserve safe schemas for scenario packages, lesson conditions, assessment expressions, snapshots, fault capabilities, and deterministic events without enabling arbitrary code.``
+  - Basis: owning source requirement ID.
+- **T2-0355** — p. 26; § 8.9 Internal buses and future seams; explicit; mapping: ``PES-ARC-0029``
+  - Verbatim: ``[PES-ARC-0029] MUST allow later HMI, library, trace, technology object, source view, localization, and scenario types without replacing the canonical project graph.``
+  - Basis: owning source requirement ID.
+- **T2-0356** — p. 26; § 8.9 Internal buses and future seams; explicit; mapping: ``PES-ARC-0030``
+  - Verbatim: ``[PES-ARC-0030] MUST NOT satisfy "reserved architecture" with empty buttons, no-op objects, placeholder transports, user-visible coming-soon panels, or generic interfaces that create forbidden capability.``
+  - Basis: owning source requirement ID.
+
+### Page 27 — 27 statement(s)
+
+- **T2-0357** — p. 27; § 9.1 Adopted stack; explicit; mapping: ``PES-DEV-0004``
+  - Verbatim: ``[PES-DEV-0004] MUST implement the trusted project semantics, compiler, typed IR, scheduler, and PLC runtime in Rust compiled to capability-limited WebAssembly, unless Scott approves an ADR demonstrating an equally deterministic and more strongly isolated alternative.``
+  - Basis: owning source requirement ID.
+- **T2-0358** — p. 27; § 9.1 Adopted stack; explicit; mapping: ``PES-DEV-0005``
+  - Verbatim: ``[PES-DEV-0005] MUST execute virtual runtime/process work in isolated workers using typed messages so simulation cannot freeze the UI.``
+  - Basis: owning source requirement ID.
+- **T2-0359** — p. 27; § 9.1 Adopted stack; explicit; mapping: ``PES-DEV-0007``
+  - Verbatim: ``[PES-DEV-0007] MUST bundle all production dependencies, fonts, WASM, help, scenarios, and assets locally.``
+  - Basis: owning source requirement ID.
+- **T2-0360** — p. 27; § 9.1 Adopted stack; explicit; mapping: ``PES-DEV-0008``
+  - Verbatim: ``[PES-DEV-0008] MUST keep the trusted core free of OS networking, native FFI, arbitrary filesystem, shell, and device capabilities even if the desktop shell or browser engine internally supports them.``
+  - Basis: owning source requirement ID.
+- **T2-0361** — p. 27; § 9.1 Adopted stack; explicit; mapping: ``PES-DEV-0009``
+  - Verbatim: ``[PES-DEV-0009] MUST record the chosen desktop/classroom packaging model in a BLOCKED product decision before public artifact work begins.``
+  - Basis: owning source requirement ID.
+- **T2-0362** — p. 27; § 9.1 Adopted stack; explicit; mapping: ``PES-DEV-0009``
+  - Verbatim: ``The decision shall define initial supported operating systems, installer versus portable delivery, local-file permissions, Chromium/WebView background networking controls, code signing, update separation, and offline verification.``
+  - Basis: owning source requirement ID.
+- **T2-0363** — p. 27; § 9.2 Required top-level governance files; explicit; mapping: **UNMAPPED**
+  - Verbatim: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0364** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-CRM-0016``
+  - Verbatim: ``CLEAN_ROOM_POLICY.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0365** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-SEC-0017``
+  - Verbatim: ``SECURITY_INVARIANTS.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0366** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``LEGAL_REVIEW_CHECKLIST.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0367** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-CRM-0020``
+  - Verbatim: ``CONTRIBUTOR_CLEAN_ROOM_ATTESTATION.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0368** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-SEC-0025``
+  - Verbatim: ``THREAT_MODEL.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0369** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``REQUIREMENTS.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0370** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``IMPLEMENTATION_MATRIX.*``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0371** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-CRM-0017``
+  - Verbatim: ``EVIDENCE_REGISTER.*``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0372** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-CRM-0021``
+  - Verbatim: ``ASSET_PROVENANCE.*``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0373** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``DEPENDENCY_POLICY.*``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0374** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``OPEN_DECISIONS.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0375** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``RISK_REGISTER.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0376** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-GOV-0014``, ``PES-GOV-0015``, ``PES-GOV-0016``
+  - Verbatim: ``CHANGELOG_DIRECTIVE.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0377** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-DOC-0001``, ``PES-DOC-0003``
+  - Verbatim: ``ADR/``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0378** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-DOC-0001``
+  - Verbatim: ``0001-no-physical-industrial-communication.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0379** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-DOC-0003``
+  - Verbatim: ``0002-original-project-format.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0380** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-DOC-0003``
+  - Verbatim: ``0003-unified-plc-ir.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0381** — p. 27; § 9.2 Required top-level governance files; inherited line; mapping: ``PES-DOC-0003``
+  - Verbatim: ``0004-deterministic-virtual-time.md``
+  - Modal lead-in: ``Before feature implementation, the repository shall contain:``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+- **T2-0382** — p. 27; § 9.2 Required top-level governance files; explicit; mapping: ``PES-DOC-0001``
+  - Verbatim: ``[PES-DOC-0001] MUST create ADR-0001 with title "Physical Industrial Communication Is Permanently Out of Scope" and status "Project Safety Invariant."``
+  - Basis: owning source requirement ID.
+- **T2-0383** — p. 27; § 9.2 Required top-level governance files; explicit; mapping: ``PES-DOC-0002``
+  - Verbatim: ``[PES-DOC-0002] MUST state in ADR-0001 that physical capability cannot be added within this product through an ADR amendment.``
+  - Basis: owning source requirement ID.
+
+### Page 28 — 6 statement(s)
+
+- **T2-0384** — p. 28; § 9.2 Required top-level governance files; explicit; mapping: ``PES-DOC-0003``
+  - Verbatim: ``[PES-DOC-0003] MUST document original project format, unified IR, and deterministic virtual time before implementation depends on them.``
+  - Basis: owning source requirement ID.
+- **T2-0385** — p. 28; § 9.2 Required top-level governance files; explicit; mapping: ``PES-DOC-0004``
+  - Verbatim: ``[PES-DOC-0004] MUST keep evidence records and research notes separate from production assets.``
+  - Basis: owning source requirement ID.
+- **T2-0386** — p. 28; § 9.3 Required package boundaries; explicit; mapping: ``PES-DEV-0010``
+  - Verbatim: ``[PES-DEV-0010] MUST treat this shape as a responsibility map, not permission to create empty packages for completion credit.``
+  - Basis: owning source requirement ID.
+- **T2-0387** — p. 28; § 9.3 Required package boundaries; explicit; mapping: ``PES-DEV-0011``
+  - Verbatim: ``It shall record the reason in an ADR.``
+  - Basis: owning source requirement ID.
+- **T2-0388** — p. 28; § 9.3 Required package boundaries; explicit; mapping: ``PES-DEV-0012``
+  - Verbatim: ``[PES-DEV-0012] MUST NOT create a network, transport, device-connector, vendor-adapter, protocol, external-HMI, remote-collaboration, or plugin-host package.``
+  - Basis: owning source requirement ID.
+- **T2-0389** — p. 28; § 9.4 Baseline CI policy; explicit; mapping: ``PES-CI-0001``
+  - Verbatim: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+
+### Page 29 — 26 statement(s)
+
+- **T2-0390** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``a forbidden dependency or capability is added;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0391** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``a prohibited source API or WASM import appears;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0392** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``a remote asset, CDN, telemetry, analytics, or cloud dependency appears;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0393** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``an asset lacks provenance or approval;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0394** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``a vendor screenshot, logo, icon, device illustration, or copied prose enters production;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0395** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``an unclassified research-derived requirement enters implementation;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0396** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``a required test is skipped or flaky;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0397** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``determinism/replay diverges;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0398** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``migration loses identity or data;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0399** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``a lesson bypasses ordinary domain/diagnostic behavior;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0400** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``Virtual Download accepts any endpoint-like value;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0401** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``HMI uses any transport other than InternalTagBus;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0402** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``an exported artifact resembles or is accepted as a real industrial deployment artifact;``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0403** — p. 29; § 9.4 Baseline CI policy; inherited bullet; mapping: ``PES-CI-0001``
+  - Verbatim: ``traceability between a verified requirement and its tests is missing.``
+  - Modal lead-in: ``[PES-CI-0001] MUST fail production merge or release when:``
+  - Basis: owning source requirement ID.
+- **T2-0404** — p. 29; § 9.4 Baseline CI policy; explicit; mapping: ``PES-CI-0002``
+  - Verbatim: ``[PES-CI-0002] MUST scan the packaged artifact, not only source and lockfiles.``
+  - Basis: owning source requirement ID.
+- **T2-0405** — p. 29; § 9.4 Baseline CI policy; explicit; mapping: ``PES-CI-0003``
+  - Verbatim: ``[PES-CI-0003] MUST produce an SBOM, license notice set, asset manifest, requirement-verification report, and isolation report for a release candidate.``
+  - Basis: owning source requirement ID.
+- **T2-0406** — p. 29; § 10.1 Stable identifiers; explicit; mapping: ``PES-REQ-0001``
+  - Verbatim: ``[PES-REQ-0001] MUST identify product requirements as PES-AREA-NNNN.``
+  - Basis: owning source requirement ID.
+- **T2-0407** — p. 29; § 10.1 Stable identifiers; explicit; mapping: ``PES-REQ-0002``
+  - Verbatim: ``[PES-REQ-0002] MUST NOT encode authoring phase, software release, priority, status, or document section in a requirement ID.``
+  - Basis: owning source requirement ID.
+- **T2-0408** — p. 29; § 10.1 Stable identifiers; explicit; mapping: ``PES-REQ-0003``
+  - Verbatim: ``[PES-REQ-0003] MUST identify supporting records separately:``
+  - Basis: owning source requirement ID.
+- **T2-0409** — p. 29; § 10.1 Stable identifiers; inherited table row; mapping: ``PES-REQ-0003``
+  - Verbatim: ``Source/evidence | SRC-NNNN``
+  - Modal lead-in: ``[PES-REQ-0003] MUST identify supporting records separately:``
+  - Basis: owning source requirement ID.
+- **T2-0410** — p. 29; § 10.1 Stable identifiers; inherited table row; mapping: ``PES-REQ-0003``
+  - Verbatim: ``Architecture decision | ADR-NNNN``
+  - Modal lead-in: ``[PES-REQ-0003] MUST identify supporting records separately:``
+  - Basis: owning source requirement ID.
+- **T2-0411** — p. 29; § 10.1 Stable identifiers; inherited table row; mapping: ``PES-REQ-0003``
+  - Verbatim: ``Product decision | DEC-NNNN``
+  - Modal lead-in: ``[PES-REQ-0003] MUST identify supporting records separately:``
+  - Basis: owning source requirement ID.
+- **T2-0412** — p. 29; § 10.1 Stable identifiers; inherited table row; mapping: ``PES-REQ-0003``
+  - Verbatim: ``Open question | OQ-NNNN``
+  - Modal lead-in: ``[PES-REQ-0003] MUST identify supporting records separately:``
+  - Basis: owning source requirement ID.
+- **T2-0413** — p. 29; § 10.1 Stable identifiers; inherited table row; mapping: ``PES-REQ-0003``
+  - Verbatim: ``Risk | RSK-NNNN``
+  - Modal lead-in: ``[PES-REQ-0003] MUST identify supporting records separately:``
+  - Basis: owning source requirement ID.
+- **T2-0414** — p. 29; § 10.1 Stable identifiers; inherited table row; mapping: ``PES-REQ-0003``
+  - Verbatim: ``Change record | CR-NNNN``
+  - Modal lead-in: ``[PES-REQ-0003] MUST identify supporting records separately:``
+  - Basis: owning source requirement ID.
+- **T2-0415** — p. 29; § 10.1 Stable identifiers; inherited table row; mapping: ``PES-REQ-0003``
+  - Verbatim: ``Verification case | VER-AREA-NNNN``
+  - Modal lead-in: ``[PES-REQ-0003] MUST identify supporting records separately:``
+  - Basis: owning source requirement ID.
+
+### Page 30 — 23 statement(s)
+
+- **T2-0416** — p. 30; § 10.1 Stable identifiers; explicit; mapping: ``PES-REQ-0004``
+  - Verbatim: ``[PES-REQ-0004] MUST keep retired IDs as tombstones with a supersession or rejection reason.``
+  - Basis: owning source requirement ID.
+- **T2-0417** — p. 30; § 10.1 Stable identifiers; explicit; mapping: ``PES-REQ-0004``
+  - Verbatim: ``IDs shall never be recycled.``
+  - Basis: owning source requirement ID.
+- **T2-0418** — p. 30; § 10.2 Atomic record schema; explicit; mapping: **UNMAPPED**
+  - Verbatim: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0419** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``stable ID;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0420** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``short title;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0421** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``normative keyword;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0422** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``one atomic, testable statement;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0423** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``rationale;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0424** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``scope/component;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0425** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``source pointer and research classification;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0426** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``IP class and disposition;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0427** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``dependencies;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0428** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``target software release or milestone;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0429** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``current truth state;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0430** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``positive acceptance condition;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0431** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``negative acceptance condition;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0432** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``verification IDs;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0433** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``ADR/decision/change links;``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0434** — p. 30; § 10.2 Atomic record schema; inherited bullet; mapping: **UNMAPPED**
+  - Verbatim: ``owner and reviewer.``
+  - Modal lead-in: ``Every requirement record shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0435** — p. 30; § 10.2 Atomic record schema; explicit; mapping: ``PES-REQ-0005``
+  - Verbatim: ``[PES-REQ-0005] MUST split compound requirements when one part could pass and another fail.``
+  - Basis: owning source requirement ID.
+- **T2-0436** — p. 30; § 10.2 Atomic record schema; explicit; mapping: ``PES-REQ-0006``
+  - Verbatim: ``[PES-REQ-0006] MUST map every implemented behavior to at least one requirement and every MUST/MUST NOT requirement to positive or negative verification.``
+  - Basis: owning source requirement ID.
+- **T2-0437** — p. 30; § 10.2 Atomic record schema; explicit; mapping: ``PES-REQ-0007``
+  - Verbatim: ``[PES-REQ-0007] MUST map every test to the requirements it verifies.``
+  - Basis: owning source requirement ID.
+- **T2-0438** — p. 30; § 10.2 Atomic record schema; explicit; mapping: ``PES-REQ-0007``
+  - Verbatim: ``Orphan tests and unverified requirements shall be visible in CI reports.``
+  - Basis: owning source requirement ID.
+
+### Page 31 — 15 statement(s)
+
+- **T2-0439** — p. 31; § 10.3 Truth states; explicit; mapping: ``PES-REQ-0008``
+  - Verbatim: ``[PES-REQ-0008] MUST use VERIFIED as the only state equivalent to complete.``
+  - Basis: owning source requirement ID.
+- **T2-0440** — p. 31; § 10.3 Truth states; explicit; mapping: ``PES-REQ-0009``
+  - Verbatim: ``[PES-REQ-0009] MUST NOT calculate percent complete from file count, package count, UI controls, lines of code, passing compilation, or SCAFFOLDED/PARTIAL items.``
+  - Basis: owning source requirement ID.
+- **T2-0441** — p. 31; § 10.4 Change control; explicit; mapping: ``PES-GOV-0014``
+  - Verbatim: ``[PES-GOV-0014] MUST create a change record for any alteration to a Phase 1 requirement, authority rule, safety boundary, clean-room rule, canonical term, or architecture invariant.``
+  - Basis: owning source requirement ID.
+- **T2-0442** — p. 31; § 10.4 Change control; explicit; mapping: ``PES-GOV-0015``
+  - Verbatim: ``[PES-GOV-0015] MUST include reason, affected IDs, research/evidence impact, security/IP impact, migration impact, test impact, decision authority, approval date, and supersession links.``
+  - Basis: owning source requirement ID.
+- **T2-0443** — p. 31; § 10.4 Change control; explicit; mapping: ``PES-GOV-0016``
+  - Verbatim: ``[PES-GOV-0016] MUST NOT edit a controlling requirement only in code or an ADR.``
+  - Basis: owning source requirement ID.
+- **T2-0444** — p. 31; § 10.4 Change control; explicit; mapping: ``PES-GOV-0016``
+  - Verbatim: ``The directive and traceability records shall change first or in the same approved change.``
+  - Basis: owning source requirement ID.
+- **T2-0445** — p. 31; § 11.1 Decisions Codex may make; explicit; mapping: ``PES-DEC-0001``
+  - Verbatim: ``[PES-DEC-0001] MAY let Codex decide an implementation detail without asking only when every plausible choice:``
+  - Basis: owning source requirement ID.
+- **T2-0446** — p. 31; § 11.1 Decisions Codex may make; inherited bullet; mapping: ``PES-DEC-0001``
+  - Verbatim: ``is internal and reversible;``
+  - Modal lead-in: ``[PES-DEC-0001] MAY let Codex decide an implementation detail without asking only when every plausible choice:``
+  - Basis: owning source requirement ID.
+- **T2-0447** — p. 31; § 11.1 Decisions Codex may make; inherited bullet; mapping: ``PES-DEC-0001``
+  - Verbatim: ``preserves observable semantics and file compatibility;``
+  - Modal lead-in: ``[PES-DEC-0001] MAY let Codex decide an implementation detail without asking only when every plausible choice:``
+  - Basis: owning source requirement ID.
+- **T2-0448** — p. 31; § 11.1 Decisions Codex may make; inherited bullet; mapping: ``PES-DEC-0001``
+  - Verbatim: ``adds no network, device, native, process, plugin, cloud, AI, or credential capability;``
+  - Modal lead-in: ``[PES-DEC-0001] MAY let Codex decide an implementation detail without asking only when every plausible choice:``
+  - Basis: owning source requirement ID.
+- **T2-0449** — p. 31; § 11.1 Decisions Codex may make; inherited bullet; mapping: ``PES-DEC-0001``
+  - Verbatim: ``does not affect IP classification, branding, public claims, grading, teacher/student separation, privacy, or safety;``
+  - Modal lead-in: ``[PES-DEC-0001] MAY let Codex decide an implementation detail without asking only when every plausible choice:``
+  - Basis: owning source requirement ID.
+- **T2-0450** — p. 31; § 11.1 Decisions Codex may make; inherited bullet; mapping: ``PES-DEC-0001``
+  - Verbatim: ``stays within approved technology and dependency policy;``
+  - Modal lead-in: ``[PES-DEC-0001] MAY let Codex decide an implementation detail without asking only when every plausible choice:``
+  - Basis: owning source requirement ID.
+- **T2-0451** — p. 31; § 11.1 Decisions Codex may make; inherited bullet; mapping: ``PES-DEC-0001``
+  - Verbatim: ``can be objectively verified;``
+  - Modal lead-in: ``[PES-DEC-0001] MAY let Codex decide an implementation detail without asking only when every plausible choice:``
+  - Basis: owning source requirement ID.
+- **T2-0452** — p. 31; § 11.1 Decisions Codex may make; inherited bullet; mapping: ``PES-DEC-0001``
+  - Verbatim: ``satisfies all higher requirements.``
+  - Modal lead-in: ``[PES-DEC-0001] MAY let Codex decide an implementation detail without asking only when every plausible choice:``
+  - Basis: owning source requirement ID.
+- **T2-0453** — p. 31; § 11.1 Decisions Codex may make; explicit; mapping: ``PES-DEC-0001``
+  - Verbatim: ``Meaningful autonomous decisions shall still be recorded in an ADR or implementation note.``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+
+### Page 32 — 27 statement(s)
+
+- **T2-0454** — p. 32; § 11.2 Mandatory stop categories; explicit; mapping: ``PES-DEC-0002``
+  - Verbatim: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0455** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``touches physical/network capability or could weaken the VirtualUniverse wall;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0456** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``uses or resembles vendor assets, protocols, APIs, formats, names, model numbers, diagnostics, branding, or trade dress;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0457** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``changes public workflow semantics, TrainingProfile behavior, file format, migration, grading, Teacher Mode visibility, or student data handling;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0458** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``risks data loss, irreversible schema change, or backward incompatibility;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0459** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``requires cloud, credentials, telemetry, remote services, external AI, or an updater;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0460** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``adds eval, arbitrary scripting, FFI, child process, shell, native bridge, host device, generic transport, or executable plugin capability;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0461** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``is marked NEEDS MORE RESEARCH, Class 7, Class 8, or professional legal review;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0462** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``makes a safety, certification, compatibility, equivalence, endorsement, or production claim;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0463** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``conflicts with higher authority;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0464** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``cannot be verified objectively;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0465** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``would choose initial operating systems or the production packaging model;``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0466** — p. 32; § 11.2 Mandatory stop categories; inherited bullet; mapping: ``PES-DEC-0002``
+  - Verbatim: ``would expand scope beyond the authored phases.``
+  - Modal lead-in: ``[PES-DEC-0002] MUST stop the affected work and ask Scott when a choice:``
+  - Basis: owning source requirement ID.
+- **T2-0467** — p. 32; § 11.2 Mandatory stop categories; explicit; mapping: ``PES-DEC-0003``
+  - Verbatim: ``[PES-DEC-0003] MUST stop and request additional verified research rather than invent exact controller-family OB numbers, priority/preemption matrices, nesting limits, recursion behavior, proprietary optimized DB layouts, vendor-specific conversions/built-ins, force edge cases, diagnostic numbers/prose, auto-tuning, complex motion, or legacy-language semantics.``
+  - Basis: owning source requirement ID.
+- **T2-0468** — p. 32; § 11.3 BLOCKED decision record; explicit; mapping: **UNMAPPED**
+  - Verbatim: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0469** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Decision ID:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0470** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Affected requirement IDs:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0471** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Known facts:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0472** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Unknown or conflicting point:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0473** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Why Codex cannot decide safely:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0474** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Option A and impact:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0475** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Option B and impact:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0476** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Option C and impact, if useful:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0477** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Recommended option:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0478** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Exact approval or evidence needed:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0479** — p. 32; § 11.3 BLOCKED decision record; inherited line; mapping: **UNMAPPED**
+  - Verbatim: ``Work that can continue:``
+  - Modal lead-in: ``Every blocked decision request shall contain:``
+  - Basis: UNMAPPED.
+- **T2-0480** — p. 32; § 11.3 BLOCKED decision record; explicit; mapping: ``PES-DEC-0004``
+  - Verbatim: ``[PES-DEC-0004] MUST bundle related questions so Scott receives the smallest coherent decision request.``
+  - Basis: owning source requirement ID.
+
+### Page 33 — 24 statement(s)
+
+- **T2-0481** — p. 33; § 11.3 BLOCKED decision record; explicit; mapping: ``PES-DEC-0005``
+  - Verbatim: ``[PES-DEC-0005] MUST continue unrelated work while the affected area remains blocked.``
+  - Basis: owning source requirement ID.
+- **T2-0482** — p. 33; § 11.3 BLOCKED decision record; explicit; mapping: ``PES-DEC-0006``
+  - Verbatim: ``[PES-DEC-0006] MUST NOT treat silence, elapsed time, a placeholder, "close as possible," "educational," or an implementation guess as approval.``
+  - Basis: owning source requirement ID.
+- **T2-0483** — p. 33; § 12.1 Forbidden implementation theater; explicit; mapping: ``PES-QLT-0001``
+  - Verbatim: ``[PES-QLT-0001] MUST NOT count a feature as implemented because a pane, button, menu item, type, interface, package, schema field, animation, sample, or mocked path exists.``
+  - Basis: owning source requirement ID.
+- **T2-0484** — p. 33; § 12.1 Forbidden implementation theater; explicit; mapping: ``PES-QLT-0002``
+  - Verbatim: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0485** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``no-op commands;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0486** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``hard-coded success or catch-and-return-success;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0487** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``fake compile, load, online, scan, force, HMI, or diagnostic animations;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0488** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``canned errors or predetermined lesson results;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0489** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``sample-specific PLC/process logic in general engines;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0490** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``offline values displayed as monitored runtime values;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0491** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``HMI animation disconnected from InternalTagBus;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0492** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``mock/test doubles reachable in production;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0493** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``a regex-only compiler;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0494** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``SCL eval;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0495** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``LAD/FBD execution based on screen coordinates;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0496** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``hidden physical adapters disabled by configuration;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0497** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``scenario code that directly awards a pass;``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0498** — p. 33; § 12.1 Forbidden implementation theater; inherited bullet; mapping: ``PES-QLT-0002``
+  - Verbatim: ``a "coming soon" control that appears operational.``
+  - Modal lead-in: ``[PES-QLT-0002] MUST NOT ship:``
+  - Basis: owning source requirement ID.
+- **T2-0499** — p. 33; § 12.1 Forbidden implementation theater; explicit; mapping: ``PES-QLT-0003``
+  - Verbatim: ``[PES-QLT-0003] MUST fail closed when a feature is unavailable.``
+  - Basis: owning source requirement ID.
+- **T2-0500** — p. 33; § 12.1 Forbidden implementation theater; explicit; mapping: ``PES-QLT-0003``
+  - Verbatim: ``The UI shall honestly disable or omit the action and identify the unmet capability without pretending success.``
+  - Basis: owning source requirement ID.
+- **T2-0501** — p. 33; § 12.2 Permitted scaffolding; explicit; mapping: ``PES-QLT-0004``
+  - Verbatim: ``[PES-QLT-0004] MAY create scaffolding only when it:``
+  - Basis: owning source requirement ID.
+- **T2-0502** — p. 33; § 12.2 Permitted scaffolding; inherited bullet; mapping: ``PES-QLT-0004``
+  - Verbatim: ``is not user-visible or release-reachable;``
+  - Modal lead-in: ``[PES-QLT-0004] MAY create scaffolding only when it:``
+  - Basis: owning source requirement ID.
+- **T2-0503** — p. 33; § 12.2 Permitted scaffolding; inherited bullet; mapping: ``PES-QLT-0004``
+  - Verbatim: ``contains no forbidden capability;``
+  - Modal lead-in: ``[PES-QLT-0004] MAY create scaffolding only when it:``
+  - Basis: owning source requirement ID.
+- **T2-0504** — p. 33; § 12.2 Permitted scaffolding; inherited bullet; mapping: ``PES-QLT-0004``
+  - Verbatim: ``fails closed;``
+  - Modal lead-in: ``[PES-QLT-0004] MAY create scaffolding only when it:``
+  - Basis: owning source requirement ID.
+
+### Page 34 — 23 statement(s)
+
+- **T2-0505** — p. 34; § 12.2 Permitted scaffolding; inherited bullet; mapping: ``PES-QLT-0004``
+  - Verbatim: ``is labeled SCAFFOLDED in the implementation matrix;``
+  - Modal lead-in: ``[PES-QLT-0004] MAY create scaffolding only when it:``
+  - Basis: owning source requirement ID.
+- **T2-0506** — p. 34; § 12.2 Permitted scaffolding; inherited bullet; mapping: ``PES-QLT-0004``
+  - Verbatim: ``has an owner and removal/completion target;``
+  - Modal lead-in: ``[PES-QLT-0004] MAY create scaffolding only when it:``
+  - Basis: owning source requirement ID.
+- **T2-0507** — p. 34; § 12.2 Permitted scaffolding; inherited bullet; mapping: ``PES-QLT-0004``
+  - Verbatim: ``earns zero completion credit.``
+  - Modal lead-in: ``[PES-QLT-0004] MAY create scaffolding only when it:``
+  - Basis: owning source requirement ID.
+- **T2-0508** — p. 34; § 12.2 Permitted scaffolding; explicit; mapping: ``PES-QLT-0005``
+  - Verbatim: ``[PES-QLT-0005] MUST NOT create an abstract physical connection, generic transport, executable plugin host, network-capable HMI provider, or arbitrary scripting engine even as scaffolding.``
+  - Basis: owning source requirement ID.
+- **T2-0509** — p. 34; § 12.3 Universal milestone Definition of Done; explicit; mapping: ``PES-QLT-0006``
+  - Verbatim: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0510** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``domain model and ownership;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0511** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``invariants;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0512** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``positive behavior;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0513** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``negative behavior;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0514** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``enumerated failure cases and recovery;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0515** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``stable identity and dependency behavior;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0516** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``persistence, migration, and undo where applicable;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0517** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``real UI integration where applicable;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0518** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``end-to-end workflow;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0519** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``deterministic unit/integration tests;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0520** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``property/fuzz/golden tests where applicable;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0521** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``isolation/security tests;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0522** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``clean-room evidence and asset provenance;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0523** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``documentation;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0524** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``requirement-to-test traceability;``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0525** — p. 34; § 12.3 Universal milestone Definition of Done; inherited bullet; mapping: ``PES-QLT-0006``
+  - Verbatim: ``reproducible verification evidence.``
+  - Modal lead-in: ``[PES-QLT-0006] MUST require every software milestone, when later authorized, to include:``
+  - Basis: owning source requirement ID.
+- **T2-0526** — p. 34; § 12.3 Universal milestone Definition of Done; explicit; mapping: ``PES-QLT-0007``
+  - Verbatim: ``[PES-QLT-0007] MUST NOT advance a milestone on screenshots, a successful build, a smoke test, a happy-path demo, or manual assertion alone.``
+  - Basis: owning source requirement ID.
+- **T2-0527** — p. 34; § 12.3 Universal milestone Definition of Done; explicit; mapping: ``PES-QLT-0008``
+  - Verbatim: ``[PES-QLT-0008] MUST keep a milestone open if any required test is skipped, flaky, unavailable, manually waived, or inconclusive.``
+  - Basis: owning source requirement ID.
+
+### Page 35 — 13 statement(s)
+
+- **T2-0528** — p. 35; § 13.1 One document, four authoring phases; explicit; mapping: ``PES-GOV-0017``
+  - Verbatim: ``[PES-GOV-0017] MUST append and revise this same document for Phases 2-4 while preserving:``
+  - Basis: owning source requirement ID.
+- **T2-0529** — p. 35; § 13.1 One document, four authoring phases; inherited bullet; mapping: ``PES-GOV-0017``
+  - Verbatim: ``exact filename;``
+  - Modal lead-in: ``[PES-GOV-0017] MUST append and revise this same document for Phases 2-4 while preserving:``
+  - Basis: owning source requirement ID.
+- **T2-0530** — p. 35; § 13.1 One document, four authoring phases; inherited bullet; mapping: ``PES-GOV-0017``
+  - Verbatim: ``style system;``
+  - Modal lead-in: ``[PES-GOV-0017] MUST append and revise this same document for Phases 2-4 while preserving:``
+  - Basis: owning source requirement ID.
+- **T2-0531** — p. 35; § 13.1 One document, four authoring phases; inherited bullet; mapping: ``PES-GOV-0017``
+  - Verbatim: ``requirement IDs;``
+  - Modal lead-in: ``[PES-GOV-0017] MUST append and revise this same document for Phases 2-4 while preserving:``
+  - Basis: owning source requirement ID.
+- **T2-0532** — p. 35; § 13.1 One document, four authoring phases; inherited bullet; mapping: ``PES-GOV-0017``
+  - Verbatim: ``cross references;``
+  - Modal lead-in: ``[PES-GOV-0017] MUST append and revise this same document for Phases 2-4 while preserving:``
+  - Basis: owning source requirement ID.
+- **T2-0533** — p. 35; § 13.1 One document, four authoring phases; inherited bullet; mapping: ``PES-GOV-0017``
+  - Verbatim: ``source hash history;``
+  - Modal lead-in: ``[PES-GOV-0017] MUST append and revise this same document for Phases 2-4 while preserving:``
+  - Basis: owning source requirement ID.
+- **T2-0534** — p. 35; § 13.1 One document, four authoring phases; inherited bullet; mapping: ``PES-GOV-0017``
+  - Verbatim: ``change ledger;``
+  - Modal lead-in: ``[PES-GOV-0017] MUST append and revise this same document for Phases 2-4 while preserving:``
+  - Basis: owning source requirement ID.
+- **T2-0535** — p. 35; § 13.1 One document, four authoring phases; inherited bullet; mapping: ``PES-GOV-0017``
+  - Verbatim: ``superseded requirement tombstones;``
+  - Modal lead-in: ``[PES-GOV-0017] MUST append and revise this same document for Phases 2-4 while preserving:``
+  - Basis: owning source requirement ID.
+- **T2-0536** — p. 35; § 13.1 One document, four authoring phases; inherited bullet; mapping: ``PES-GOV-0017``
+  - Verbatim: ``open decisions and risk records.``
+  - Modal lead-in: ``[PES-GOV-0017] MUST append and revise this same document for Phases 2-4 while preserving:``
+  - Basis: owning source requirement ID.
+- **T2-0537** — p. 35; § 13.1 One document, four authoring phases; explicit; mapping: ``PES-GOV-0018``
+  - Verbatim: ``[PES-GOV-0018] MUST NOT create separate competing master directives for later phases.``
+  - Basis: owning source requirement ID.
+- **T2-0538** — p. 35; § 13.1 One document, four authoring phases; explicit; mapping: ``PES-GOV-0019``
+  - Verbatim: ``[PES-GOV-0019] MUST label unauthored later-phase material as reserved.``
+  - Basis: owning source requirement ID.
+- **T2-0539** — p. 35; § 13.1 One document, four authoring phases; explicit; mapping: ``PES-GOV-0019``
+  - Verbatim: ``It shall not create empty chapters that could be mistaken for complete requirements.``
+  - Basis: owning source requirement ID.
+- **T2-0540** — p. 35; § 13.1 One document, four authoring phases; explicit; mapping: ``PES-GOV-0020``
+  - Verbatim: ``[PES-GOV-0020] MUST perform a cross-phase contradiction and coverage audit after every authoring phase.``
+  - Basis: owning source requirement ID.
+
+### Page 36 — 4 statement(s)
+
+- **T2-0541** — p. 36; § 13.2 Phase 1 acceptance checklist; explicit; mapping: ``PES-ACC-0005``
+  - Verbatim: ``[PES-ACC-0005] MUST mark this revision "Phase 1 authored; Phases 2-4 not yet authored."``
+  - Basis: owning source requirement ID.
+- **T2-0542** — p. 36; § 13.2 Phase 1 acceptance checklist; explicit; mapping: ``PES-ACC-0006``
+  - Verbatim: ``[PES-ACC-0006] MUST NOT treat completion of Phase 1 authoring as completion of the master directive.``
+  - Basis: owning source requirement ID.
+- **T2-0543** — p. 36; § 13.2 Phase 1 acceptance checklist; explicit; mapping: ``PES-ACC-0007``
+  - Verbatim: ``[PES-ACC-0007] MUST NOT authorize product coding from this incomplete directive unless Scott separately gives explicit implementation authorization before Phases 2-4 are complete.``
+  - Basis: owning source requirement ID.
+- **T2-0544** — p. 36; § 13.3 Open decisions carried forward; explicit table row; mapping: **UNMAPPED**
+  - Verbatim: ``OQ-0008 | Accessibility conformance target and performance/capacity budgets | Must be objective before experience acceptance | Phase 3``
+  - Basis: UNMAPPED.
+
+### Page 37 — 0 statement(s)
+
+No in-scope modal statement on this page.
+
+### Page 38 — 1 statement(s)
+
+- **T2-0545** — p. 38; § Appendix A. Canonical Glossary; explicit table row; mapping: ``PES-DET-0002``, ``PES-DET-0005``
+  - Verbatim: ``Engineering timestamp | Human-facing wall-clock metadata; never authoritative simulation time``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+
+### Page 39 — 0 statement(s)
+
+No in-scope modal statement on this page.
+
+### Page 40 — 1 statement(s)
+
+- **T2-0546** — p. 40; § Appendix F. Phase 1 "Do Not Build This" Register; explicit; mapping: ``PES-SCP-0001``, ``PES-ISO-0001``, ``PES-CRM-0001``, ``PES-DET-0001``, ``PES-FID-0002``
+  - Verbatim: ``The product may become broad, realistic, polished, and deeply functional only inside these boundaries.``
+  - Basis: materially equivalent numbered statement elsewhere in the source.
+
+<!-- LEDGER_END -->
+
+## Coverage conclusion
+
+The ledger accounts for all 40 pages and all 546 in-scope source statements under the stated trigger and inheritance rules. Of those, 498 have a direct, inherited, or materially equivalent source requirement-ID mapping; 48 remain UNMAPPED. No repository file was treated as authoritative evidence for either recall or mapping.
+
+

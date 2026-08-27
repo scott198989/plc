@@ -9,8 +9,12 @@
 *.yml text eol=lf
 
 # Controlled source inputs are byte-hashed and must never be normalized.
-"Govs PLC project Research Report.md" -text !eol
+"References for Codex from Scott/Govs PLC project Research Report.md" -text !eol
 *.docx -text
+
+# Pre-remediation audit scratch is immutable byte evidence, including its
+# historical line endings and whitespace.
+evidence/phase1-closure/pre-remediation/adversarial-scratch/** -text !eol whitespace=-trailing-space,-blank-at-eof
 
 # Binary media must remain byte-preserved when later phases authorize it.
 *.gif -text

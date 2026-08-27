@@ -1,7 +1,7 @@
 # Clean-Room Policy
 
 Status: Phase 1 controlled policy; effective for all project work  
-Research baseline: `Govs PLC project Research Report.md`  
+Research baseline: `References for Codex from Scott/Govs PLC project Research Report.md`
 Research SHA-256: `F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55`  
 Governing requirements: PES-GOV-0001 through PES-GOV-0013; PES-CRM-0001 through PES-CRM-0025; PES-DOC-0004; PES-CI-0001 through PES-CI-0003
 
@@ -173,4 +173,3 @@ These are mandatory gates under PES-CRM-0007, PES-CRM-0016 through PES-CRM-0025,
 - No external or vendor asset is approved for shipment by this policy.
 - No dependency is approved merely by appearing in a package manifest or lockfile.
 - Physical industrial communication and vendor deployment artifacts are permanently excluded, not candidates for clean-room implementation.
-

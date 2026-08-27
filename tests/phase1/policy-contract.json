@@ -1,15 +1,206 @@
 {
   "schemaVersion": 1,
-  "expectedRequirementCount": 247,
-  "expectedToolchainRecordCount": 13,
+  "trustedBaseline": {
+    "manifestPath": "tests/phase1/trusted-baseline.json",
+    "schemaVersion": 1,
+    "hashAlgorithm": "SHA-256",
+    "scope": "exact-project-file-set",
+    "excludedRoots": [
+      ".git",
+      ".idea",
+      ".phase1-verification",
+      ".pnpm-store",
+      ".vscode",
+      "__pycache__",
+      "coverage",
+      "dist",
+      "node_modules",
+      "playwright-report",
+      "target",
+      "test-results"
+    ],
+    "excludedPaths": ["apps/foundation-shell/src/generated"],
+    "exitCodes": {
+      "pass": 0,
+      "namedPolicyFailure": 1,
+      "toolOrTrustError": 2
+    }
+  },
+  "rootPackageIdentity": {
+    "name": "plc-engineering-simulator-governance"
+  },
+  "requiredRootScripts": {
+    "requirements:extract": "node tools/phase1/run_pinned_python.mjs -B tools/phase1/extract_directive_requirements.py --root .",
+    "requirements:check": "node tools/phase1/run_pinned_python.mjs -B tools/phase1/extract_directive_requirements.py --check --root .",
+    "verify:phase1": "node tools/phase1/run_pinned_python.mjs -B tools/phase1/run_phase1_verification.py --baseline-ref HEAD",
+    "verify:mutations": "node tools/phase1/run_phase1_mutations.mjs --baseline-ref HEAD",
+    "gate:closure": "pnpm requirements:check && pnpm gate:foundation && pnpm verify:phase1 && pnpm verify:mutations"
+  },
+  "scopedContentPolicy": {
+    "textExtensions": [".css", ".html", ".js", ".json", ".jsx", ".mjs", ".rs", ".toml", ".ts", ".tsx", ".txt", ".yaml", ".yml"],
+    "restrictedTextFiles": [
+      ".github/workflows/phase1-governance.yml",
+      "Cargo.toml",
+      "README.md",
+      "apps/foundation-shell/index.html",
+      "package.json",
+      "pnpm-workspace.yaml",
+      "rust-toolchain.toml",
+      "tools/foundation/inline-shell.mjs"
+    ],
+    "restrictedTextRoots": ["apps", "packages", "crates"],
+    "userFacingTextFiles": ["README.md", "apps/foundation-shell/index.html", "apps/foundation-shell/src/App.tsx", "tools/foundation/inline-shell.mjs"],
+    "userFacingTextRoots": [],
+    "vendorMarks": ["Siemens", "SIMATIC", "TIA Portal", "WinCC", "PLCSIM"],
+    "allowlist": []
+  },
+  "phase1FoundationFileAllowlist": [
+    "apps/foundation-shell/index.html",
+    "apps/foundation-shell/package.json",
+    "apps/foundation-shell/src/App.tsx",
+    "apps/foundation-shell/src/foundation-client.ts",
+    "apps/foundation-shell/src/foundation.worker.ts",
+    "apps/foundation-shell/src/main.tsx",
+    "apps/foundation-shell/src/styles.css",
+    "apps/foundation-shell/src/ui-model.ts",
+    "apps/foundation-shell/src/vite-env.d.ts",
+    "apps/foundation-shell/src/worker-handler.ts",
+    "apps/foundation-shell/test/ui-model.test.ts",
+    "apps/foundation-shell/tsconfig.app.json",
+    "apps/foundation-shell/tsconfig.base.json",
+    "apps/foundation-shell/tsconfig.test.json",
+    "apps/foundation-shell/tsconfig.worker.json",
+    "apps/foundation-shell/vite.config.ts",
+    "crates/foundation-wasm/Cargo.toml",
+    "crates/foundation-wasm/src/lib.rs",
+    "packages/foundation-contract/package.json",
+    "packages/foundation-contract/src/index.ts",
+    "packages/foundation-contract/test/contract.test.ts",
+    "packages/foundation-contract/tsconfig.json"
+  ],
+  "authorizedCandidateDependencies": {
+    "npm": [
+      {"manifestPath": "package.json", "field": "devDependencies", "name": "@types/node", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "BUILD_TEST_ONLY", "networkRuntimeAllowed": false},
+      {"manifestPath": "package.json", "field": "devDependencies", "name": "playwright-core", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "BUILD_TEST_ONLY", "networkRuntimeAllowed": false},
+      {"manifestPath": "package.json", "field": "devDependencies", "name": "typescript", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "BUILD_TEST_ONLY", "networkRuntimeAllowed": false},
+      {"manifestPath": "apps/foundation-shell/package.json", "field": "dependencies", "name": "@govs/foundation-contract", "versionSpec": "workspace:*", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "FOUNDATION_RUNTIME", "networkRuntimeAllowed": false},
+      {"manifestPath": "apps/foundation-shell/package.json", "field": "dependencies", "name": "react", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "FOUNDATION_RUNTIME", "networkRuntimeAllowed": false},
+      {"manifestPath": "apps/foundation-shell/package.json", "field": "dependencies", "name": "react-dom", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "FOUNDATION_RUNTIME", "networkRuntimeAllowed": false},
+      {"manifestPath": "apps/foundation-shell/package.json", "field": "devDependencies", "name": "@types/react", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "BUILD_TEST_ONLY", "networkRuntimeAllowed": false},
+      {"manifestPath": "apps/foundation-shell/package.json", "field": "devDependencies", "name": "@types/react-dom", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "BUILD_TEST_ONLY", "networkRuntimeAllowed": false},
+      {"manifestPath": "apps/foundation-shell/package.json", "field": "devDependencies", "name": "typescript", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "BUILD_TEST_ONLY", "networkRuntimeAllowed": false},
+      {"manifestPath": "apps/foundation-shell/package.json", "field": "devDependencies", "name": "vite", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "BUILD_TEST_ONLY", "networkRuntimeAllowed": false},
+      {"manifestPath": "apps/foundation-shell/package.json", "field": "devDependencies", "name": "vitest", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "BUILD_TEST_ONLY", "networkRuntimeAllowed": false},
+      {"manifestPath": "packages/foundation-contract/package.json", "field": "devDependencies", "name": "typescript", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "BUILD_TEST_ONLY", "networkRuntimeAllowed": false},
+      {"manifestPath": "packages/foundation-contract/package.json", "field": "devDependencies", "name": "vitest", "versionSpec": "catalog:", "authorizationId": "CR-0001/WP-0G", "admissionStatus": "CANDIDATE_UNREVIEWED", "phase1Use": "BUILD_TEST_ONLY", "networkRuntimeAllowed": false}
+    ],
+    "cargo": []
+  },
+  "networkCapableDependencyNames": [
+    "axios",
+    "playwright",
+    "playwright-core",
+    "node-fetch",
+    "undici",
+    "ws",
+    "socket.io",
+    "reqwest",
+    "hyper",
+    "ureq",
+    "tungstenite",
+    "tokio-tungstenite",
+    "vite",
+    "serialport",
+    "rusb"
+  ],
+  "foundationContract": {
+    "schemaVersion": 1,
+    "commandKind": "foundation.health",
+    "resultKind": "domain.result",
+    "requestId": "phase1-foundation-health",
+    "buildIdentity": "foundation-core@0.1.0",
+    "healthState": "HEALTHY",
+    "stateHash": "64E21C28C534606DD9C9AA27A56C928DC09574CD70B56B6D468FE3F96C2F5A94",
+    "contractPath": "packages/foundation-contract/src/index.ts",
+    "appPath": "apps/foundation-shell/src/App.tsx",
+    "clientPath": "apps/foundation-shell/src/foundation-client.ts",
+    "workerPath": "apps/foundation-shell/src/foundation.worker.ts",
+    "workerHandlerPath": "apps/foundation-shell/src/worker-handler.ts",
+    "rustPath": "crates/foundation-wasm/src/lib.rs",
+    "browserTestPath": "tests/foundation/foundation-browser.e2e.mjs",
+    "contractTestPath": "packages/foundation-contract/test/contract.test.ts"
+  },
+  "requirementsSnapshot": {
+    "schemaVersion": 3,
+    "counts": {
+      "sourceParentIdCount": 247,
+      "issuedIdCount": 484,
+      "supersededCompoundParentCount": 20,
+      "atomicRecordCount": 464,
+      "completionEligibleAtomicRecordCount": 463,
+      "sourceStatementUnitCount": 546,
+      "mappedStatementUnitCount": 546,
+      "unmappedStatementUnitCount": 0,
+      "sourceUnitRelationshipCount": 789
+    },
+    "stateCounts": {
+      "BLOCKED": 2,
+      "DEFERRED": 3,
+      "IMPLEMENTED_UNVERIFIED": 100,
+      "NOT_STARTED": 363,
+      "PARTIAL": 16,
+      "VERIFIED": 0
+    },
+    "completionEligibleStateCounts": {
+      "BLOCKED": 2,
+      "DEFERRED": 3,
+      "IMPLEMENTED_UNVERIFIED": 96,
+      "NOT_STARTED": 347,
+      "PARTIAL": 15,
+      "VERIFIED": 0
+    }
+  },
+  "expectedToolchainRecordCount": 17,
+  "expectedToolchainNames": [
+    "Node.js",
+    "pnpm",
+    "Python",
+    "Rust compiler",
+    "Cargo",
+    "TypeScript",
+    "Vite",
+    "Vitest",
+    "React",
+    "Playwright Core",
+    "System Chrome",
+    "windows-2025",
+    "actions/checkout",
+    "actions/setup-node",
+    "actions/setup-python",
+    "Microsoft Word",
+    "Poppler",
+    "PDF QA Python stack"
+  ],
   "sourceFiles": [
     {
-      "path": "Govs PLC project Research Report.md",
+      "path": "References for Codex from Scott/Govs PLC project Research Report.md",
       "sha256": "F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55"
     },
     {
-      "path": "PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx",
+      "path": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx",
       "sha256": "EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612"
+    },
+    {
+      "path": "References for Codex from Scott/PLC Engineering Simulator - Phase 1 Corrective Addendum - Closure and Trusted Baseline.docx",
+      "sha256": "950C5112C34D0218FD1E59CF6C051ACCD01AB92674CD70C96C08A5F1DA2E5A1C"
+    },
+    {
+      "path": "References for Codex from Scott/CODEX RED TEAM AUDIT PHASE 1.docx",
+      "sha256": "515BD6A844AF1A2E71C829BA567214F73CA4E455278157960A3A11F25B8DF5B3"
+    },
+    {
+      "path": "References for Codex from Scott/CODEX AUDIT AFTER RED TEAM.docx",
+      "sha256": "4D85D71CEB36AC0E4892CBF91FCDB4B6CE8FFC27E80DA20D754EE8008ABEB87F"
     }
   ],
   "docxVisualQaObservation": {
@@ -54,9 +245,13 @@
     "ADR/0003-unified-plc-ir.md",
     "ADR/0004-deterministic-virtual-time.md",
     "requirements/phase1-requirements.json",
+    "requirements/phase1-reconciliation.json",
     "docs/research/UNRESOLVED_SOURCE_TOKENS.md",
     "docs/governance/PHASE_1_VERIFICATION_PLAN.md",
     "docs/governance/PHASE_1_SCOPE_AUDIT.md",
+    "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md",
+    "docs/governance/PHASE_1_CLOSURE_REPORT.md",
+    "docs/governance/PHASE_1_FINAL_READ_ONLY_REVIEW.md",
     "docs/governance/DOCX_VISUAL_QA.md",
     "docs/governance/TOOLCHAIN_ADMISSION_REGISTER.md",
     "package.json",
@@ -64,22 +259,57 @@
     "pnpm-workspace.yaml",
     "rust-toolchain.toml",
     "tests/phase1/policy-contract.json",
+    "tests/phase1/run_phase1_mutations.ps1",
+    "tests/phase1/trusted-baseline.json",
     "tools/phase1/extract_directive_requirements.py",
+    "tools/phase1/generate_trusted_baseline.py",
+    "tools/phase1/run_pinned_python.mjs",
+    "tools/phase1/run_phase1_mutations.mjs",
     "tools/phase1/run_phase1_verification.py",
-    "tools/phase1/verify-phase1.mjs"
+    "tools/phase1/verify-phase1.mjs",
+    "design-qa.md",
+    "evidence/phase1-closure/defect-register.json",
+    "evidence/phase1-closure/closure-evidence.json",
+    "evidence/phase1-closure/canonical-source-hashes.txt",
+    "evidence/phase1-closure/hash-recomputation/README.md",
+    "evidence/phase1-closure/hash-recomputation/recompute_render_text_digest.py",
+    "evidence/phase1-closure/hash-recomputation/render-text-digest-raw-output.txt",
+    "evidence/phase1-closure/pre-remediation/STARTING_STATE.md",
+    "evidence/phase1-closure/pre-remediation/file-inventory.tsv",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/README.md",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/directive-render.pdf",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/extract_word_pages.ps1",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/mutation-results.json",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/run_mutations.ps1",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/task1_task3.md",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/task2_audit_helper.py",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/task2_recall.md",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/task5_task8.md",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/task7_scope_inventory.md",
+    "evidence/phase1-closure/pre-remediation/adversarial-scratch/word-pages.json"
+  ],
+  "placeholderFreeFiles": [
+    "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md",
+    "docs/governance/PHASE_1_CLOSURE_REPORT.md"
   ],
   "expectedToolchain": {
     "node": "24.19.0",
     "pnpm": "11.19.0",
     "python": "3.13.12",
     "rust": "1.94.0",
+    "rustComponents": ["clippy", "rustfmt"],
+    "rustTargets": ["wasm32-unknown-unknown"],
     "runner": "windows-2025"
   },
   "expectedActionPins": {
     "actions/checkout": "3d3c42e5aac5ba805825da76410c181273ba90b1",
     "actions/setup-node": "820762786026740c76f36085b0efc47a31fe5020",
-    "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97",
-    "actions/upload-artifact": "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+    "actions/setup-python": "5fda3b95a4ea91299a34e894583c3862153e4b97"
+  },
+  "ciWorkflow": {
+    "path": ".github/workflows/phase1-governance.yml",
+    "jobId": "verify-foundation",
+    "requiredCommands": ["pnpm gate:closure"]
   },
   "expectedVerifiedRequirementIds": [],
   "expectedFoundationMappings": {
@@ -92,8 +322,40 @@
       "implementationComponents": ["SECURITY_INVARIANTS.md", "THREAT_MODEL.md"]
     },
     "PES-ARC-0030": {
-      "verificationIds": ["VER-QLT-0001"],
-      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tools/phase1/verify-phase1.mjs"]
+      "verificationIds": ["VER-QLT-0001", "VER-SCP-0001"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "apps/foundation-shell/src/App.tsx", "tests/foundation/foundation-browser.e2e.mjs"]
+    },
+    "PES-ARC-0031": {
+      "verificationIds": ["VER-FND-0001", "VER-REQ-0002", "VER-CI-0001"],
+      "implementationComponents": ["packages/foundation-contract/src/index.ts", "apps/foundation-shell/src/foundation.worker.ts", "apps/foundation-shell/src/worker-handler.ts", "apps/foundation-shell/src/foundation-client.ts", "apps/foundation-shell/src/App.tsx", "crates/foundation-wasm/src/lib.rs", "packages/foundation-contract/test/contract.test.ts", "apps/foundation-shell/test/ui-model.test.ts", "tests/foundation/foundation-browser.e2e.mjs"]
+    },
+    "PES-ARC-0032": {
+      "verificationIds": ["VER-FND-0001", "VER-REQ-0002", "VER-CI-0001"],
+      "implementationComponents": ["packages/foundation-contract/src/index.ts", "apps/foundation-shell/src/foundation.worker.ts", "apps/foundation-shell/src/worker-handler.ts", "apps/foundation-shell/src/foundation-client.ts", "apps/foundation-shell/src/App.tsx", "crates/foundation-wasm/src/lib.rs", "packages/foundation-contract/test/contract.test.ts", "apps/foundation-shell/test/ui-model.test.ts", "tests/foundation/foundation-browser.e2e.mjs"]
+    },
+    "PES-ARC-0033": {
+      "verificationIds": ["VER-FND-0001", "VER-REQ-0002", "VER-CI-0001"],
+      "implementationComponents": ["packages/foundation-contract/src/index.ts", "apps/foundation-shell/src/foundation.worker.ts", "apps/foundation-shell/src/worker-handler.ts", "apps/foundation-shell/src/foundation-client.ts", "apps/foundation-shell/src/App.tsx", "crates/foundation-wasm/src/lib.rs", "packages/foundation-contract/test/contract.test.ts", "apps/foundation-shell/test/ui-model.test.ts", "tests/foundation/foundation-browser.e2e.mjs"]
+    },
+    "PES-ARC-0034": {
+      "verificationIds": ["VER-FND-0001", "VER-REQ-0002", "VER-CI-0001"],
+      "implementationComponents": ["packages/foundation-contract/src/index.ts", "apps/foundation-shell/src/foundation.worker.ts", "apps/foundation-shell/src/worker-handler.ts", "apps/foundation-shell/src/foundation-client.ts", "apps/foundation-shell/src/App.tsx", "crates/foundation-wasm/src/lib.rs", "packages/foundation-contract/test/contract.test.ts", "apps/foundation-shell/test/ui-model.test.ts", "tests/foundation/foundation-browser.e2e.mjs"]
+    },
+    "PES-ARC-0035": {
+      "verificationIds": ["VER-FND-0001", "VER-REQ-0002", "VER-CI-0001"],
+      "implementationComponents": ["packages/foundation-contract/src/index.ts", "apps/foundation-shell/src/foundation.worker.ts", "apps/foundation-shell/src/worker-handler.ts", "apps/foundation-shell/src/foundation-client.ts", "apps/foundation-shell/src/App.tsx", "crates/foundation-wasm/src/lib.rs", "packages/foundation-contract/test/contract.test.ts", "apps/foundation-shell/test/ui-model.test.ts", "tests/foundation/foundation-browser.e2e.mjs"]
+    },
+    "PES-ARC-0036": {
+      "verificationIds": ["VER-FND-0001", "VER-REQ-0002", "VER-CI-0001"],
+      "implementationComponents": ["packages/foundation-contract/src/index.ts", "apps/foundation-shell/src/foundation.worker.ts", "apps/foundation-shell/src/worker-handler.ts", "apps/foundation-shell/src/foundation-client.ts", "apps/foundation-shell/src/App.tsx", "crates/foundation-wasm/src/lib.rs", "packages/foundation-contract/test/contract.test.ts", "apps/foundation-shell/test/ui-model.test.ts", "tests/foundation/foundation-browser.e2e.mjs"]
+    },
+    "PES-ARC-0037": {
+      "verificationIds": ["VER-FND-0001", "VER-REQ-0002", "VER-CI-0001"],
+      "implementationComponents": ["packages/foundation-contract/src/index.ts", "apps/foundation-shell/src/foundation.worker.ts", "apps/foundation-shell/src/worker-handler.ts", "apps/foundation-shell/src/foundation-client.ts", "apps/foundation-shell/src/App.tsx", "crates/foundation-wasm/src/lib.rs", "packages/foundation-contract/test/contract.test.ts", "apps/foundation-shell/test/ui-model.test.ts", "tests/foundation/foundation-browser.e2e.mjs"]
+    },
+    "PES-ARC-0038": {
+      "verificationIds": ["VER-FND-0001", "VER-REQ-0002", "VER-CI-0001"],
+      "implementationComponents": ["packages/foundation-contract/src/index.ts", "apps/foundation-shell/src/foundation.worker.ts", "apps/foundation-shell/src/worker-handler.ts", "apps/foundation-shell/src/foundation-client.ts", "apps/foundation-shell/src/App.tsx", "crates/foundation-wasm/src/lib.rs", "packages/foundation-contract/test/contract.test.ts", "apps/foundation-shell/test/ui-model.test.ts", "tests/foundation/foundation-browser.e2e.mjs"]
     },
     "PES-DOC-0001": {
       "verificationIds": ["VER-DOC-0002"],
@@ -111,13 +373,87 @@
       "verificationIds": ["VER-CRM-0001", "VER-QLT-0001"],
       "implementationComponents": ["EVIDENCE_REGISTER.json", "ASSET_PROVENANCE.json"]
     },
+    "PES-DEV-0006": {
+      "verificationIds": ["VER-CI-0001", "VER-DEP-0001", "VER-SCP-0001"],
+      "implementationComponents": ["package.json", "pnpm-workspace.yaml", "pnpm-lock.yaml", "apps/foundation-shell/package.json", "packages/foundation-contract/package.json", "Cargo.toml", "Cargo.lock", "crates/foundation-wasm/Cargo.toml", "rust-toolchain.toml"]
+    },
     "PES-DEV-0010": {
-      "verificationIds": ["VER-QLT-0001"],
-      "implementationComponents": ["pnpm-workspace.yaml", "Cargo.toml", "IMPLEMENTATION_MATRIX.json"]
+      "verificationIds": ["VER-QLT-0001", "VER-SCP-0001"],
+      "implementationComponents": ["pnpm-workspace.yaml", "Cargo.toml", "apps/foundation-shell/package.json", "packages/foundation-contract/package.json", "crates/foundation-wasm/Cargo.toml", "IMPLEMENTATION_MATRIX.json"]
     },
     "PES-DEV-0012": {
       "verificationIds": ["VER-ISO-0001"],
       "implementationComponents": ["tools/phase1/verify-phase1.mjs"]
+    },
+    "PES-CI-0004": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-DEP-0001", "VER-ISO-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "DEPENDENCY_POLICY.md", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "tools/foundation/lint-source-policy.mjs", "tools/foundation/verify-isolation.mjs"]
+    },
+    "PES-CI-0005": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-ISO-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "tools/foundation/lint-source-policy.mjs", "tools/foundation/verify-isolation.mjs", "apps/foundation-shell/src/worker-handler.ts"]
+    },
+    "PES-CI-0006": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-OFF-0001", "VER-DEP-0001", "VER-ISO-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "tools/foundation/lint-source-policy.mjs", "tools/foundation/verify-isolation.mjs", "tests/foundation/foundation-browser.e2e.mjs"]
+    },
+    "PES-CI-0007": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-CRM-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "ASSET_PROVENANCE.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs"]
+    },
+    "PES-CI-0008": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-CRM-0001", "VER-BRN-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "ASSET_PROVENANCE.json", "CLEAN_ROOM_POLICY.md", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "apps/foundation-shell/src/App.tsx"]
+    },
+    "PES-CI-0009": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-REQ-0002", "VER-CRM-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "requirements/phase1-requirements.json", "EVIDENCE_REGISTER.json", "CLEAN_ROOM_POLICY.md", "tools/phase1/verify-phase1.mjs"]
+    },
+    "PES-CI-0010": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "packages/foundation-contract/test/contract.test.ts", "apps/foundation-shell/test/ui-model.test.ts", "tests/foundation/foundation-browser.e2e.mjs", "crates/foundation-wasm/src/lib.rs", "tools/phase1/verify-phase1.mjs", "tools/phase1/run_phase1_mutations.mjs"]
+    },
+    "PES-CI-0011": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "packages/foundation-contract/test/contract.test.ts", "apps/foundation-shell/test/ui-model.test.ts", "tests/foundation/foundation-browser.e2e.mjs", "apps/foundation-shell/src/worker-handler.ts", "crates/foundation-wasm/src/lib.rs"]
+    },
+    "PES-CI-0012": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-REQ-0002"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "requirements/phase1-requirements.json", "IMPLEMENTATION_MATRIX.json", "tools/phase1/verify-phase1.mjs"]
+    },
+    "PES-CI-0013": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-SCP-0001", "VER-QLT-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "packages/foundation-contract/src/index.ts", "apps/foundation-shell/src/worker-handler.ts", "apps/foundation-shell/src/App.tsx", "tests/foundation/foundation-browser.e2e.mjs", "tools/phase1/verify-phase1.mjs"]
+    },
+    "PES-CI-0014": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-OFF-0002", "VER-ISO-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "tools/foundation/lint-source-policy.mjs", "tools/foundation/verify-isolation.mjs"]
+    },
+    "PES-CI-0015": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-ISO-0001", "VER-SCP-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "tools/foundation/lint-source-policy.mjs", "tools/foundation/verify-isolation.mjs"]
+    },
+    "PES-CI-0016": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-QLT-0001", "VER-BRN-0001", "VER-ISO-0001"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "apps/foundation-shell/src/App.tsx", "docs/governance/PHASE_1_SCOPE_AUDIT.md", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "tools/foundation/verify-isolation.mjs"]
+    },
+    "PES-CI-0017": {
+      "truthState": "PARTIAL",
+      "verificationIds": ["VER-CI-0001", "VER-REQ-0002"],
+      "implementationComponents": [".github/workflows/phase1-governance.yml", "package.json", "requirements/phase1-requirements.json", "requirements/phase1-reconciliation.json", "IMPLEMENTATION_MATRIX.json", "tools/phase1/verify-phase1.mjs"]
     },
     "PES-REQ-0001": {
       "verificationIds": ["VER-REQ-0001"],
@@ -128,8 +464,9 @@
       "implementationComponents": ["REQUIREMENTS.md", "requirements/phase1-requirements.json"]
     },
     "PES-REQ-0003": {
-      "verificationIds": ["VER-REQ-0001", "VER-CRM-0001", "VER-DEC-0001"],
-      "implementationComponents": ["EVIDENCE_REGISTER.json", "OPEN_DECISIONS.md", "RISK_REGISTER.md"]
+      "completionEligible": false,
+      "verificationIds": [],
+      "implementationComponents": []
     },
     "PES-REQ-0004": {
       "verificationIds": ["VER-REQ-0001"],
@@ -148,8 +485,33 @@
       "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tools/phase1/verify-phase1.mjs"]
     },
     "PES-QLT-0004": {
-      "verificationIds": ["VER-QLT-0001"],
-      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "pnpm-workspace.yaml", "Cargo.toml"]
+      "completionEligible": false,
+      "verificationIds": [],
+      "implementationComponents": []
+    },
+    "PES-QLT-0023": {
+      "verificationIds": ["VER-QLT-0001", "VER-SCP-0001"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "apps/foundation-shell/package.json", "packages/foundation-contract/package.json", "crates/foundation-wasm/Cargo.toml"]
+    },
+    "PES-QLT-0024": {
+      "verificationIds": ["VER-QLT-0001", "VER-SCP-0001"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "apps/foundation-shell/package.json", "packages/foundation-contract/package.json", "crates/foundation-wasm/Cargo.toml"]
+    },
+    "PES-QLT-0025": {
+      "verificationIds": ["VER-QLT-0001", "VER-SCP-0001"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "apps/foundation-shell/package.json", "packages/foundation-contract/package.json", "crates/foundation-wasm/Cargo.toml"]
+    },
+    "PES-QLT-0026": {
+      "verificationIds": ["VER-QLT-0001", "VER-SCP-0001"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "apps/foundation-shell/package.json", "packages/foundation-contract/package.json", "crates/foundation-wasm/Cargo.toml"]
+    },
+    "PES-QLT-0027": {
+      "verificationIds": ["VER-QLT-0001", "VER-SCP-0001"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "apps/foundation-shell/package.json", "packages/foundation-contract/package.json", "crates/foundation-wasm/Cargo.toml"]
+    },
+    "PES-QLT-0028": {
+      "verificationIds": ["VER-QLT-0001", "VER-SCP-0001"],
+      "implementationComponents": ["IMPLEMENTATION_MATRIX.json", "tests/phase1/policy-contract.json", "tools/phase1/verify-phase1.mjs", "apps/foundation-shell/package.json", "packages/foundation-contract/package.json", "crates/foundation-wasm/Cargo.toml"]
     },
     "PES-QLT-0005": {
       "verificationIds": ["VER-QLT-0001", "VER-ISO-0001"],
@@ -160,20 +522,30 @@
       "implementationComponents": ["docs/governance/PHASE_1_SCOPE_AUDIT.md"]
     },
     "PES-ACC-0007": {
-      "verificationIds": ["VER-QLT-0001"],
-      "implementationComponents": ["docs/governance/PHASE_1_SCOPE_AUDIT.md"]
+      "verificationIds": ["VER-QLT-0001", "VER-SCP-0001", "VER-ISO-0001"],
+      "implementationComponents": ["docs/governance/PHASE_1_SCOPE_AUDIT.md", "apps/foundation-shell/src/App.tsx", "apps/foundation-shell/src/worker-handler.ts", "packages/foundation-contract/src/index.ts", "crates/foundation-wasm/src/lib.rs", "tests/foundation/foundation-browser.e2e.mjs"]
     }
   },
   "verificationIds": [
     "VER-GOV-0001",
+    "VER-INT-0001",
+    "VER-INT-0002",
     "VER-DOC-0001",
     "VER-DOC-0002",
+    "VER-ADR-0001",
     "VER-REQ-0001",
     "VER-REQ-0002",
     "VER-CRM-0001",
     "VER-DEC-0001",
+    "VER-RSK-0001",
     "VER-QLT-0001",
+    "VER-SCP-0001",
+    "VER-FND-0001",
     "VER-ISO-0001",
+    "VER-OFF-0001",
+    "VER-OFF-0002",
+    "VER-BRN-0001",
+    "VER-DEP-0001",
     "VER-CI-0001"
   ],
   "validTruthStates": [
@@ -198,7 +570,25 @@
     "physical-plc",
     "industrial-communication"
   ],
-  "blockedDecisionIds": ["DEC-0001", "DEC-0002", "OQ-0001", "OQ-0002"],
+  "blockedDecisionIds": ["DEC-0002", "OQ-0001", "OQ-0002"],
+  "decisionDispositions": {
+    "DEC-0001": {
+      "status": "RESOLVED",
+      "changeRecordId": "CR-0001",
+      "exactStatusLine": "**Status:** RESOLVED BY `CR-0001`"
+    },
+    "DEC-0002": {
+      "status": "PARTIALLY RESOLVED",
+      "changeRecordId": "CR-0001",
+      "exactStatusLine": "**Status:** PARTIALLY RESOLVED BY `CR-0001` - ACTIVE CONFIGURATION AND LOCAL GATE AUTHORIZED; EXTERNAL OPERATIONS AND UPLOAD REMAIN BLOCKED",
+      "requiredBlockedBoundaryPhrases": [
+        "It does not authorize creating or configuring a remote repository",
+        "uploading verification reports",
+        "Those external actions remain blocked",
+        "No remote creation, push, hosted run, credential use, hosted log, report upload, or remote-retention evidence is claimed."
+      ]
+    }
+  },
   "openQuestionIds": [
     "OQ-0001",
     "OQ-0002",

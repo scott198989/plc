@@ -61,6 +61,20 @@ The selected desktop/classroom shell and supported operating systems remain BLOC
 
 There is no trust boundary or data flow from the product to a network endpoint, physical device, industrial protocol, external service, cloud, updater, or executable plugin.
 
+### Phase 1 foundation evidence boundary
+
+The current foundation is intentionally narrower than the future product: a
+local React UI sends one exact, bounded health command to an inline Worker,
+which instantiates one embedded dependency-free Rust/WASM module and returns a
+validated deterministic `DomainResult`. The observed module is 247 bytes with
+zero imports. The built output is one `dist/index.html` with no external
+resource reference and a CSP whose `connect-src` is `none`; the
+`'wasm-unsafe-eval'` script token exists solely for the fixed embedded module.
+Static scans and headless `file://` interaction tests validate this narrow
+path. The browser harness observed zero page-level remote requests, but it is
+not process-scoped DNS/syscall/packet monitoring and therefore does not close
+TM-05 or authorize a release/packaging choice.
+
 ## 6. Threats, mitigations, and verification
 
 | ID | Threat and attack path | Impact | Required mitigations | Release verification | Requirement trace |

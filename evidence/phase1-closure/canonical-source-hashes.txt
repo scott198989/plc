@@ -1,0 +1,17 @@
+PURPOSE=Independent canonical-source hash evidence after Scott's intentional reference-folder relocation
+CAPTURED_AT_LOCAL=2026-08-27
+SHELL=PowerShell Get-FileHash -Algorithm SHA256 and Get-Item
+COMMAND=$paths = @('References for Codex from Scott/Govs PLC project Research Report.md','References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx','References for Codex from Scott/PLC Engineering Simulator - Phase 1 Corrective Addendum - Closure and Trusted Baseline.docx'); for ($i=0; $i -lt $paths.Count; $i++) { $p=$paths[$i]; $item=Get-Item -LiteralPath $p; $hash=(Get-FileHash -Algorithm SHA256 -LiteralPath $p).Hash; Write-Output "SOURCE[$($i+1)].RELATIVE_PATH=$p"; Write-Output "SOURCE[$($i+1)].ABSOLUTE_PATH=$($item.FullName)"; Write-Output "SOURCE[$($i+1)].BYTES=$($item.Length)"; Write-Output "SOURCE[$($i+1)].SHA256=$hash" }
+
+SOURCE[1].RELATIVE_PATH=References for Codex from Scott/Govs PLC project Research Report.md
+SOURCE[1].ABSOLUTE_PATH=C:\Users\Scott\OneDrive\Desktop\Codex - GOV's PLC\References for Codex from Scott\Govs PLC project Research Report.md
+SOURCE[1].BYTES=127132
+SOURCE[1].SHA256=F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55
+SOURCE[2].RELATIVE_PATH=References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx
+SOURCE[2].ABSOLUTE_PATH=C:\Users\Scott\OneDrive\Desktop\Codex - GOV's PLC\References for Codex from Scott\PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx
+SOURCE[2].BYTES=81045
+SOURCE[2].SHA256=EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612
+SOURCE[3].RELATIVE_PATH=References for Codex from Scott/PLC Engineering Simulator - Phase 1 Corrective Addendum - Closure and Trusted Baseline.docx
+SOURCE[3].ABSOLUTE_PATH=C:\Users\Scott\OneDrive\Desktop\Codex - GOV's PLC\References for Codex from Scott\PLC Engineering Simulator - Phase 1 Corrective Addendum - Closure and Trusted Baseline.docx
+SOURCE[3].BYTES=50231
+SOURCE[3].SHA256=950C5112C34D0218FD1E59CF6C051ACCD01AB92674CD70C96C08A5F1DA2E5A1C

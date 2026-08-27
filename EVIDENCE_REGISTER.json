@@ -27,6 +27,7 @@
   "researchBaseline": {
     "sourceId": "SRC-0001",
     "fileName": "Govs PLC project Research Report.md",
+    "path": "References for Codex from Scott/Govs PLC project Research Report.md",
     "sha256": "F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55",
     "frozenByRequirement": "PES-GOV-0010",
     "hashVerifiedOn": "2026-08-27",
@@ -41,7 +42,7 @@
       "version": null,
       "publicationDate": null,
       "dateNote": "The text contains claims stated as of 2026-08-27, but no explicit document publication metadata was found.",
-      "durableLocation": "project://Govs PLC project Research Report.md",
+      "durableLocation": "project://References for Codex from Scott/Govs PLC project Research Report.md",
       "accessDate": "2026-08-27",
       "sha256": "F05C08323B5CC9483BEB1FEB3C7312CCB9A45EBE3B527E6DAE069C181D3FBF55",
       "sourceType": "INTERNAL_FROZEN_RESEARCH_REPORT",
@@ -67,7 +68,7 @@
       "owner": "Scott",
       "version": "0.1",
       "publicationDate": "2026-08-27",
-      "durableLocation": "project://PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx",
+      "durableLocation": "project://References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive Phase 1.docx",
       "accessDate": "2026-08-27",
       "sha256": "EBF074E2CEAB752F09E6DB63D88E100991729DA13C1EB874290A6B337DA72612",
       "sourceType": "NORMATIVE_PROJECT_DIRECTIVE",
@@ -93,6 +94,57 @@
       "reviewStatus": "UNREVIEWED",
       "limitations": [
         "This inventory identifies fragile tokens and occurrence counts; it does not identify their underlying publishers, titles, URLs, or access dates."
+      ]
+    },
+    {
+      "sourceId": "SRC-0024",
+      "title": "PLC Engineering Simulator - Phase 1 Corrective Addendum - Closure and Trusted Baseline",
+      "publisher": null,
+      "author": null,
+      "version": null,
+      "publicationDate": "2026-08-27",
+      "durableLocation": "project://References for Codex from Scott/PLC Engineering Simulator - Phase 1 Corrective Addendum - Closure and Trusted Baseline.docx",
+      "accessDate": "2026-08-27",
+      "sha256": "950C5112C34D0218FD1E59CF6C051ACCD01AB92674CD70C96C08A5F1DA2E5A1C",
+      "sourceType": "NORMATIVE_CORRECTIVE_ADDENDUM",
+      "reportClassificationsPresent": [],
+      "reviewStatus": "CONTROLLING_PHASE_1_CORRECTIVE_AUTHORITY",
+      "limitations": [
+        "This addendum authorizes Phase 1 correction and closure only; it does not authorize Phase 2."
+      ]
+    },
+    {
+      "sourceId": "SRC-0025",
+      "title": "CODEX RED TEAM AUDIT PHASE 1",
+      "publisher": null,
+      "author": null,
+      "version": null,
+      "publicationDate": null,
+      "durableLocation": "project://References for Codex from Scott/CODEX RED TEAM AUDIT PHASE 1.docx",
+      "accessDate": "2026-08-27",
+      "sha256": "515BD6A844AF1A2E71C829BA567214F73CA4E455278157960A3A11F25B8DF5B3",
+      "sourceType": "USER_SUPPLIED_ADVERSARIAL_AUDIT_DIRECTIVE",
+      "reportClassificationsPresent": [],
+      "reviewStatus": "ADMITTED_PHASE_1_AUDIT_INPUT",
+      "limitations": [
+        "This document scopes adversarial review; it is not product implementation evidence or Phase 2 authorization."
+      ]
+    },
+    {
+      "sourceId": "SRC-0026",
+      "title": "CODEX AUDIT AFTER RED TEAM",
+      "publisher": null,
+      "author": null,
+      "version": null,
+      "publicationDate": null,
+      "durableLocation": "project://References for Codex from Scott/CODEX AUDIT AFTER RED TEAM.docx",
+      "accessDate": "2026-08-27",
+      "sha256": "4D85D71CEB36AC0E4892CBF91FCDB4B6CE8FFC27E80DA20D754EE8008ABEB87F",
+      "sourceType": "USER_SUPPLIED_AUDIT_LEAD_INPUT",
+      "reportClassificationsPresent": [],
+      "reviewStatus": "ADMITTED_PHASE_1_AUDIT_INPUT",
+      "limitations": [
+        "This document is an audit input; it does not by itself prove remediation, verification, or Phase 1 closure."
       ]
     }
   ],
@@ -509,5 +561,28 @@
       "implementationComponent": "repository-governance",
       "verificationIds": []
     }
-  ]
+  ],
+  "riskClosureEvidenceSchema": {
+    "purpose": "A CLOSED or ACCEPTED risk requires one independently reviewable evidence record; changing RISK_REGISTER.md text alone is never closure.",
+    "requiredFields": [
+      "riskId",
+      "disposition",
+      "evidenceRecordIds",
+      "verificationIds",
+      "decisionOrAdrIds",
+      "changeRecordId",
+      "reviewer",
+      "reviewDate",
+      "closureRationale",
+      "residualRisk"
+    ],
+    "rules": [
+      "disposition must exactly match the CLOSED or ACCEPTED status in RISK_REGISTER.md",
+      "every evidenceRecordId must resolve to an APPROVED and VERIFIED requirementEvidence record with reviewer and reviewDate",
+      "every verificationId must identify a passing check in the same closure run",
+      "reviewDate must use YYYY-MM-DD",
+      "an OPEN risk must not have an active riskClosureEvidence record"
+    ]
+  },
+  "riskClosureEvidence": []
 }
