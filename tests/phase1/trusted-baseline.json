@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "baselineId": "phase1-remediation-validation-v1",
+  "baselineId": "phase1-remediation-validation-v2",
   "hashAlgorithm": "SHA-256",
   "manifestPath": "tests/phase1/trusted-baseline.json",
   "scope": "exact-project-file-set",
@@ -105,7 +105,7 @@
     {
       "path": "EVIDENCE_REGISTER.json",
       "bytes": 30763,
-      "sha256": "F033930F75A9259BB710E7A909E937A3AAF05152A06E7D2A21CACA7F93503938"
+      "sha256": "A2E76847F287784D52B4F2DA9EF362AA2055E0590E0DF957AC25435AFDF11670"
     },
     {
       "path": "IMPLEMENTATION_MATRIX.json",
@@ -129,8 +129,8 @@
     },
     {
       "path": "REQUIREMENTS.md",
-      "bytes": 7199,
-      "sha256": "C81B3426E6814F02DA33E43F628FF820B21CE835CAFB441AEEF986A918D0D41A"
+      "bytes": 7797,
+      "sha256": "4822BF2308444A929FCBD95FC03308EBCCA4718DDEFD5A0F83B751969BFD0422"
     },
     {
       "path": "RISK_REGISTER.md",
@@ -544,8 +544,8 @@
     },
     {
       "path": "tools/phase1/verify-phase1.mjs",
-      "bytes": 79291,
-      "sha256": "D2BEE653160C4733BD1FF35E0947DF449986DC81B88357BCE3158A53C4E6BDB5"
+      "bytes": 79694,
+      "sha256": "4ADC2558EEAEC7CA331E7B7EA9FAB5DB12E4DBE16D4CB75BD39E60F5E01EBB4E"
     }
   ]
 }

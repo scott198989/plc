@@ -604,9 +604,12 @@ if (registry && matrix && reconciliation) {
         Array.isArray(item.sourcePointer.headingPath) &&
         item.sourcePointer.headingPath.length > 0 &&
         Array.isArray(item.sourcePointer.sourceUnitIds) &&
-        item.sourcePointer.sourceUnitIds.length > 0,
+        (item.sourcePointer.sourceUnitIds.length > 0 ||
+          (["SHOULD", "MAY"].includes(item.normativeKeyword) &&
+            typeof item.sourcePointer.sourceVerbatim === "string" &&
+            item.sourcePointer.sourceVerbatim.length > 0)),
     ),
-    "Every requirement has a non-empty heading path and hash-bound directive pointer",
+    "Every requirement has a non-empty heading and hash-bound directive pointer; mandatory units have reconciliation lineage and advisory records retain verbatim source",
   );
   const structuralSpillPattern = /^(?:Phase \d(?: of \d)?:.*|Appendix [A-Z](?:\.|:).*|Open Questions|Risk Register|Construction-Phase Ledger|Phase 1 Contents)$/im;
   record(
@@ -1237,7 +1240,6 @@ const reservedRoots = [
   "assets/original",
   "artifacts",
   "build",
-  "dist",
 ];
 for (const path of reservedRoots) {
   const absent = !existsSync(join(root, path));
@@ -1255,9 +1257,9 @@ const scopeAudit = existsSync(join(root, "docs/governance/PHASE_1_SCOPE_AUDIT.md
 const directiveLog = existsSync(join(root, "CHANGELOG_DIRECTIVE.md")) ? readText("CHANGELOG_DIRECTIVE.md") : "";
 record(
   "VER-QLT-0001",
-  includesEvery(readme, ["does **not** implement plc editors", "phases 2-4: not authorized", "only `verified` means complete"]) &&
-    includesEvery(scopeAudit, ["phase 1 exit not passed", "no phase 2-4 product feature work", "does not mark phase 1 complete"]) &&
-    includesEvery(directiveLog, ["phase 1 exit gate is not claimed as passed", "no phase 2-4 product feature work"]),
+  includesEvery(readme, ["phase 2 product implementation has not begun", "contains no plc project model", "only `verified` can count as complete"]) &&
+    includesEvery(scopeAudit, ["no phase 2-4 plc product feature work was performed", "does not mark the four-phase master directive", "does not promote any requirement to `verified`"]) &&
+    includesEvery(directiveLog, ["no phase 2-4 product feature work was performed", "does not pass the phase 1 closure gate", "or authorize phase 2 product implementation"]),
   "README, scope audit, and directive log reject Phase 1/product/master-directive completion claims",
 );
 

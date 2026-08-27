@@ -90,6 +90,15 @@ atomic clause it governs, and the two top-level register-file aliases map to all
 atomic fields in their named contracts. Historical parent lineage is stored
 separately and is not added to the 789 relationship total.
 
+The 546-unit adversarial recall population uses the recorded trigger scope:
+`shall`, `must`, `never`, explicit required/prohibited wording, limited
+permission (`may ... only`), and inherited modal children. Ten already-issued
+plain advisory records (`SHOULD` or unrestricted `MAY`) are intentionally not
+double-counted as units in that compulsory/prohibitive recall population. They
+remain hash-bound registry records with exact heading, body-block, modal, and
+verbatim source pointers; their empty `sourceUnitIds` arrays are therefore an
+explicit method boundary, not an unexplained mapping gap.
+
 `dependencies` contains only prerequisites that block a truth-state promotion.
 `relatedRequirements` records traceability relationships that do not themselves
 block the current-scope control. An empty dependency list is authoritative only
