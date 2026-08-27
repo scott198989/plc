@@ -5,12 +5,12 @@
   "scope": "Phase 1 corrective closure only",
   "closureRule": "A defect is RESOLVED only when the remediation and its direct evidence exist. Final candidate acceptance remains Scott's decision.",
   "summary": {
-    "total": 21,
+    "total": 22,
     "openCritical": 0,
     "openHigh": 0,
     "openMedium": 2,
     "openLow": 1,
-    "resolved": 18,
+    "resolved": 19,
     "remediatedPendingFinalProof": 0
   },
   "defects": [
@@ -202,6 +202,15 @@
       "resolution": "The active configuration and exact local gate are in scope; remote creation, push, hosted execution, logs, upload, and retention remain blocked by DEC-0002.",
       "evidence": [".github/workflows/phase1-governance.yml", "OPEN_DECISIONS.md"],
       "owner": "Scott"
+    },
+    {
+      "id": "DEF-022",
+      "severity": "HIGH",
+      "title": "Linked Git worktree control file was misclassified as an unexpected project file",
+      "status": "RESOLVED",
+      "resolution": "Only the repository-root .git control entry is excluded as Git metadata whether it is a directory or linked-worktree file; nested .git paths remain baseline-controlled and an automatic four-shape regression runs before every verification.",
+      "evidence": ["tests/phase1/test_trusted_baseline_git_control.py", "tools/phase1/generate_trusted_baseline.py", "tools/phase1/run_phase1_verification.py", "tools/phase1/verify-phase1.mjs", "docs/governance/PHASE_1_VERIFICATION_PLAN.md"],
+      "owner": "Codex"
     }
   ]
 }

@@ -20,6 +20,12 @@
       "test-results"
     ],
     "excludedPaths": ["apps/foundation-shell/src/generated"],
+    "gitControlMetadata": {
+      "rootPath": ".git",
+      "excludeRootFile": true,
+      "excludeRootDirectory": true,
+      "nestedGitPaths": "BASELINED_AS_ORDINARY_PROJECT_PATHS"
+    },
     "exitCodes": {
       "pass": 0,
       "namedPolicyFailure": 1,
@@ -261,6 +267,7 @@
     "rust-toolchain.toml",
     "tests/phase1/policy-contract.json",
     "tests/phase1/run_phase1_mutations.ps1",
+    "tests/phase1/test_trusted_baseline_git_control.py",
     "tests/phase1/trusted-baseline.json",
     "tools/phase1/extract_directive_requirements.py",
     "tools/phase1/generate_trusted_baseline.py",

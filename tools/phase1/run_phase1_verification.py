@@ -115,6 +115,25 @@ def find_git() -> Path | None:
     return None
 
 
+def run_git_control_regression(root: Path) -> int | None:
+    test = root / "tests" / "phase1" / "test_trusted_baseline_git_control.py"
+    try:
+        completed = subprocess.run(
+            [sys.executable, "-B", str(test)],
+            cwd=root,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=20,
+        )
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return error(f"Git-control path-policy regression could not execute: {exc}")
+    if completed.returncode != 0:
+        detail = (completed.stdout + completed.stderr).strip() or "no diagnostic output"
+        return error(f"Git-control path-policy regression failed: {detail}")
+    return None
+
+
 def resolve_git_manifest(root: Path, git: Path, baseline_ref: str) -> tuple[bytes, str] | None:
     resolved = subprocess.run(
         [str(git), "rev-parse", "--verify", f"{baseline_ref}^{{commit}}"],
@@ -183,6 +202,9 @@ def main() -> int:
 
     args = parse_args()
     root = Path(__file__).resolve().parents[2]
+    regression_failure = run_git_control_regression(root)
+    if regression_failure is not None:
+        return regression_failure
     node, node_observations = find_node()
     if node is None:
         observed = ", ".join(dict.fromkeys(node_observations)) or "none"

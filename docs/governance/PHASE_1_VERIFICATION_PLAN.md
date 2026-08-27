@@ -43,7 +43,12 @@ sorted file records cover every non-local project file except itself and the
 fixed ignored build/tool directories and exact generated WASM-module path.
 There is no filename-pattern exemption for `.env`, `*.local`, temporary, log,
 or operating-system metadata files; any such file outside an excluded directory
-must be removed or explicitly baselined. The manifest's own bytes are protected by the
+must be removed or explicitly baselined. The root `.git` control entry alone is
+excluded whether it is a checkout directory or a linked-worktree control file.
+A nested `.git` file or directory is an ordinary project path and remains in
+the exact manifest; the pinned launcher executes a temporary-fixture regression
+for both root shapes and both nested shapes before every verification run. The
+manifest's own bytes are protected by the
 immutable Git commit from which the launcher reads it. The verifier then
 compares the worktree copy byte-for-byte with that externally supplied copy.
 

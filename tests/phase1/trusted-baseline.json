@@ -269,28 +269,28 @@
     },
     {
       "path": "docs/governance/DOCX_VISUAL_QA.md",
-      "bytes": 7181,
-      "sha256": "263FEFE371D033BF6A92B26BF1E4A07AC92966989B5B92712F2E7A3F69589AF1"
+      "bytes": 7267,
+      "sha256": "7E5A5936F7438FCED05ED51CAE41274E7DE72DCC16BA25C42BD1900FFF0E3B45"
     },
     {
       "path": "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.docx",
-      "bytes": 186939,
-      "sha256": "A20C5C208CC33FC5187F39883D4792BBA8E52C62B999BC56B2ABC99FCB6D45F3"
+      "bytes": 187063,
+      "sha256": "2075F9BF6D082E1F82898693823475B9C49BD284DB013A8AF34A529D9CD4E8AC"
     },
     {
       "path": "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md",
-      "bytes": 390341,
-      "sha256": "E087CB1B5C769D300C07CD50CC19CB6617CFFFE03CF7B3B0F24B50F1949D9A9B"
+      "bytes": 390568,
+      "sha256": "5B6FA4F6A0C3301B2B289B1A5914C55ECB039B13190B67EF92E5A914F6D14419"
     },
     {
       "path": "docs/governance/PHASE_1_CLOSURE_REPORT.md",
-      "bytes": 11485,
-      "sha256": "5D235FD1BFF2161DE47181AD3BD6E2E721395C147FE7181B3D0AF89321A1DB12"
+      "bytes": 12094,
+      "sha256": "08C6D8B68F0E7FA39D092F7060EB005794BE2D2371B28634DB9402DB92AB7CEF"
     },
     {
       "path": "docs/governance/PHASE_1_FINAL_READ_ONLY_REVIEW.md",
-      "bytes": 6905,
-      "sha256": "0672DF86DB9266DEEE86D61F6732BBD896F561C5D97507DD028B21001A1583F4"
+      "bytes": 7772,
+      "sha256": "B41A9E9EC1A99FFDD5BB8C62726D275B705922E8718651653A19E304DA11E46C"
     },
     {
       "path": "docs/governance/PHASE_1_SCOPE_AUDIT.md",
@@ -299,8 +299,8 @@
     },
     {
       "path": "docs/governance/PHASE_1_VERIFICATION_PLAN.md",
-      "bytes": 12160,
-      "sha256": "2661AF35E4149E1A5103EDAA9D3404FB6837C9C42A12D0CE17ACEFFAB4973230"
+      "bytes": 12510,
+      "sha256": "7ACEF87EE2A7B46C5A5B6D88CC26C950AD2B5C128E9F695C4E089B4D1AB35E78"
     },
     {
       "path": "docs/governance/TOOLCHAIN_ADMISSION_REGISTER.md",
@@ -319,13 +319,13 @@
     },
     {
       "path": "evidence/phase1-closure/closure-evidence.json",
-      "bytes": 3759,
-      "sha256": "84D7FE7C46AA7BFDCB19180712FF9F05445ED89A6579ABEF7A48CFF2D91942B2"
+      "bytes": 4275,
+      "sha256": "4E05C5D9B3948137E89EBC98D5598D929D91C00B118F989D81662BBA4184F382"
     },
     {
       "path": "evidence/phase1-closure/defect-register.json",
-      "bytes": 10714,
-      "sha256": "3B3417F3AD9C4C299C19A7A139BD9FDA685EB855F6C51529DB49B491846B880F"
+      "bytes": 11431,
+      "sha256": "899BACC0EED85944A63A1FAC9DA089F0D0A0FCA9B22EB7DC42AF6840DE18EFE5"
     },
     {
       "path": "evidence/phase1-closure/hash-recomputation/README.md",
@@ -464,13 +464,18 @@
     },
     {
       "path": "tests/phase1/policy-contract.json",
-      "bytes": 33284,
-      "sha256": "BBCB96524588262B51DBBF6AF8BC7B04FDC32D8C9036F6885614C7B670F8103A"
+      "bytes": 33531,
+      "sha256": "EF95EE91ADF05688631C33F0BC100139A6446AC0E135C96EA02ED5E92F2A1D34"
     },
     {
       "path": "tests/phase1/run_phase1_mutations.ps1",
       "bytes": 19852,
       "sha256": "7B426B8D433221F0904130E86A212F89F363E3A1F2E4646E16D512B8654A5306"
+    },
+    {
+      "path": "tests/phase1/test_trusted_baseline_git_control.py",
+      "bytes": 3053,
+      "sha256": "841ED3DD9AFDC88ED9C5B9AAB54224F30EABC57731A9EA3E1F7295844384B3CA"
     },
     {
       "path": "tools/foundation/assert-toolchain.mjs",
@@ -524,8 +529,8 @@
     },
     {
       "path": "tools/phase1/generate_trusted_baseline.py",
-      "bytes": 4668,
-      "sha256": "E1176CE327A849B74830260317956C6A1168DF955D952EF23428456635ABC72E"
+      "bytes": 5207,
+      "sha256": "C996BF873F6D3EB4208225C2D87F4AC7870A990B3E8C90FF5891BD9D1EC4A2C0"
     },
     {
       "path": "tools/phase1/integrate_reconciliation_audit.mjs",
@@ -539,8 +544,8 @@
     },
     {
       "path": "tools/phase1/run_phase1_verification.py",
-      "bytes": 8081,
-      "sha256": "268DFF6D1820155BE9C66FDE65DA203D93BBDA9D4354EA455310517F7DB674C4"
+      "bytes": 8936,
+      "sha256": "D509FB376AADF433CF064DF796C0789960AC69C8ACFD6BAF879B690FF0740648"
     },
     {
       "path": "tools/phase1/run_pinned_python.mjs",
@@ -549,8 +554,8 @@
     },
     {
       "path": "tools/phase1/verify-phase1.mjs",
-      "bytes": 79694,
-      "sha256": "4ADC2558EEAEC7CA331E7B7EA9FAB5DB12E4DBE16D4CB75BD39E60F5E01EBB4E"
+      "bytes": 80608,
+      "sha256": "291EDD47CC6500B169696D3851A4E5B0C78EC68A0EBB9497084E830277A12D28"
     }
   ]
 }

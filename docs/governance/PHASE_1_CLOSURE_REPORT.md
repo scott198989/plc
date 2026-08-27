@@ -98,6 +98,15 @@ errors exit `2`. The manifest-tamper test passes, no crash or `ERROR` receives
 credit, no case directory remains, and wrapper scratch is removed after the
 durable ignored transcript is copied.
 
+The first post-review linked-worktree rerun against untagged commit
+`d3b02facd54ffe863a42d8ce6930aba5c266b580` exposed `DEF-022`: Git represents
+the repository-root `.git` entry as a control file in a linked worktree, while
+the path enumerator had excluded only the checkout-directory shape. The run
+failed closed before mutation credit. The corrected rule excludes only the
+exact root control entry in either shape, continues to baseline nested `.git`
+files and directories as ordinary project paths, rejects nested directory
+symlinks, and executes a pinned four-shape regression before every verification.
+
 ## Canonical names, hashes, and digest correction
 
 | Item | Canonical path or value | SHA-256 / disposition |

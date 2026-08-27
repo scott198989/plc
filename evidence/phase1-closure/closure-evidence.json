@@ -50,15 +50,23 @@
   },
   "auditDeliverable": {
     "markdownPath": "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md",
-    "markdownSha256": "E087CB1B5C769D300C07CD50CC19CB6617CFFFE03CF7B3B0F24B50F1949D9A9B",
+    "markdownSha256": "5B6FA4F6A0C3301B2B289B1A5914C55ECB039B13190B67EF92E5A914F6D14419",
     "docxPath": "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.docx",
-    "docxBytes": 186939,
-    "docxSha256": "A20C5C208CC33FC5187F39883D4792BBA8E52C62B999BC56B2ABC99FCB6D45F3",
+    "docxBytes": 187063,
+    "docxSha256": "2075F9BF6D082E1F82898693823475B9C49BD284DB013A8AF34A529D9CD4E8AC",
     "renderedPageCount": 133,
-    "renderedPdfSha256": "158278E8A8327205BA3EF3591FE115275D713A454581BBCCAC8F3D5861B3C9CE",
-    "machineAnalysisSha256": "140DB167DE53BAC4E50B2A6C96DF23844357354FCF829F365103425C962FCB0E",
+    "renderedPdfSha256": "840D924A776E1B48196E80DE1B483FA77173EE3E97FEADD68072C9ADA51E373D",
+    "machineAnalysisSha256": "A24826B52033962F0956C40E3F8157218DC1EC48AA10483EF5E0547C97D4BCAB",
     "visualQaRecord": "docs/governance/DOCX_VISUAL_QA.md",
     "status": "OUTPUT_QA_PASS_NOT_ACCEPTANCE_OR_TOOL_ADMISSION"
+  },
+  "linkedWorktreeRegression": {
+    "defect": "DEF-022",
+    "discoveryCommit": "d3b02facd54ffe863a42d8ce6930aba5c266b580",
+    "initialResult": "FAIL_CLOSED_VER-INT-0002_ROOT_GIT_CONTROL_FILE",
+    "resolution": "Exclude only the exact repository-root .git control file or directory; baseline nested .git paths and reject nested directory symlinks.",
+    "automaticRegression": "tests/phase1/test_trusted_baseline_git_control.py",
+    "candidateProof": "POST_FREEZE_LOCAL_AND_CLEAN_CHECKOUT_GATES_IN_GIT_NOTE"
   },
   "immutableVerification": {
     "status": "PASS_ON_IMMUTABLE_VALIDATION_BASELINE",

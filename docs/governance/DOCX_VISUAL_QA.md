@@ -61,7 +61,7 @@ Source Markdown: `docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md`
 
 Delivered DOCX: `docs/governance/PHASE_1_ADVERSARIAL_AUDIT.docx`
 
-The closure-audit deliverable received a separate full-document production-QA pass after its Markdown audit record was finalized. Microsoft Word opened the generated DOCX read-only and exported an ignored local PDF; the DOCX SHA-256 was identical before and after rendering. The PDF was rasterized at 96 DPI into 133 page images. Automated geometry, text, and raster checks examined every page, and nine contact sheets were inspected across the complete page sequence. Full-resolution inspection additionally covered pages 1, 3, 42, 118, 126, 127, 132, and 133 to sample the cover, defect and reconciliation content, dense audit tables, the mutation section, the interpretation ledger, the pre-remediation conclusions, and the final closure verdict.
+The closure-audit deliverable received a separate full-document production-QA pass after its Markdown audit record was finalized. Microsoft Word opened the generated DOCX read-only and exported an ignored local PDF; the DOCX SHA-256 was identical before and after rendering. The PDF was rasterized at 96 DPI into 133 page images. Automated geometry, text, and raster checks examined every page, and nine contact sheets were inspected across the complete page sequence. After the linked-worktree regression was added to the controlling defect table, the changed DOCX received a fresh render and a fresh all-page sweep rather than inheriting the earlier result. Full-resolution inspection additionally covered pages 2, 3, 126, and 133 to examine the complete defect table including `DEF-022`, mutation section, and final closure verdict.
 
 The resulting QA observations were:
 
@@ -72,9 +72,9 @@ The resulting QA observations were:
 
 | Item | Bytes or SHA-256 |
 |---|---|
-| Source audit Markdown | `390341` bytes; `E087CB1B5C769D300C07CD50CC19CB6617CFFFE03CF7B3B0F24B50F1949D9A9B` |
-| Delivered audit DOCX, before and after rendering | `186939` bytes; `A20C5C208CC33FC5187F39883D4792BBA8E52C62B999BC56B2ABC99FCB6D45F3` |
-| Derived 133-page PDF | `2780536` bytes; `158278E8A8327205BA3EF3591FE115275D713A454581BBCCAC8F3D5861B3C9CE` |
-| Machine analysis JSON | `140DB167DE53BAC4E50B2A6C96DF23844357354FCF829F365103425C962FCB0E` |
+| Source audit Markdown | `390568` bytes; `5B6FA4F6A0C3301B2B289B1A5914C55ECB039B13190B67EF92E5A914F6D14419` |
+| Delivered audit DOCX, before and after rendering | `187063` bytes; `2075F9BF6D082E1F82898693823475B9C49BD284DB013A8AF34A529D9CD4E8AC` |
+| Derived 133-page PDF | `2805111` bytes; `840D924A776E1B48196E80DE1B483FA77173EE3E97FEADD68072C9ADA51E373D` |
+| Machine analysis JSON | `A24826B52033962F0956C40E3F8157218DC1EC48AA10483EF5E0547C97D4BCAB` |
 
 The ignored render material is located under `.phase1-verification/audit-docx/`; it is reproducible QA support and is not shipped as a production asset. This QA result establishes the observed integrity of the identified deliverable bytes. It does not admit Microsoft Word, Poppler, or the PDF-QA Python stack; approve any dependency; convert any requirement to `VERIFIED`; constitute Scott's acceptance; or authorize Phase 2.

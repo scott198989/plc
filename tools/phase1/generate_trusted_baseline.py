@@ -38,23 +38,36 @@ def sha256(path: Path) -> str:
     return digest.hexdigest().upper()
 
 
+def is_excluded_directory(root: Path, current_path: Path, name: str) -> bool:
+    relative = (current_path / name).relative_to(root).as_posix()
+    if relative == ".git":
+        return True
+    if name == ".git":
+        return False
+    return name in EXCLUDED_ROOTS or relative in EXCLUDED_PATHS
+
+
 def collect_files(root: Path, output: Path) -> list[dict[str, object]]:
     entries: list[dict[str, object]] = []
     for current, directory_names, file_names in os.walk(root, topdown=True, followlinks=False):
         current_path = Path(current)
-        directory_names[:] = sorted(
-            name
-            for name in directory_names
-            if name not in EXCLUDED_ROOTS
-            and (current_path / name).relative_to(root).as_posix() not in EXCLUDED_PATHS
-        )
+        admitted_directories: list[str] = []
+        for name in sorted(directory_names):
+            path = current_path / name
+            if path.is_symlink():
+                raise RuntimeError(f"Refusing to baseline symbolic link: {path}")
+            if not is_excluded_directory(root, current_path, name):
+                admitted_directories.append(name)
+        directory_names[:] = admitted_directories
         for name in sorted(file_names):
             path = current_path / name
             if path.is_symlink():
                 raise RuntimeError(f"Refusing to baseline symbolic link: {path}")
+            relative = path.relative_to(root).as_posix()
+            if relative == ".git":
+                continue
             if path.resolve(strict=False) == output.resolve(strict=False):
                 continue
-            relative = path.relative_to(root).as_posix()
             entries.append(
                 {
                     "path": relative,

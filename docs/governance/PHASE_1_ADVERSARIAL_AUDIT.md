@@ -54,6 +54,7 @@ convert Scott's acceptance into an implementation-agent judgment.
 | `DEF-019` | Medium | Legal/provenance/security admission is incomplete | Open external review; candidates remain `CANDIDATE_UNREVIEWED` and non-release |
 | `DEF-020` | Medium | Historical status wording differs from `PES-ACC-0005` | Open Scott decision; source remains immutable |
 | `DEF-021` | Low | No remote or hosted CI run evidence exists | Open external operation under `DEC-0002`; exact local gate remains in scope |
+| `DEF-022` | High | Linked-worktree root `.git` control file was misclassified as project content | Resolved by exact-root metadata handling plus an automatic root-file/root-directory/nested-file/nested-directory regression |
 
 ## Task 1 — Requirement extraction: precision
 

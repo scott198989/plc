@@ -229,6 +229,20 @@ function countsMatchExpected(actual, expected) {
   );
 }
 
+function isExcludedProjectDirectory(projectPath, name) {
+  if (projectPath === ".git") return true;
+  const firstSegment = projectPath.split("/")[0];
+  return (
+    ignoredDirectories.has(firstSegment) ||
+    (name !== ".git" && ignoredDirectories.has(name)) ||
+    ignoredProjectPaths.has(projectPath)
+  );
+}
+
+function isExcludedProjectFile(projectPath) {
+  return projectPath === ".git";
+}
+
 function allFiles(start) {
   const absolute = join(root, start);
   if (!existsSync(absolute)) return [];
@@ -243,15 +257,10 @@ function allFiles(start) {
       if (status.isSymbolicLink()) {
         result.push({ path: projectPath, symlink: true });
       } else if (status.isDirectory()) {
-        const firstSegment = projectPath.split("/")[0];
-        if (
-          !ignoredDirectories.has(firstSegment) &&
-          !ignoredDirectories.has(name) &&
-          !ignoredProjectPaths.has(projectPath)
-        ) {
+        if (!isExcludedProjectDirectory(projectPath, name)) {
           stack.push(child);
         }
-      } else {
+      } else if (!isExcludedProjectFile(projectPath)) {
         result.push({ path: projectPath, symlink: false });
       }
     }
@@ -298,6 +307,19 @@ record(
     JSON.stringify(contract.trustedBaseline?.excludedPaths) ===
       JSON.stringify(trustedBaseline.manifest.excludedPaths),
   "Policy contract identifies the externally trusted manifest format without supplying expected artifact hashes",
+);
+const gitControlPolicy = contract.trustedBaseline?.gitControlMetadata;
+record(
+  "VER-INT-0001",
+  gitControlPolicy?.rootPath === ".git" &&
+    gitControlPolicy?.excludeRootFile === true &&
+    gitControlPolicy?.excludeRootDirectory === true &&
+    gitControlPolicy?.nestedGitPaths === "BASELINED_AS_ORDINARY_PROJECT_PATHS" &&
+    isExcludedProjectFile(".git") &&
+    !isExcludedProjectFile("nested/.git") &&
+    isExcludedProjectDirectory(".git", ".git") &&
+    !isExcludedProjectDirectory("nested/.git", ".git"),
+  "Only the repository-root .git control entry is excluded as Git metadata; nested .git paths remain baseline-controlled",
 );
 record(
   "VER-CI-0001",
