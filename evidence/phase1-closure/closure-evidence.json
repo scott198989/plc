@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "evidenceId": "PHASE1-CLOSURE-EVIDENCE",
   "asOf": "2026-08-27",
-  "status": "PRE_CANDIDATE_VALIDATION",
+  "status": "PHASE_1_CLOSURE_CANDIDATE_AWAITING_SCOTT",
   "acceptanceAuthority": "Scott",
   "phase2Authorized": false,
   "preRemediation": {
@@ -42,21 +42,46 @@
     "wasmImports": 0,
     "domainHealth": "HEALTHY",
     "artifactPath": "dist/index.html",
+    "artifactBytes": 209552,
+    "artifactSha256": "B3CEB08111F27004D19022F8B9C7AFD3437EC9F13FFE635B18340CEBC89E0039",
+    "wasmBytes": 247,
+    "wasmSha256": "D77FBFB13096417B94749387D0AF74230A2E04E148001E62475E116CE7DF72A3",
     "visualQa": "design-qa.md"
   },
+  "auditDeliverable": {
+    "markdownPath": "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md",
+    "markdownSha256": "E087CB1B5C769D300C07CD50CC19CB6617CFFFE03CF7B3B0F24B50F1949D9A9B",
+    "docxPath": "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.docx",
+    "docxBytes": 186939,
+    "docxSha256": "A20C5C208CC33FC5187F39883D4792BBA8E52C62B999BC56B2ABC99FCB6D45F3",
+    "renderedPageCount": 133,
+    "renderedPdfSha256": "158278E8A8327205BA3EF3591FE115275D713A454581BBCCAC8F3D5861B3C9CE",
+    "machineAnalysisSha256": "140DB167DE53BAC4E50B2A6C96DF23844357354FCF829F365103425C962FCB0E",
+    "visualQaRecord": "docs/governance/DOCX_VISUAL_QA.md",
+    "status": "OUTPUT_QA_PASS_NOT_ACCEPTANCE_OR_TOOL_ADMISSION"
+  },
   "immutableVerification": {
-    "status": "PENDING_CANDIDATE_COMMIT",
-    "expectedCleanBaselineExit": 0,
-    "expectedPolicyFailureExit": 1,
-    "expectedTrustOrToolErrorExit": 2,
+    "status": "PASS_ON_IMMUTABLE_VALIDATION_BASELINE",
+    "validationCommit": "c859c7a7126a2f7c36409e7e884afb61ca40bbaa",
+    "manifestSha256": "BAEE99688C8DCB75B961D793ADF79C25F1C0AAA1116873428BCD3925BB9A71D9",
+    "cleanBaselineExit": 0,
+    "policyMutationExit": 1,
+    "trustOrToolErrorExit": 2,
     "mutationEvidencePath": ".phase1-verification/mutations/mutation-results.json",
-    "prescribedMutations": 12
+    "prescribedMutations": 12,
+    "intendedMutationDetections": 12,
+    "manifestTamperTestPassed": true,
+    "crashCredit": 0,
+    "errorCredit": 0,
+    "remainingCaseDirectories": 0,
+    "scratchRemoved": true,
+    "overallPassed": true
   },
   "candidate": {
     "commitResolution": "git rev-parse phase1-closure-candidate-v1^{}",
     "annotatedTag": "phase1-closure-candidate-v1",
     "gitNoteRef": "refs/notes/phase1-closure-evidence",
-    "status": "NOT_YET_FROZEN"
+    "status": "RESOLVED_BY_ANNOTATED_TAG_AND_POST_FREEZE_GIT_NOTE"
   },
   "openExternalBoundaries": [
     "Scott acceptance",

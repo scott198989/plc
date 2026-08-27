@@ -50,3 +50,31 @@ Word, Poppler, and the PDF-QA Python stack remain `UNASSIGNED` / `NOT_REVIEWED` 
 | Machine analysis JSON | `E375D621054A4C0F584379EBB70AFDD521A21F11E50E39C389E6D72677FF5A63` |
 
 The derived PDF, PNGs, contact sheets, helper scripts, and analysis JSON live only under the ignored `.phase1-verification/` directory. They are reproducible local observation material, not controlled production assets or portable review evidence. When present, the local verifier validates the derived PDF hash, the 40-page PNG count/manifest, and the machine-analysis JSON hash; it records when that contracted set is absent and never treats absence or presence as gate acceptance. Contact sheets and helper scripts are ignored convenience material and are not covered by that hash validation. Exact renderer/package provenance, licenses, signatures, maintenance, production exclusion, authorized use, and independent reviewer acceptance remain `UNREVIEWED`.
+
+## Closure-audit DOCX production QA
+
+Status: **OUTPUT QA PASS FOR THE IDENTIFIED CLOSURE-CANDIDATE BYTES; NOT SCOTT ACCEPTANCE OR TOOL ADMISSION**
+
+QA date: 2026-08-27
+
+Source Markdown: `docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md`
+
+Delivered DOCX: `docs/governance/PHASE_1_ADVERSARIAL_AUDIT.docx`
+
+The closure-audit deliverable received a separate full-document production-QA pass after its Markdown audit record was finalized. Microsoft Word opened the generated DOCX read-only and exported an ignored local PDF; the DOCX SHA-256 was identical before and after rendering. The PDF was rasterized at 96 DPI into 133 page images. Automated geometry, text, and raster checks examined every page, and nine contact sheets were inspected across the complete page sequence. Full-resolution inspection additionally covered pages 1, 3, 42, 118, 126, 127, 132, and 133 to sample the cover, defect and reconciliation content, dense audit tables, the mutation section, the interpretation ledger, the pre-remediation conclusions, and the final closure verdict.
+
+The resulting QA observations were:
+
+- exactly 133 nonblank US-Letter landscape pages and 133 rendered PNGs, each 1056 x 816 pixels;
+- no blank pages, Unicode replacement glyphs, out-of-bounds words, rendered edge-touch pages, clipped text, visible overlaps, corrupt typography, or unreadable tables;
+- consistent page headers, footers, numbering, margins, hierarchy, color, and table styling; and
+- complete final-page `Not verifiable` and `Phase 2 verdict` content with no truncation.
+
+| Item | Bytes or SHA-256 |
+|---|---|
+| Source audit Markdown | `390341` bytes; `E087CB1B5C769D300C07CD50CC19CB6617CFFFE03CF7B3B0F24B50F1949D9A9B` |
+| Delivered audit DOCX, before and after rendering | `186939` bytes; `A20C5C208CC33FC5187F39883D4792BBA8E52C62B999BC56B2ABC99FCB6D45F3` |
+| Derived 133-page PDF | `2780536` bytes; `158278E8A8327205BA3EF3591FE115275D713A454581BBCCAC8F3D5861B3C9CE` |
+| Machine analysis JSON | `140DB167DE53BAC4E50B2A6C96DF23844357354FCF829F365103425C962FCB0E` |
+
+The ignored render material is located under `.phase1-verification/audit-docx/`; it is reproducible QA support and is not shipped as a production asset. This QA result establishes the observed integrity of the identified deliverable bytes. It does not admit Microsoft Word, Poppler, or the PDF-QA Python stack; approve any dependency; convert any requirement to `VERIFIED`; constitute Scott's acceptance; or authorize Phase 2.

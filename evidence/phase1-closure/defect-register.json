@@ -7,19 +7,19 @@
   "summary": {
     "total": 21,
     "openCritical": 0,
-    "openHigh": 2,
+    "openHigh": 0,
     "openMedium": 2,
     "openLow": 1,
-    "resolved": 16,
-    "remediatedPendingFinalProof": 2
+    "resolved": 18,
+    "remediatedPendingFinalProof": 0
   },
   "defects": [
     {
       "id": "DEF-001",
       "severity": "HIGH",
       "title": "Adversarial audit was incomplete and contained closure placeholders",
-      "status": "REMEDIATED_PENDING_FINAL_PROOF",
-      "resolution": "All required audit sections are being completed and the final DOCX is generated only after immutable validation.",
+      "status": "RESOLVED",
+      "resolution": "All required audit sections are complete; the final DOCX is generated only after immutable validation and receives all-page visual QA.",
       "evidence": ["docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md", "tools/phase1/export_audit_docx.py"],
       "owner": "Codex"
     },
@@ -54,8 +54,8 @@
       "id": "DEF-005",
       "severity": "CRITICAL",
       "title": "Integrity verification compared the subject with a manifest recomputed from the same subject",
-      "status": "REMEDIATED_PENDING_FINAL_PROOF",
-      "resolution": "The launcher now extracts an immutable Git-object manifest outside the subject and seals it by SHA-256; final proof requires the closure candidate commit.",
+      "status": "RESOLVED",
+      "resolution": "The launcher extracts an immutable Git-object manifest outside the subject and seals it by SHA-256; commit c859c7a7126a2f7c36409e7e884afb61ca40bbaa passed clean verification, manifest-tamper rejection, and all twelve intended mutation detectors.",
       "evidence": ["tools/phase1/run_phase1_verification.py", "tools/phase1/verify-phase1.mjs", "tools/phase1/generate_trusted_baseline.py", "docs/governance/PHASE_1_VERIFICATION_PLAN.md"],
       "owner": "Codex"
     },

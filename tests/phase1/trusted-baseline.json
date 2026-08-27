@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "baselineId": "phase1-remediation-validation-v3",
+  "baselineId": "phase1-closure-candidate-v1",
   "hashAlgorithm": "SHA-256",
   "manifestPath": "tests/phase1/trusted-baseline.json",
   "scope": "exact-project-file-set",
@@ -269,23 +269,28 @@
     },
     {
       "path": "docs/governance/DOCX_VISUAL_QA.md",
-      "bytes": 4720,
-      "sha256": "5A2DD5710B1EB25D3BCD52F24880866C1171AC28A107BD0D2818C9A66E79DB1D"
+      "bytes": 7181,
+      "sha256": "263FEFE371D033BF6A92B26BF1E4A07AC92966989B5B92712F2E7A3F69589AF1"
+    },
+    {
+      "path": "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.docx",
+      "bytes": 186939,
+      "sha256": "A20C5C208CC33FC5187F39883D4792BBA8E52C62B999BC56B2ABC99FCB6D45F3"
     },
     {
       "path": "docs/governance/PHASE_1_ADVERSARIAL_AUDIT.md",
-      "bytes": 389474,
-      "sha256": "9F84663D688390DCA88C70BBF9F292DD34C9DA30476B662E3F2A07BA691DF2E7"
+      "bytes": 390341,
+      "sha256": "E087CB1B5C769D300C07CD50CC19CB6617CFFFE03CF7B3B0F24B50F1949D9A9B"
     },
     {
       "path": "docs/governance/PHASE_1_CLOSURE_REPORT.md",
-      "bytes": 4256,
-      "sha256": "E66A2BF3AC3B77F41DD5F0F7FE2739CB08A31C078B18FB9C53E2112CDD93A39C"
+      "bytes": 11485,
+      "sha256": "5D235FD1BFF2161DE47181AD3BD6E2E721395C147FE7181B3D0AF89321A1DB12"
     },
     {
       "path": "docs/governance/PHASE_1_FINAL_READ_ONLY_REVIEW.md",
-      "bytes": 822,
-      "sha256": "3342C64D58495AC53FE721F84A68533099D742337B6ED9C3D65F08EBC70564A4"
+      "bytes": 6905,
+      "sha256": "0672DF86DB9266DEEE86D61F6732BBD896F561C5D97507DD028B21001A1583F4"
     },
     {
       "path": "docs/governance/PHASE_1_SCOPE_AUDIT.md",
@@ -314,13 +319,13 @@
     },
     {
       "path": "evidence/phase1-closure/closure-evidence.json",
-      "bytes": 2415,
-      "sha256": "37B8BEF335E338E931DA9B0CFB145741AAB4302C5632FC274BC1E5281DAE7885"
+      "bytes": 3759,
+      "sha256": "84D7FE7C46AA7BFDCB19180712FF9F05445ED89A6579ABEF7A48CFF2D91942B2"
     },
     {
       "path": "evidence/phase1-closure/defect-register.json",
-      "bytes": 10645,
-      "sha256": "BA3EABF3103FF7C9203C99DE9C4515CCCE7EA80A77562CD383D307C47DE6BEBF"
+      "bytes": 10714,
+      "sha256": "3B3417F3AD9C4C299C19A7A139BD9FDA685EB855F6C51529DB49B491846B880F"
     },
     {
       "path": "evidence/phase1-closure/hash-recomputation/README.md",
@@ -459,8 +464,8 @@
     },
     {
       "path": "tests/phase1/policy-contract.json",
-      "bytes": 33230,
-      "sha256": "0190CB3D108AEEE776493073569C52F3F14AA9FD28E3A8D0F18E00FC6A61C90E"
+      "bytes": 33284,
+      "sha256": "BBCB96524588262B51DBBF6AF8BC7B04FDC32D8C9036F6885614C7B670F8103A"
     },
     {
       "path": "tests/phase1/run_phase1_mutations.ps1",

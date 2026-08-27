@@ -33,11 +33,11 @@ convert Scott's acceptance into an implementation-agent judgment.
 
 | ID | Severity | Defect | Current corrective disposition |
 |---|---|---|---|
-| `DEF-001` | High | Audit incomplete and closure placeholders present | Remediated; final immutable-run/DOCX proof pending |
+| `DEF-001` | High | Audit incomplete and closure placeholders present | Resolved: all sections complete; final Markdown/DOCX and all-page QA are closure evidence |
 | `DEF-002` | Critical | 48 source-recall gaps lacked explicit dispositions | Resolved: all 546 source units map in the reconciliation ledger |
 | `DEF-003` | High | 20 compounds were not atomically split | Resolved: parents preserved and 190 stable children issued |
 | `DEF-004` | High | `PES-REQ-0003` source field drifted | Resolved in deterministic extraction and reconciliation |
-| `DEF-005` | Critical | Integrity oracle was self-recomputed from the subject | Remediated by external sealed Git-object manifest; final candidate proof pending |
+| `DEF-005` | Critical | Integrity oracle was self-recomputed from the subject | Resolved: external sealed Git-object manifest, tamper rejection, and immutable validation pass |
 | `DEF-006` | High | `.editorconfig` mutation escaped | Resolved by exact-file-set `VER-INT-0002` control |
 | `DEF-007` | Critical | External URL mutation escaped | Resolved by scoped `VER-OFF-0001` control |
 | `DEF-008` | Critical | Loopback endpoint mutation escaped | Resolved by scoped `VER-OFF-0002` control |
@@ -4393,7 +4393,7 @@ RG_EXIT_MasterDirectiveFilename=1
 
 For this audit, the **actual user-supplied paths and their current bytes are the input authority**, because the user explicitly supplied those two paths and the actual files are the only extant candidates. The directive remains the authority for product semantics, but its exact-filename fields conflict with the supplied filenames and do not authorize a silent rename. `DEC-0001` therefore remains unresolved. The research file's current hash matches the 60-bit abbreviated prefix/suffix printed by the directive, but no admissible external full-hash receipt exists for either original transfer; strict byte-identity to the moment of supply is listed under **Not verifiable**.
 
-## Task 5 — Check independence
+## Task 5 — Pre-remediation check independence
 
 ### Executive result
 
@@ -4618,10 +4618,18 @@ nonzero result, an unrelated check, or an exception earns no credit.
 | `M11` | Close a risk without admissible evidence | `VER-RSK-0001` | Named policy failure, exit 1, no crash |
 | `M12` | Remove ADR-0001 | `VER-ADR-0001` | Named policy failure, exit 1, no crash |
 
-At this interim audit freeze, the corrective code and expected-detector table
-exist, but immutable execution credit is intentionally withheld until the
-trusted baseline is committed. The final closure update records the executed
-score and transcript path rather than predicting success.
+The corrective suite was executed against immutable validation commit
+`c859c7a7126a2f7c36409e7e884afb61ca40bbaa`. The externally extracted manifest
+had SHA-256
+`BAEE99688C8DCB75B961D793ADF79C25F1C0AAA1116873428BCD3925BB9A71D9`.
+The clean baseline exited `0`. Every M01–M12 subject exited `1`, printed its
+intended named detector, printed no `ERROR`, and had `crashed=false`. The
+separately corrupted sealed manifest was rejected with trust/tool exit `2` by
+`VER-INT-0001`. Final score: **12/12**, manifest tamper test: **pass**, overall:
+**pass**, remaining case directories: **0**, wrapper scratch removed: **true**.
+The full raw transcript is retained at the ignored local evidence path
+`.phase1-verification/mutations/mutation-results.json`; exact post-freeze
+candidate evidence is attached through `refs/notes/phase1-closure-evidence`.
 
 ## Task 7 — Scope leak
 
@@ -4647,7 +4655,7 @@ import inspection, standalone `file://` execution, and browser request capture
 provide current foundation-level negative evidence. They do not pre-verify
 later PLC runtime or packaged-product isolation requirements.
 
-## Task 8 — Interpretation log
+## Task 8 — Pre-remediation interpretation log
 
 #### Method and source-location note
 
@@ -4764,7 +4772,7 @@ The current local PDF, 40 PNGs, and analysis JSON match the recorded hashes; all
 
 This ledger covers every controlled Phase 1 artifact class: the two generated requirement views; all four ADRs; clean-room, security, threat, legal, contributor, dependency, evidence, asset, decision, risk, scope, QA, verification-plan, toolchain, README, and changelog records; Node/pnpm/Python/Rust/workflow/repository configuration; policy contract; extractor; launcher; verifier; and latest report. The two supplied source documents were treated as inputs and were not attributed repository-authored interpretations.
 
-### Bottom line
+### Bottom line (pre-remediation)
 
 The repository is unusually candid about its limits: zero VERIFIED requirements, no Phase 2–4 feature roots, remote CI disabled, all tools unapproved, contributor/reviewer work incomplete, and visual evidence non-gating. The adversarial weakness is not a hidden product-completion claim; it is that a 163/163 `PASS` can look stronger than it is. Under this audit, only 64 instances have a specific directive anchor, and even those are mostly guardrails. The remaining 99 are structural or circular. The correct interpretation is: **the Phase 1 governance snapshot is internally consistent under its own implementation-authored contract, while atomicity, independent review, tool admission, evidence approval, and the Phase 1 exit gate remain open.**
 
@@ -4788,8 +4796,11 @@ run and remain explicit boundaries:
 
 ## Phase 2 verdict
 
-**INTERIM VERDICT — NOT YET A PHASE 1 CLOSURE CANDIDATE.** Corrective
-implementation is materially complete, but the immutable baseline, executed
-12/12 named mutation evidence, final DOCX visual QA, clean-checkout rerun, and
-read-only final review are still required. Phase 2 remains blocked, and Scott's
-acceptance cannot be inferred from a local verifier result.
+**READY FOR SCOTT REVIEW — PHASE 1 CLOSURE CANDIDATE.** All Critical and High
+defects in the controlling defect register are resolved; G0-01 through G0-14
+have direct evidence; the clean immutable baseline and all twelve intended
+mutation detectors pass without crash credit; and the bounded health foundation
+is real, offline, deterministic, and remains outside PLC product scope. This is
+not Scott's acceptance, does not mark any requirement `VERIFIED`, and does not
+authorize Phase 2. Phase 2 remains blocked pending Scott's explicit acceptance
+and separate instruction.
