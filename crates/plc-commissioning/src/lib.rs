@@ -18,16 +18,19 @@ pub use model::{
     VirtualLoadPackage, VirtualOnlineSession, VirtualOnlineSessionId,
 };
 pub use universe::{
-    ActualHardwareFaultCommand, CloneInstanceCommand, CloneInstanceResult, CommissioningAuditEvent,
+    ActualHardwareFaultCommand, CloneInstanceCommand, CloneInstanceResult,
+    CommissionedBoundaryReceipt, CommissionedScanReceipt, CommissioningAuditEvent,
     CommissioningAuditKind, CommissioningError, ControllerInstance, ControllerInstanceId,
-    CreateInstanceCommand, InternalFailurePoint, LifecycleExecution, LifecycleRollback,
-    LoadExecution, LoadResult, LoadRollback, RemoveInstanceApproval, RemoveInstancePreview,
-    ReplaceInstanceApproval, ReplaceInstanceCommand, ReplaceInstancePreview, ReplaceInstanceResult,
-    ResetInstanceApproval, ResetInstanceKind, ResetInstancePreview, ResetInstanceResult,
-    VirtualUniverse,
+    CreateInstanceCommand, ForceRegistryProjection, InternalFailurePoint, LifecycleExecution,
+    LifecycleRollback, LoadExecution, LoadResult, LoadRollback, RemoveInstanceApproval,
+    RemoveInstancePreview, ReplaceInstanceApproval, ReplaceInstanceCommand, ReplaceInstancePreview,
+    ReplaceInstanceResult, ResetInstanceApproval, ResetInstanceKind, ResetInstancePreview,
+    ResetInstanceResult, VirtualUniverse,
 };
 
 pub use plc_runtime::{
-    ArtifactPackage, CanonicalValue, CpuState, Hash32, MemoryId, RunOutcome, StateId, UniverseId,
-    ValueType, VirtualControllerId,
+    ArtifactPackage, CanonicalValue, ChannelId, CommandId, CpuState, Hash32, InputCommand,
+    InputReceipt, MemoryId, RunOutcome, RuntimeBoundaryCommand, RuntimeBoundaryReceipt,
+    RuntimeForceDelta, RuntimeNaturalWrite, RuntimeScanCommand, RuntimeScanReceipt,
+    RuntimeValueTarget, StateId, UniverseId, ValueType, VirtualControllerId,
 };

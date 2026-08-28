@@ -16,9 +16,12 @@ pub use controller::{
     AtomicInstallError, AtomicInstallReport, BoundaryHash, CommandError, ControllerSnapshot,
     CpuState, DiagnosticCode, DiagnosticEvent, DiagnosticSeverity, FaultContext, InstallOutcome,
     ReplayEvent, ReplayEventKind, ReplaySegment, RestartKind, RestoreApproval, RunOutcome,
-    RuntimeCloneReport, RuntimeInstallDisposition, RuntimeLifecycleError, RuntimeReplacementReport,
-    RuntimeStateTransferPlan, ScanReport, SnapshotError, StagedAtomicInstall,
-    StagedControllerClone, StagedControllerReplacement, VirtualController,
+    RuntimeAppliedWrite, RuntimeBoundaryCommand, RuntimeBoundaryError, RuntimeBoundaryReceipt,
+    RuntimeCloneReport, RuntimeForceDelta, RuntimeForceResetApproval, RuntimeInstallDisposition,
+    RuntimeLifecycleError, RuntimeNaturalWrite, RuntimePublicationBoundary,
+    RuntimeReplacementReport, RuntimeScanCommand, RuntimeScanReceipt, RuntimeStateTransferPlan,
+    RuntimeValueTarget, ScanReport, SnapshotError, StagedAtomicInstall, StagedControllerClone,
+    StagedControllerReplacement, VirtualController, canonical_force_overlay_hash,
 };
 pub use hash::{Hash32, Sha256};
 pub use model::{

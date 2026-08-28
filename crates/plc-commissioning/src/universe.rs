@@ -2,9 +2,11 @@ use alloc::{collections::BTreeMap, vec::Vec};
 use core::{error::Error, fmt};
 
 use plc_runtime::{
-    AtomicInstallError, CommandError as RuntimeCommandError, CpuState, Hash32, MemoryId,
-    RestartKind, RunOutcome, RuntimeCloneReport, RuntimeInstallDisposition, RuntimeLifecycleError,
-    RuntimeReplacementReport, RuntimeStateTransferPlan, StateId, UniverseId, VirtualController,
+    AtomicInstallError, CommandError as RuntimeCommandError, CpuState, Hash32, InputCommand,
+    InputReceipt, MemoryId, RestartKind, RunOutcome, RuntimeBoundaryCommand, RuntimeBoundaryError,
+    RuntimeBoundaryReceipt, RuntimeCloneReport, RuntimeForceResetApproval,
+    RuntimeInstallDisposition, RuntimeLifecycleError, RuntimeReplacementReport, RuntimeScanCommand,
+    RuntimeScanReceipt, RuntimeStateTransferPlan, StateId, UniverseId, VirtualController,
     VirtualControllerId,
 };
 
@@ -22,6 +24,63 @@ use crate::{
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ControllerInstanceId(pub u128);
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForceRegistryProjection {
+    expected_previous_registry_hash: Hash32,
+    next_registry_hash: Hash32,
+    active_force_ids: Vec<ForceId>,
+    expected_runtime_overlay_hash: Hash32,
+}
+
+impl ForceRegistryProjection {
+    pub fn new(
+        expected_previous_registry_hash: Hash32,
+        next_registry_hash: Hash32,
+        active_force_ids: Vec<ForceId>,
+        expected_runtime_overlay_hash: Hash32,
+    ) -> Result<Self, CommissioningError> {
+        if active_force_ids.windows(2).any(|pair| pair[0] >= pair[1]) {
+            return Err(CommissioningError::ForceProjectionNotCanonical);
+        }
+        Ok(Self {
+            expected_previous_registry_hash,
+            next_registry_hash,
+            active_force_ids,
+            expected_runtime_overlay_hash,
+        })
+    }
+
+    pub const fn expected_previous_registry_hash(&self) -> Hash32 {
+        self.expected_previous_registry_hash
+    }
+
+    pub const fn next_registry_hash(&self) -> Hash32 {
+        self.next_registry_hash
+    }
+
+    pub fn active_force_ids(&self) -> &[ForceId] {
+        &self.active_force_ids
+    }
+
+    pub const fn expected_runtime_overlay_hash(&self) -> Hash32 {
+        self.expected_runtime_overlay_hash
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommissionedBoundaryReceipt {
+    pub runtime: RuntimeBoundaryReceipt,
+    pub force_registry_hash: Hash32,
+    pub controller_state_hash: Hash32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommissionedScanReceipt {
+    pub runtime: RuntimeScanReceipt,
+    pub force_registry_hash: Hash32,
+    pub controller_state_hash: Hash32,
+}
 
 #[derive(Clone, Debug)]
 pub struct ControllerInstance {
@@ -361,6 +420,8 @@ pub enum CommissioningAuditKind {
     InstanceReplaced = 8,
     InstanceReset = 9,
     ActualHardwareStateChanged = 10,
+    ObservationCommand = 11,
+    VirtualInputChanged = 12,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -386,6 +447,16 @@ pub enum CommissioningError {
     Runtime(RuntimeCommandError),
     AtomicRuntime(AtomicInstallError),
     RuntimeLifecycle(RuntimeLifecycleError),
+    RuntimeBoundary(RuntimeBoundaryError),
+    ForceProjectionNotCanonical,
+    ForceRegistryStateChanged {
+        expected: Hash32,
+        actual: Hash32,
+    },
+    ForceRuntimeProjectionMismatch {
+        expected: Hash32,
+        actual: Hash32,
+    },
     PreviewBlocked(Vec<LoadBlocker>),
     PreviewExpired,
     ApprovalMismatch,
@@ -441,6 +512,12 @@ impl From<AtomicInstallError> for CommissioningError {
 impl From<RuntimeLifecycleError> for CommissioningError {
     fn from(value: RuntimeLifecycleError) -> Self {
         Self::RuntimeLifecycle(value)
+    }
+}
+
+impl From<RuntimeBoundaryError> for CommissioningError {
+    fn from(value: RuntimeBoundaryError) -> Self {
+        Self::RuntimeBoundary(value)
     }
 }
 
@@ -888,6 +965,18 @@ impl VirtualUniverse {
         let backup = instance.clone();
         let old_controller_epoch = backup.runtime.controller_epoch();
         let mut staged = backup.clone();
+        if !staged.runtime.force_overlays().is_empty() {
+            let approval = RuntimeForceResetApproval {
+                controller_id: staged.runtime.controller_id(),
+                expected_controller_epoch: staged.runtime.controller_epoch(),
+                expected_artifact_fingerprint: staged
+                    .runtime
+                    .loaded_fingerprint()
+                    .ok_or(CommissioningError::LifecycleRequiresLoadedPackage)?,
+                expected_force_overlay_hash: staged.runtime.force_overlay_hash(),
+            };
+            staged.runtime.clear_force_overlays_for_reset(approval)?;
+        }
         staged.active_force_ids.clear();
         staged.force_registry_hash = empty_force_registry_hash();
         match preview.kind {
@@ -1871,6 +1960,107 @@ impl VirtualUniverse {
         Ok(outcome)
     }
 
+    pub fn set_virtual_input_raw(
+        &mut self,
+        binding: SessionCommandBinding,
+        command: InputCommand,
+    ) -> Result<InputReceipt, CommissioningError> {
+        let target = self.validate_session_binding(binding)?;
+        let instance = self
+            .controllers
+            .get_mut(&target)
+            .ok_or(SessionError::TargetUnavailable)?;
+        let pre_state_hash = instance.semantic_state_hash();
+        let receipt = instance.runtime.set_virtual_input_raw(command)?;
+        if receipt.duplicate {
+            return Ok(receipt);
+        }
+        let post_state_hash = instance.semantic_state_hash();
+        self.refresh_sessions_for_target(target);
+        self.audit_virtual_input_change(target, pre_state_hash, post_state_hash);
+        Ok(receipt)
+    }
+
+    pub fn apply_observation_boundary(
+        &mut self,
+        binding: SessionCommandBinding,
+        command: &RuntimeBoundaryCommand,
+        projection: &ForceRegistryProjection,
+    ) -> Result<CommissionedBoundaryReceipt, CommissioningError> {
+        let target = self.validate_session_binding(binding)?;
+        let instance = self
+            .controllers
+            .get(&target)
+            .ok_or(SessionError::TargetUnavailable)?;
+        if projection.expected_previous_registry_hash != instance.force_registry_hash {
+            return Err(CommissioningError::ForceRegistryStateChanged {
+                expected: projection.expected_previous_registry_hash,
+                actual: instance.force_registry_hash,
+            });
+        }
+
+        let pre_state_hash = instance.semantic_state_hash();
+        let mut staged = instance.clone();
+        let runtime = staged.runtime.apply_observation_boundary(command)?;
+        if runtime.force_overlay_hash != projection.expected_runtime_overlay_hash {
+            return Err(CommissioningError::ForceRuntimeProjectionMismatch {
+                expected: projection.expected_runtime_overlay_hash,
+                actual: runtime.force_overlay_hash,
+            });
+        }
+        staged.active_force_ids = projection.active_force_ids.clone();
+        staged.force_registry_hash = projection.next_registry_hash;
+        let controller_state_hash = staged.semantic_state_hash();
+        self.controllers.insert(target, staged);
+        self.refresh_sessions_for_target(target);
+        self.audit_observation_command(target, pre_state_hash, controller_state_hash);
+        Ok(CommissionedBoundaryReceipt {
+            runtime,
+            force_registry_hash: projection.next_registry_hash,
+            controller_state_hash,
+        })
+    }
+
+    pub fn run_scan_with_observation(
+        &mut self,
+        binding: SessionCommandBinding,
+        command: &RuntimeScanCommand,
+        projection: &ForceRegistryProjection,
+    ) -> Result<CommissionedScanReceipt, CommissioningError> {
+        let target = self.validate_session_binding(binding)?;
+        let instance = self
+            .controllers
+            .get(&target)
+            .ok_or(SessionError::TargetUnavailable)?;
+        if projection.expected_previous_registry_hash != instance.force_registry_hash {
+            return Err(CommissioningError::ForceRegistryStateChanged {
+                expected: projection.expected_previous_registry_hash,
+                actual: instance.force_registry_hash,
+            });
+        }
+
+        let pre_state_hash = instance.semantic_state_hash();
+        let mut staged = instance.clone();
+        let runtime = staged.runtime.run_scan_with_observation(command)?;
+        if runtime.force_overlay_hash != projection.expected_runtime_overlay_hash {
+            return Err(CommissioningError::ForceRuntimeProjectionMismatch {
+                expected: projection.expected_runtime_overlay_hash,
+                actual: runtime.force_overlay_hash,
+            });
+        }
+        staged.active_force_ids = projection.active_force_ids.clone();
+        staged.force_registry_hash = projection.next_registry_hash;
+        let controller_state_hash = staged.semantic_state_hash();
+        self.controllers.insert(target, staged);
+        self.refresh_sessions_for_target(target);
+        self.audit_observation_command(target, pre_state_hash, controller_state_hash);
+        Ok(CommissionedScanReceipt {
+            runtime,
+            force_registry_hash: projection.next_registry_hash,
+            controller_state_hash,
+        })
+    }
+
     pub fn refresh_session_comparison(
         &mut self,
         session_id: VirtualOnlineSessionId,
@@ -2118,6 +2308,44 @@ impl VirtualUniverse {
             success: true,
             pre_state_hash: None,
             post_state_hash,
+            internal_failure_point: InternalFailurePoint::None,
+        });
+    }
+
+    fn audit_observation_command(
+        &mut self,
+        target: VirtualControllerId,
+        pre_state_hash: Hash32,
+        post_state_hash: Hash32,
+    ) {
+        let sequence = self.next_event();
+        self.audit.push(CommissioningAuditEvent {
+            event_sequence: sequence,
+            kind: CommissioningAuditKind::ObservationCommand,
+            controller_id: Some(target),
+            preview_id: None,
+            success: true,
+            pre_state_hash: Some(pre_state_hash),
+            post_state_hash: Some(post_state_hash),
+            internal_failure_point: InternalFailurePoint::None,
+        });
+    }
+
+    fn audit_virtual_input_change(
+        &mut self,
+        target: VirtualControllerId,
+        pre_state_hash: Hash32,
+        post_state_hash: Hash32,
+    ) {
+        let sequence = self.next_event();
+        self.audit.push(CommissioningAuditEvent {
+            event_sequence: sequence,
+            kind: CommissioningAuditKind::VirtualInputChanged,
+            controller_id: Some(target),
+            preview_id: None,
+            success: true,
+            pre_state_hash: Some(pre_state_hash),
+            post_state_hash: Some(post_state_hash),
             internal_failure_point: InternalFailurePoint::None,
         });
     }

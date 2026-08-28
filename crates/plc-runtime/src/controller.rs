@@ -22,6 +22,125 @@ pub enum CpuState {
     Resetting = 7,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[repr(u8)]
+pub enum RuntimeValueTarget {
+    Memory(MemoryId) = 1,
+    Input(ChannelId) = 2,
+    Output(ChannelId) = 3,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum RuntimePublicationBoundary {
+    SerializedCommand = 1,
+    ScanBeforeProgram = 2,
+    ScanAfterProgram = 3,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeNaturalWrite {
+    pub target: RuntimeValueTarget,
+    pub value: CanonicalValue,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeForceDelta {
+    pub target: RuntimeValueTarget,
+    pub value: Option<CanonicalValue>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeBoundaryCommand {
+    pub command_id: u128,
+    pub controller_id: VirtualControllerId,
+    pub expected_controller_epoch: u64,
+    pub expected_artifact_fingerprint: Hash32,
+    pub expected_state_hash: Hash32,
+    pub natural_writes: Vec<RuntimeNaturalWrite>,
+    pub force_deltas: Vec<RuntimeForceDelta>,
+    pub audit_context_hash: Hash32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeScanCommand {
+    pub command_id: u128,
+    pub controller_id: VirtualControllerId,
+    pub expected_controller_epoch: u64,
+    pub expected_artifact_fingerprint: Hash32,
+    pub expected_state_hash: Hash32,
+    pub pre_program_writes: Vec<RuntimeNaturalWrite>,
+    pub post_program_writes: Vec<RuntimeNaturalWrite>,
+    pub force_deltas: Vec<RuntimeForceDelta>,
+    pub audit_context_hash: Hash32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeAppliedWrite {
+    pub target: RuntimeValueTarget,
+    pub boundary: RuntimePublicationBoundary,
+    pub prior_natural_value: CanonicalValue,
+    pub written_natural_value: CanonicalValue,
+    pub visible_effective_value: CanonicalValue,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeBoundaryReceipt {
+    pub command_id: u128,
+    pub event_sequence: u64,
+    pub virtual_timestamp_ms: u64,
+    pub scan_sequence: u64,
+    pub cpu_state: CpuState,
+    pub writes: Vec<RuntimeAppliedWrite>,
+    pub force_overlay_hash: Hash32,
+    pub state_hash: Hash32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeScanReceipt {
+    pub command_id: u128,
+    pub outcome: RunOutcome,
+    pub applied_pre_program_writes: Vec<RuntimeAppliedWrite>,
+    pub applied_post_program_writes: Vec<RuntimeAppliedWrite>,
+    pub force_overlay_hash: Hash32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeForceResetApproval {
+    pub controller_id: VirtualControllerId,
+    pub expected_controller_epoch: u64,
+    pub expected_artifact_fingerprint: Hash32,
+    pub expected_force_overlay_hash: Hash32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RuntimeBoundaryError {
+    WrongController,
+    StaleControllerEpoch,
+    StaleArtifact,
+    StaleState,
+    StaleForceOverlay,
+    CpuStateDisallowed(CpuState),
+    NoLoadedArtifact,
+    DuplicateTarget(RuntimeValueTarget),
+    UnknownTarget(RuntimeValueTarget),
+    TypeMismatch {
+        target: RuntimeValueTarget,
+        expected: ValueType,
+        actual: ValueType,
+    },
+    InvalidPreProgramTarget(RuntimeValueTarget),
+    InvalidPostProgramTarget(RuntimeValueTarget),
+}
+
+impl fmt::Display for RuntimeBoundaryError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "runtime observation boundary rejected: {self:?}")
+    }
+}
+
+impl Error for RuntimeBoundaryError {}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RestartKind {
     Resume,
@@ -354,6 +473,7 @@ pub enum ReplayEventKind {
     CommandRejected = 16,
     InstanceCloned = 17,
     InstanceReplaced = 18,
+    ObservationBoundary = 19,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -539,6 +659,7 @@ struct RuntimeImage {
     effective_inputs: BTreeMap<ChannelId, CanonicalValue>,
     natural_outputs: BTreeMap<ChannelId, CanonicalValue>,
     effective_outputs: BTreeMap<ChannelId, CanonicalValue>,
+    force_overlays: BTreeMap<RuntimeValueTarget, CanonicalValue>,
     state_cells: BTreeMap<StateId, RuntimeStateCell>,
     retain_state_cells: BTreeMap<StateId, RuntimeStateCell>,
     invocation_ordinals: BTreeMap<BlockId, u64>,
@@ -553,6 +674,7 @@ impl RuntimeImage {
             effective_inputs: BTreeMap::new(),
             natural_outputs: BTreeMap::new(),
             effective_outputs: BTreeMap::new(),
+            force_overlays: BTreeMap::new(),
             state_cells: BTreeMap::new(),
             retain_state_cells: BTreeMap::new(),
             invocation_ordinals: BTreeMap::new(),
@@ -616,6 +738,14 @@ impl RuntimeImage {
         encode_value_map(&self.effective_inputs, hasher);
         encode_value_map(&self.natural_outputs, hasher);
         encode_value_map(&self.effective_outputs, hasher);
+        if !self.force_overlays.is_empty() {
+            hasher.string("PES-RUNTIME-FORCE-OVERLAYS-1");
+            hasher.u64(self.force_overlays.len() as u64);
+            for (target, value) in &self.force_overlays {
+                encode_runtime_target(*target, hasher);
+                value.encode(hasher);
+            }
+        }
         encode_state_map(&self.state_cells, hasher);
         encode_state_map(&self.retain_state_cells, hasher);
         hasher.u64(self.invocation_ordinals.len() as u64);
@@ -650,6 +780,23 @@ impl IntoU32 for MemoryId {
 impl IntoU32 for ChannelId {
     fn into_u32(self) -> u32 {
         self.0
+    }
+}
+
+fn encode_runtime_target(target: RuntimeValueTarget, hasher: &mut SemanticHasher) {
+    match target {
+        RuntimeValueTarget::Memory(id) => {
+            hasher.u8(1);
+            hasher.u32(id.0);
+        }
+        RuntimeValueTarget::Input(id) => {
+            hasher.u8(2);
+            hasher.u32(id.0);
+        }
+        RuntimeValueTarget::Output(id) => {
+            hasher.u8(3);
+            hasher.u32(id.0);
+        }
     }
 }
 
@@ -946,6 +1093,202 @@ impl VirtualController {
 
     pub fn effective_output(&self, id: ChannelId) -> Option<CanonicalValue> {
         self.image.effective_outputs.get(&id).copied()
+    }
+
+    pub fn natural_value(&self, target: RuntimeValueTarget) -> Option<CanonicalValue> {
+        match target {
+            RuntimeValueTarget::Memory(id) => self.actual_memory(id),
+            RuntimeValueTarget::Input(id) => self.natural_input(id),
+            RuntimeValueTarget::Output(id) => self.natural_output(id),
+        }
+    }
+
+    pub fn effective_value(&self, target: RuntimeValueTarget) -> Option<CanonicalValue> {
+        if let Some(value) = self.image.force_overlays.get(&target) {
+            return Some(*value);
+        }
+        self.natural_value(target)
+    }
+
+    pub fn target_value_type(&self, target: RuntimeValueTarget) -> Option<ValueType> {
+        let artifact = self.loaded.as_ref()?;
+        match target {
+            RuntimeValueTarget::Memory(id) => artifact
+                .spec()
+                .memory
+                .binary_search_by_key(&id, |definition| definition.id)
+                .ok()
+                .map(|index| artifact.spec().memory[index].value_type),
+            RuntimeValueTarget::Input(id) => artifact
+                .spec()
+                .channels
+                .binary_search_by_key(&id, |definition| definition.id)
+                .ok()
+                .and_then(|index| {
+                    let channel = &artifact.spec().channels[index];
+                    (channel.direction == ChannelDirection::Input).then_some(channel.value_type)
+                }),
+            RuntimeValueTarget::Output(id) => artifact
+                .spec()
+                .channels
+                .binary_search_by_key(&id, |definition| definition.id)
+                .ok()
+                .and_then(|index| {
+                    let channel = &artifact.spec().channels[index];
+                    (channel.direction == ChannelDirection::Output).then_some(channel.value_type)
+                }),
+        }
+    }
+
+    pub fn force_overlay(&self, target: RuntimeValueTarget) -> Option<CanonicalValue> {
+        self.image.force_overlays.get(&target).copied()
+    }
+
+    pub fn force_overlays(&self) -> &BTreeMap<RuntimeValueTarget, CanonicalValue> {
+        &self.image.force_overlays
+    }
+
+    pub fn force_overlay_hash(&self) -> Hash32 {
+        hash_force_overlays(&self.image.force_overlays)
+    }
+
+    pub fn projected_force_overlay_hash(
+        &self,
+        deltas: &[RuntimeForceDelta],
+    ) -> Result<Hash32, RuntimeBoundaryError> {
+        self.validate_force_deltas(deltas)?;
+        let mut overlays = self.image.force_overlays.clone();
+        for delta in deltas {
+            if let Some(value) = delta.value {
+                overlays.insert(delta.target, value);
+            } else {
+                overlays.remove(&delta.target);
+            }
+        }
+        Ok(hash_force_overlays(&overlays))
+    }
+
+    pub fn apply_observation_boundary(
+        &mut self,
+        command: &RuntimeBoundaryCommand,
+    ) -> Result<RuntimeBoundaryReceipt, RuntimeBoundaryError> {
+        self.validate_observation_identity(
+            command.controller_id,
+            command.expected_controller_epoch,
+            command.expected_artifact_fingerprint,
+            command.expected_state_hash,
+        )?;
+        match self.cpu_state {
+            CpuState::Stop | CpuState::PausedEducational => {}
+            CpuState::Faulted
+                if command.natural_writes.is_empty()
+                    && command
+                        .force_deltas
+                        .iter()
+                        .all(|delta| delta.value.is_none()) => {}
+            state => return Err(RuntimeBoundaryError::CpuStateDisallowed(state)),
+        }
+        self.validate_natural_writes(&command.natural_writes)?;
+        self.validate_force_deltas(&command.force_deltas)?;
+
+        let mut candidate = self.clone();
+        let prior_values: Vec<_> = command
+            .natural_writes
+            .iter()
+            .map(|write| {
+                (
+                    write.target,
+                    candidate
+                        .natural_value(write.target)
+                        .expect("validated target has a natural value"),
+                )
+            })
+            .collect();
+        candidate.apply_force_deltas(&command.force_deltas);
+        for write in &command.natural_writes {
+            candidate.apply_natural_write(*write);
+        }
+        candidate.refresh_effective_layers();
+
+        let sequence = candidate.next_event_sequence();
+        candidate.append_replay(
+            ReplayEventKind::ObservationBoundary,
+            sequence,
+            candidate.virtual_time_ms,
+            hash_runtime_boundary_command(command),
+            Hash32::ZERO,
+        );
+        candidate.finish_lifecycle_boundary();
+        let writes = command
+            .natural_writes
+            .iter()
+            .zip(prior_values)
+            .map(
+                |(write, (target, prior_natural_value))| RuntimeAppliedWrite {
+                    target,
+                    boundary: RuntimePublicationBoundary::SerializedCommand,
+                    prior_natural_value,
+                    written_natural_value: write.value,
+                    visible_effective_value: candidate
+                        .effective_value(target)
+                        .expect("validated target has an effective value"),
+                },
+            )
+            .collect();
+        let receipt = RuntimeBoundaryReceipt {
+            command_id: command.command_id,
+            event_sequence: sequence,
+            virtual_timestamp_ms: candidate.virtual_time_ms,
+            scan_sequence: candidate.scan_sequence,
+            cpu_state: candidate.cpu_state,
+            writes,
+            force_overlay_hash: candidate.force_overlay_hash(),
+            state_hash: candidate.last_state_hash,
+        };
+        *self = candidate;
+        Ok(receipt)
+    }
+
+    pub fn clear_force_overlays_for_reset(
+        &mut self,
+        approval: RuntimeForceResetApproval,
+    ) -> Result<Hash32, RuntimeBoundaryError> {
+        if approval.controller_id != self.controller_id {
+            return Err(RuntimeBoundaryError::WrongController);
+        }
+        if approval.expected_controller_epoch != self.controller_epoch {
+            return Err(RuntimeBoundaryError::StaleControllerEpoch);
+        }
+        if self.loaded_fingerprint() != Some(approval.expected_artifact_fingerprint) {
+            return Err(RuntimeBoundaryError::StaleArtifact);
+        }
+        if approval.expected_force_overlay_hash != self.force_overlay_hash() {
+            return Err(RuntimeBoundaryError::StaleForceOverlay);
+        }
+        if !matches!(
+            self.cpu_state,
+            CpuState::Stop | CpuState::PausedEducational | CpuState::Faulted
+        ) {
+            return Err(RuntimeBoundaryError::CpuStateDisallowed(self.cpu_state));
+        }
+
+        self.image.force_overlays.clear();
+        self.refresh_effective_layers();
+        let sequence = self.next_event_sequence();
+        let mut payload = SemanticHasher::new("PES-OBSERVATION-FORCE-RESET-1");
+        payload.u128(self.controller_id.0);
+        payload.u64(self.controller_epoch);
+        payload.hash(approval.expected_artifact_fingerprint);
+        payload.hash(approval.expected_force_overlay_hash);
+        self.append_replay(
+            ReplayEventKind::ObservationBoundary,
+            sequence,
+            self.virtual_time_ms,
+            payload.finish(),
+            Hash32::ZERO,
+        );
+        self.finish_lifecycle_boundary();
+        Ok(self.last_state_hash)
     }
 
     pub fn invocation_ordinal(&self, block: BlockId) -> Option<u64> {
@@ -1400,6 +1743,7 @@ impl VirtualController {
         self.controller_epoch = self.controller_epoch.saturating_add(1);
         self.scan_sequence = 0;
         let sequence = self.next_event_sequence();
+        self.image.force_overlays.clear();
         self.apply_warm_initialization(&artifact);
         self.reset_invocation_ordinals();
         self.reset_io_layers(&artifact, sequence);
@@ -1429,6 +1773,7 @@ impl VirtualController {
         self.controller_epoch = self.controller_epoch.saturating_add(1);
         self.scan_sequence = 0;
         let sequence = self.next_event_sequence();
+        self.image.force_overlays.clear();
         self.apply_memory_reset(&artifact);
         self.reset_io_layers(&artifact, sequence);
         self.cpu_state = CpuState::Stop;
@@ -1516,7 +1861,181 @@ impl VirtualController {
         Ok(receipt)
     }
 
+    fn validate_observation_identity(
+        &self,
+        controller_id: VirtualControllerId,
+        expected_controller_epoch: u64,
+        expected_artifact_fingerprint: Hash32,
+        expected_state_hash: Hash32,
+    ) -> Result<(), RuntimeBoundaryError> {
+        if controller_id != self.controller_id {
+            return Err(RuntimeBoundaryError::WrongController);
+        }
+        if expected_controller_epoch != self.controller_epoch {
+            return Err(RuntimeBoundaryError::StaleControllerEpoch);
+        }
+        let fingerprint = self
+            .loaded_fingerprint()
+            .ok_or(RuntimeBoundaryError::NoLoadedArtifact)?;
+        if expected_artifact_fingerprint != fingerprint {
+            return Err(RuntimeBoundaryError::StaleArtifact);
+        }
+        if expected_state_hash != self.semantic_state_hash() {
+            return Err(RuntimeBoundaryError::StaleState);
+        }
+        Ok(())
+    }
+
+    fn validate_natural_writes(
+        &self,
+        writes: &[RuntimeNaturalWrite],
+    ) -> Result<(), RuntimeBoundaryError> {
+        let mut targets = BTreeMap::new();
+        for write in writes {
+            if targets.insert(write.target, ()).is_some() {
+                return Err(RuntimeBoundaryError::DuplicateTarget(write.target));
+            }
+            self.validate_target_value(write.target, Some(write.value))?;
+        }
+        Ok(())
+    }
+
+    fn validate_force_deltas(
+        &self,
+        deltas: &[RuntimeForceDelta],
+    ) -> Result<(), RuntimeBoundaryError> {
+        let mut targets = BTreeMap::new();
+        for delta in deltas {
+            if targets.insert(delta.target, ()).is_some() {
+                return Err(RuntimeBoundaryError::DuplicateTarget(delta.target));
+            }
+            self.validate_target_value(delta.target, delta.value)?;
+        }
+        Ok(())
+    }
+
+    fn validate_target_value(
+        &self,
+        target: RuntimeValueTarget,
+        value: Option<CanonicalValue>,
+    ) -> Result<(), RuntimeBoundaryError> {
+        let expected = self
+            .target_value_type(target)
+            .ok_or(RuntimeBoundaryError::UnknownTarget(target))?;
+        if let Some(value) = value
+            && value.value_type() != expected
+        {
+            return Err(RuntimeBoundaryError::TypeMismatch {
+                target,
+                expected,
+                actual: value.value_type(),
+            });
+        }
+        Ok(())
+    }
+
+    fn apply_natural_write(&mut self, write: RuntimeNaturalWrite) {
+        match write.target {
+            RuntimeValueTarget::Memory(id) => self.write_memory(id, write.value),
+            RuntimeValueTarget::Input(id) => {
+                self.image.natural_inputs.insert(id, write.value);
+            }
+            RuntimeValueTarget::Output(id) => {
+                self.image.natural_outputs.insert(id, write.value);
+            }
+        }
+    }
+
+    fn apply_force_deltas(&mut self, deltas: &[RuntimeForceDelta]) {
+        for delta in deltas {
+            if let Some(value) = delta.value {
+                self.image.force_overlays.insert(delta.target, value);
+            } else {
+                self.image.force_overlays.remove(&delta.target);
+            }
+        }
+    }
+
+    fn refresh_effective_inputs(&mut self) {
+        self.image.effective_inputs = self.image.natural_inputs.clone();
+        for (target, value) in &self.image.force_overlays {
+            if let RuntimeValueTarget::Input(id) = target {
+                self.image.effective_inputs.insert(*id, *value);
+            }
+        }
+    }
+
+    fn refresh_effective_outputs(&mut self) {
+        self.image.effective_outputs = self.image.natural_outputs.clone();
+        for (target, value) in &self.image.force_overlays {
+            if let RuntimeValueTarget::Output(id) = target {
+                self.image.effective_outputs.insert(*id, *value);
+            }
+        }
+    }
+
+    fn refresh_effective_layers(&mut self) {
+        self.refresh_effective_inputs();
+        self.refresh_effective_outputs();
+    }
+
     pub fn run_scan(&mut self) -> Result<RunOutcome, CommandError> {
+        self.run_scan_core(None).map(|(outcome, _, _)| outcome)
+    }
+
+    pub fn run_scan_with_observation(
+        &mut self,
+        command: &RuntimeScanCommand,
+    ) -> Result<RuntimeScanReceipt, RuntimeBoundaryError> {
+        self.validate_observation_identity(
+            command.controller_id,
+            command.expected_controller_epoch,
+            command.expected_artifact_fingerprint,
+            command.expected_state_hash,
+        )?;
+        if self.cpu_state != CpuState::Run {
+            return Err(RuntimeBoundaryError::CpuStateDisallowed(self.cpu_state));
+        }
+        self.validate_natural_writes(&command.pre_program_writes)?;
+        self.validate_natural_writes(&command.post_program_writes)?;
+        self.validate_force_deltas(&command.force_deltas)?;
+        for write in &command.pre_program_writes {
+            if matches!(write.target, RuntimeValueTarget::Output(_)) {
+                return Err(RuntimeBoundaryError::InvalidPreProgramTarget(write.target));
+            }
+        }
+        for write in &command.post_program_writes {
+            if !matches!(write.target, RuntimeValueTarget::Output(_)) {
+                return Err(RuntimeBoundaryError::InvalidPostProgramTarget(write.target));
+            }
+        }
+
+        let mut candidate = self.clone();
+        let (outcome, applied_pre_program_writes, applied_post_program_writes) = candidate
+            .run_scan_core(Some(command))
+            .expect("validated RUN controller has a loaded artifact");
+        let receipt = RuntimeScanReceipt {
+            command_id: command.command_id,
+            outcome,
+            applied_pre_program_writes,
+            applied_post_program_writes,
+            force_overlay_hash: candidate.force_overlay_hash(),
+        };
+        *self = candidate;
+        Ok(receipt)
+    }
+
+    fn run_scan_core(
+        &mut self,
+        observation: Option<&RuntimeScanCommand>,
+    ) -> Result<
+        (
+            RunOutcome,
+            Vec<RuntimeAppliedWrite>,
+            Vec<RuntimeAppliedWrite>,
+        ),
+        CommandError,
+    > {
         if self.cpu_state != CpuState::Run {
             return self.reject_transition("Run Scan");
         }
@@ -1532,7 +2051,61 @@ impl VirtualController {
                 .natural_inputs
                 .insert(input.channel_id, input.canonical_value);
         }
-        self.image.effective_inputs = self.image.natural_inputs.clone();
+        let mut pre_prior_values = Vec::new();
+        let mut post_prior_values = Vec::new();
+        let observation_replay_index = if let Some(command) = observation {
+            for write in &command.pre_program_writes {
+                pre_prior_values.push((
+                    write.target,
+                    self.natural_value(write.target)
+                        .expect("validated target has a natural value"),
+                ));
+            }
+            for write in &command.post_program_writes {
+                post_prior_values.push((
+                    write.target,
+                    self.natural_value(write.target)
+                        .expect("validated target has a natural value"),
+                ));
+            }
+            self.apply_force_deltas(&command.force_deltas);
+            for write in &command.pre_program_writes {
+                self.apply_natural_write(*write);
+            }
+            let sequence = self.next_event_sequence();
+            self.append_replay(
+                ReplayEventKind::ObservationBoundary,
+                sequence,
+                scan_start_time_ms,
+                hash_runtime_scan_command(command),
+                Hash32::ZERO,
+            );
+            Some(self.replay_events.len() - 1)
+        } else {
+            None
+        };
+        self.refresh_effective_inputs();
+
+        let applied_pre_program_writes = observation
+            .map(|command| {
+                command
+                    .pre_program_writes
+                    .iter()
+                    .zip(pre_prior_values)
+                    .map(
+                        |(write, (target, prior_natural_value))| RuntimeAppliedWrite {
+                            target,
+                            boundary: RuntimePublicationBoundary::ScanBeforeProgram,
+                            prior_natural_value,
+                            written_natural_value: write.value,
+                            visible_effective_value: self
+                                .effective_value(target)
+                                .expect("validated target has an effective value"),
+                        },
+                    )
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let mut work_units = 0_u32;
         let mut executed_blocks = Vec::new();
@@ -1556,7 +2129,14 @@ impl VirtualController {
                 self.execute_block(&task.block, active_scan_sequence, &mut work_units)
             {
                 let event = self.enter_fatal_fault(fault, context);
-                return Ok(RunOutcome::Faulted(event));
+                if let Some(index) = observation_replay_index {
+                    self.replay_events[index].result_hash = self.last_state_hash;
+                }
+                return Ok((
+                    RunOutcome::Faulted(event),
+                    applied_pre_program_writes,
+                    Vec::new(),
+                ));
             }
         }
 
@@ -1567,10 +2147,42 @@ impl VirtualController {
             self.execute_block(&cyclic, active_scan_sequence, &mut work_units)
         {
             let event = self.enter_fatal_fault(fault, context);
-            return Ok(RunOutcome::Faulted(event));
+            if let Some(index) = observation_replay_index {
+                self.replay_events[index].result_hash = self.last_state_hash;
+            }
+            return Ok((
+                RunOutcome::Faulted(event),
+                applied_pre_program_writes,
+                Vec::new(),
+            ));
         }
 
-        self.image.effective_outputs = self.image.natural_outputs.clone();
+        if let Some(command) = observation {
+            for write in &command.post_program_writes {
+                self.apply_natural_write(*write);
+            }
+        }
+        self.refresh_effective_outputs();
+        let applied_post_program_writes = observation
+            .map(|command| {
+                command
+                    .post_program_writes
+                    .iter()
+                    .zip(post_prior_values)
+                    .map(
+                        |(write, (target, prior_natural_value))| RuntimeAppliedWrite {
+                            target,
+                            boundary: RuntimePublicationBoundary::ScanAfterProgram,
+                            prior_natural_value,
+                            written_natural_value: write.value,
+                            visible_effective_value: self
+                                .effective_value(target)
+                                .expect("validated target has an effective value"),
+                        },
+                    )
+                    .collect()
+            })
+            .unwrap_or_default();
         let output_event_sequence = self.next_event_sequence();
         self.boundary.commit_outputs(
             &self.image.effective_outputs,
@@ -1601,15 +2213,22 @@ impl VirtualController {
             payload.finish(),
             self.last_state_hash,
         );
-        Ok(RunOutcome::Completed(ScanReport {
-            scan_sequence: active_scan_sequence,
-            scan_start_time_ms,
-            completed_time_ms: self.virtual_time_ms,
-            work_units,
-            executed_blocks,
-            output_event_sequence,
-            state_hash: self.last_state_hash,
-        }))
+        if let Some(index) = observation_replay_index {
+            self.replay_events[index].result_hash = self.last_state_hash;
+        }
+        Ok((
+            RunOutcome::Completed(ScanReport {
+                scan_sequence: active_scan_sequence,
+                scan_start_time_ms,
+                completed_time_ms: self.virtual_time_ms,
+                work_units,
+                executed_blocks,
+                output_event_sequence,
+                state_hash: self.last_state_hash,
+            }),
+            applied_pre_program_writes,
+            applied_post_program_writes,
+        ))
     }
 
     pub fn capture_snapshot(&self) -> Result<ControllerSnapshot, SnapshotError> {
@@ -1852,9 +2471,14 @@ impl VirtualController {
         if let Some(artifact) = &self.loaded {
             for channel in &artifact.spec().channels {
                 if channel.direction == ChannelDirection::Output {
-                    self.image
-                        .effective_outputs
-                        .insert(channel.id, channel.canonical_default);
+                    let target = RuntimeValueTarget::Output(channel.id);
+                    let effective = self
+                        .image
+                        .force_overlays
+                        .get(&target)
+                        .copied()
+                        .unwrap_or(channel.canonical_default);
+                    self.image.effective_outputs.insert(channel.id, effective);
                 }
             }
             self.boundary
@@ -2066,8 +2690,9 @@ impl VirtualController {
             Operand::Constant(value) => Ok(value),
             Operand::Memory(id) => self
                 .image
-                .actual_memory
-                .get(&id)
+                .force_overlays
+                .get(&RuntimeValueTarget::Memory(id))
+                .or_else(|| self.image.actual_memory.get(&id))
                 .copied()
                 .ok_or(ExecutionFault::RuntimeInvariant),
             Operand::Input(id) => self
@@ -2391,6 +3016,77 @@ fn hash_lifecycle(action: &str, state: CpuState, controller_epoch: u64) -> Hash3
     hasher.string(action);
     hasher.u8(state as u8);
     hasher.u64(controller_epoch);
+    hasher.finish()
+}
+
+fn hash_force_overlays(overlays: &BTreeMap<RuntimeValueTarget, CanonicalValue>) -> Hash32 {
+    let mut hasher = SemanticHasher::new("PES-RUNTIME-FORCE-OVERLAYS-1");
+    hasher.u64(overlays.len() as u64);
+    for (target, value) in overlays {
+        encode_runtime_target(*target, &mut hasher);
+        value.encode(&mut hasher);
+    }
+    hasher.finish()
+}
+
+pub fn canonical_force_overlay_hash(
+    overlays: &[(RuntimeValueTarget, CanonicalValue)],
+) -> Result<Hash32, RuntimeBoundaryError> {
+    let mut canonical = BTreeMap::new();
+    for (target, value) in overlays {
+        if canonical.insert(*target, *value).is_some() {
+            return Err(RuntimeBoundaryError::DuplicateTarget(*target));
+        }
+    }
+    Ok(hash_force_overlays(&canonical))
+}
+
+fn encode_natural_writes(writes: &[RuntimeNaturalWrite], hasher: &mut SemanticHasher) {
+    hasher.u64(writes.len() as u64);
+    for write in writes {
+        encode_runtime_target(write.target, hasher);
+        write.value.encode(hasher);
+    }
+}
+
+fn encode_force_deltas(deltas: &[RuntimeForceDelta], hasher: &mut SemanticHasher) {
+    hasher.u64(deltas.len() as u64);
+    for delta in deltas {
+        encode_runtime_target(delta.target, hasher);
+        match delta.value {
+            Some(value) => {
+                hasher.bool(true);
+                value.encode(hasher);
+            }
+            None => hasher.bool(false),
+        }
+    }
+}
+
+fn hash_runtime_boundary_command(command: &RuntimeBoundaryCommand) -> Hash32 {
+    let mut hasher = SemanticHasher::new("PES-RUNTIME-OBSERVATION-COMMAND-1");
+    hasher.u128(command.command_id);
+    hasher.u128(command.controller_id.0);
+    hasher.u64(command.expected_controller_epoch);
+    hasher.hash(command.expected_artifact_fingerprint);
+    hasher.hash(command.expected_state_hash);
+    encode_natural_writes(&command.natural_writes, &mut hasher);
+    encode_force_deltas(&command.force_deltas, &mut hasher);
+    hasher.hash(command.audit_context_hash);
+    hasher.finish()
+}
+
+fn hash_runtime_scan_command(command: &RuntimeScanCommand) -> Hash32 {
+    let mut hasher = SemanticHasher::new("PES-RUNTIME-OBSERVATION-SCAN-COMMAND-1");
+    hasher.u128(command.command_id);
+    hasher.u128(command.controller_id.0);
+    hasher.u64(command.expected_controller_epoch);
+    hasher.hash(command.expected_artifact_fingerprint);
+    hasher.hash(command.expected_state_hash);
+    encode_natural_writes(&command.pre_program_writes, &mut hasher);
+    encode_natural_writes(&command.post_program_writes, &mut hasher);
+    encode_force_deltas(&command.force_deltas, &mut hasher);
+    hasher.hash(command.audit_context_hash);
     hasher.finish()
 }
 
