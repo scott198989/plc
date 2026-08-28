@@ -42,7 +42,11 @@ pub use model::{
     DependencyReason, InstanceOwner, InstancePath, InstructionUse, ObDeclaration, ParameterBinding,
     ProgramBlock, ProgramEditError, ProgramUnitKind, VariableRef,
 };
-pub use plc_types::{CanonicalF32, CanonicalF64, PrimitiveCategory, PrimitiveType};
+pub use plc_types::{
+    AggregateLimits, ArrayBound, CanonicalF32, CanonicalF64, CanonicalType, PlcValue,
+    PrimitiveCategory, PrimitiveType, ScalarValue, StableUuid, StructFieldValue, StructMember,
+    TypeError, TypedScalar, assign_value, store_array_element,
+};
 pub use types::{
     BlockInterface, CanonicalValue, DataType, EngineeringNumber, InterfaceMember, InterfaceRole,
     RetainPolicy,

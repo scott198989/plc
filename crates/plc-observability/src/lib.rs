@@ -8,6 +8,7 @@ mod context;
 mod diagnostics;
 mod execution;
 mod force;
+mod layers;
 mod modify;
 mod monitor;
 mod navigation;
@@ -32,6 +33,11 @@ pub use force::{
     ForceAuditResult, ForceAuditTarget, ForceCommand, ForceCommandKind, ForceEntry, ForceError,
     ForceId, ForceReceipt, ForceRegistry, ForceRegistrySnapshot, ForceStatus, ForceWritePlan,
     GlobalForceProjection, GlobalForceProjectionEntry, RemoveAllApproval, RemoveAllPreview,
+};
+pub use layers::{
+    CanonicalLayerBundle, CanonicalLayerSnapshot, EngineeringValueLayers, LayerCodecLimits,
+    LayerError, LayerForce, LayerTargetKind, RuntimeValueLayers, ScalarEngineeringValueLayers,
+    ScalarRuntimeValueLayers, scalar_layer_snapshot_from_publication,
 };
 pub use modify::{
     ModifyCommand, ModifyError, ModifyItem, ModifyReceipt, ModifyReceiptState, ModifyScheduler,

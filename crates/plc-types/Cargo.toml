@@ -5,7 +5,7 @@ edition = "2024"
 rust-version = "1.94.0"
 publish = false
 license = "UNLICENSED"
-description = "Capability-free canonical EDU-21 primitive types and scalar semantics"
+description = "Capability-free canonical EDU-21 recursive PLC types, values, and scalar semantics"
 
 [lib]
 path = "src/lib.rs"

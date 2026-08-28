@@ -1,12 +1,20 @@
 #![forbid(unsafe_code)]
 
-//! Canonical primitive PLC types and deterministic EDU-21 scalar semantics.
+//! Canonical recursive PLC types, values, and deterministic EDU-21 semantics.
 //!
-//! This crate is deliberately capability-free. It owns the primitive type
-//! table used by authoring, compilation, hardware projection, and execution;
-//! none of its behavior is inferred from the host CPU, clock, locale, or ABI.
+//! This crate is deliberately capability-free. It owns the primitive table,
+//! bounded aggregate shapes, exact values, and canonical byte codec used across
+//! authoring and observation. No behavior is inferred from the host CPU, clock,
+//! locale, native byte order, padding, or ABI.
 
 extern crate alloc;
+
+mod aggregate;
+
+pub use aggregate::{
+    AggregateLimits, ArrayBound, CanonicalType, PlcValue, StableUuid, StructFieldValue,
+    StructMember, TypeError, assign_value, store_array_element,
+};
 
 use alloc::{string::String, vec::Vec};
 use core::{cmp::Ordering, fmt};

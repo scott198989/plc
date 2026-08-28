@@ -1,5 +1,7 @@
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
-use plc_types::{CanonicalF32, CanonicalF64, PrimitiveType, ScalarValue};
+use plc_types::{
+    CanonicalF32, CanonicalF64, CanonicalType, PlcValue, PrimitiveType, ScalarValue, TypedScalar,
+};
 
 use crate::{BlockId, InterfaceMemberId, instruction::StateKind};
 
@@ -103,6 +105,14 @@ impl DataType {
             PrimitiveType::Time => Self::Time,
         }
     }
+
+    /// Projects a scalar program type into the shared recursive type authority.
+    /// Named and instance types require their owning registry and therefore fail
+    /// closed instead of manufacturing a disconnected shape.
+    #[must_use]
+    pub fn canonical_scalar_type(&self) -> Option<CanonicalType> {
+        self.primitive_type().map(CanonicalType::Primitive)
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -188,6 +198,17 @@ impl CanonicalValue {
             }
             _ => None,
         }
+    }
+
+    /// Projects an existing program declaration/default/start/constant scalar
+    /// into the shared recursive value authority without conversion.
+    #[must_use]
+    pub fn plc_value_for(&self, data_type: &DataType) -> Option<PlcValue> {
+        let primitive = data_type.primitive_type()?;
+        let value = self.scalar_value_for(primitive)?;
+        TypedScalar::new(primitive, value)
+            .ok()
+            .map(PlcValue::scalar)
     }
 }
 
