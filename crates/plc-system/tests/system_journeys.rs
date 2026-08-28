@@ -1414,6 +1414,123 @@ fn aggregate_snapshot_is_deterministic_tamper_safe_and_restores_runtime_values()
 }
 
 #[test]
+fn restore_approval_is_invalidated_by_an_intervening_force_registry_change() {
+    let fixture = Fixture::canonical_scl();
+    let mut session = loaded_session(&fixture);
+    let captured_force = ForceId(0x6001);
+    session
+        .create_force(
+            identity(60),
+            captured_force,
+            stable_target(fixture.output_tag),
+            CanonicalValue::Bool(true),
+            "captured restore force",
+        )
+        .expect("create captured force");
+    let snapshot = session.capture_snapshot().expect("force snapshot");
+    session
+        .remove_force(identity(61), captured_force, "prepare restore delta")
+        .expect("remove captured force");
+    let preview = session.preview_restore(&snapshot).expect("restore preview");
+    let approval = RestoreApproval::approve(&preview);
+
+    let intervening_force = ForceId(0x6002);
+    session
+        .create_force(
+            identity(62),
+            intervening_force,
+            stable_target(fixture.output_tag),
+            CanonicalValue::Bool(false),
+            "intervening force invalidates approval",
+        )
+        .expect("create intervening force");
+    let before_runtime = session.universe().semantic_state_hash();
+    let before_registry = session.force_registry().registry_hash();
+    assert_eq!(
+        session.force_registry().active_ids(),
+        vec![intervening_force]
+    );
+
+    let error = session
+        .commit_restore(&snapshot, &preview, approval)
+        .expect_err("stale registry approval must fail closed");
+    match error {
+        SystemError::Snapshot(message) => assert_eq!(
+            message,
+            "restore approval no longer matches the exact current preview"
+        ),
+        other => panic!("unexpected stale approval error: {other:?}"),
+    }
+    assert_eq!(session.universe().semantic_state_hash(), before_runtime);
+    assert_eq!(session.force_registry().registry_hash(), before_registry);
+    assert_eq!(
+        session.force_registry().active_ids(),
+        vec![intervening_force]
+    );
+}
+
+#[test]
+fn restore_approval_is_invalidated_by_an_intervening_target_mapping_change() {
+    let mut fixture = Fixture::canonical_scl();
+    let mut session = loaded_session(&fixture);
+    let captured_force = ForceId(0x6101);
+    session
+        .create_force(
+            identity(63),
+            captured_force,
+            stable_target(fixture.output_tag),
+            CanonicalValue::Bool(true),
+            "captured target mapping",
+        )
+        .expect("create captured force");
+    let snapshot = session.capture_snapshot().expect("mapping snapshot");
+    session
+        .remove_force(identity(64), captured_force, "prepare mapping restore")
+        .expect("remove captured force");
+    let preview = session.preview_restore(&snapshot).expect("restore preview");
+    let approval = RestoreApproval::approve(&preview);
+
+    let output_tag = fixture.output_tag;
+    let remapped_member = fixture.input_member;
+    fixture.commit(
+        DomainCommand::SetSemanticField {
+            object_id: output_tag,
+            key: "memberId".to_owned(),
+            value: PayloadValue::from(remapped_member.to_string()),
+        },
+        &[output_tag],
+    );
+    assert_ne!(
+        snapshot.semantic_fingerprint,
+        fixture.engine.project().semantic_fingerprint(),
+        "the target mapping edit must change canonical project identity"
+    );
+    let refresh = session
+        .refresh_project(fixture.engine.project().clone())
+        .expect("adopt remapped project");
+    assert!(refresh.semantic_changed);
+    assert!(refresh.build_invalidated);
+    assert!(refresh.loaded_runtime_preserved);
+
+    let before_runtime = session.universe().semantic_state_hash();
+    let before_registry = session.force_registry().registry_hash();
+    assert!(session.force_registry().active_ids().is_empty());
+    let error = session
+        .commit_restore(&snapshot, &preview, approval)
+        .expect_err("stale target mapping approval must fail closed");
+    match error {
+        SystemError::Snapshot(message) => assert_eq!(
+            message,
+            "snapshot canonical project identity does not match this session"
+        ),
+        other => panic!("unexpected target mapping rejection: {other:?}"),
+    }
+    assert_eq!(session.universe().semantic_state_hash(), before_runtime);
+    assert_eq!(session.force_registry().registry_hash(), before_registry);
+    assert!(session.force_registry().active_ids().is_empty());
+}
+
+#[test]
 fn invalid_offline_edit_remains_visible_while_loaded_run_state_is_preserved() {
     let mut fixture = Fixture::canonical_scl();
     let mut session = loaded_session(&fixture);

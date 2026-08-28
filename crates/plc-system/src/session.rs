@@ -3100,6 +3100,260 @@ fn hash_restore_preview(preview: &RestorePreview) -> Hash32 {
     hash32(sha256(&bytes))
 }
 
+#[cfg(test)]
+mod snapshot_restore_delta_contract_tests {
+    use super::{ForceRestoreClassification, force_restore_deltas, hash_force_restore_deltas};
+    use plc_commissioning::VirtualOnlineSessionId;
+    use plc_observability::{
+        AccessCapabilities, BitRange, ForceCommand, ForceCommandKind, ForceId, ForceRegistry,
+        ObservationContext, ProbeCatalog, ProbeDefinition, PublicationBoundary, RuntimeTarget,
+        StableTargetId, TargetReference,
+    };
+    use plc_runtime::{
+        CanonicalValue, CpuState, Hash32, MemoryId, Sha256, UniverseId, ValueType,
+        VirtualControllerId,
+    };
+
+    fn hash(label: &str) -> Hash32 {
+        Sha256::digest(label.as_bytes())
+    }
+
+    fn context(universe_epoch: u64, controller_epoch: u64) -> ObservationContext {
+        ObservationContext {
+            universe_id: UniverseId(0xD311_A),
+            universe_epoch,
+            controller_id: VirtualControllerId(0xD311_B),
+            controller_epoch,
+            session_id: VirtualOnlineSessionId(0xD311_C),
+            session_epoch: controller_epoch.saturating_add(2),
+            package_fingerprint: hash("delta-package"),
+            artifact_fingerprint: hash("delta-artifact"),
+            profile_fingerprint: hash("delta-profile"),
+            target_state_hash: hash("delta-target-state"),
+            cpu_state: CpuState::Stop,
+            virtual_timestamp_ms: controller_epoch.saturating_mul(10),
+            scan_sequence: 0,
+            event_sequence: controller_epoch,
+            publication_boundary: PublicationBoundary::SerializedCommand,
+        }
+    }
+
+    fn catalog() -> ProbeCatalog {
+        let mut catalog = ProbeCatalog::new(hash("delta-artifact"), hash("delta-profile"));
+        for ordinal in 1_u128..=5 {
+            catalog
+                .insert(ProbeDefinition {
+                    id: StableTargetId(ordinal),
+                    runtime_target: RuntimeTarget::Memory(MemoryId(
+                        u32::try_from(ordinal).expect("bounded memory identity"),
+                    )),
+                    bit_range: BitRange::whole_value(),
+                    value_type: ValueType::Bool,
+                    instance_path: vec![ordinal],
+                    capabilities: AccessCapabilities {
+                        monitor: true,
+                        modify: true,
+                        force: true,
+                        trace: true,
+                        natural_layer: true,
+                        effective_layer: true,
+                    },
+                    primary_source: None,
+                    display_name: format!("delta-target-{ordinal}"),
+                })
+                .expect("unique delta probe");
+        }
+        catalog
+    }
+
+    fn create_force(
+        registry: &mut ForceRegistry,
+        catalog: &ProbeCatalog,
+        context: ObservationContext,
+        force_id: u128,
+        target_id: u128,
+        value: bool,
+    ) {
+        let command = ForceCommand {
+            command_id: 0x1000 + force_id,
+            idempotency_key: 0x2000 + force_id,
+            expected_universe_epoch: context.universe_epoch,
+            expected_controller_epoch: context.controller_epoch,
+            expected_session_epoch: context.session_epoch,
+            expected_artifact_fingerprint: context.artifact_fingerprint,
+            expected_target_state_hash: context.target_state_hash,
+            expected_registry_version: registry.version(),
+            expected_registry_hash: registry.registry_hash(),
+            audit_context_hash: Sha256::digest(&force_id.to_be_bytes()),
+            kind: ForceCommandKind::Create {
+                force_id: ForceId(force_id),
+                target: TargetReference::Stable(StableTargetId(target_id)),
+                value: CanonicalValue::Bool(value),
+                natural_at_application: CanonicalValue::Bool(false),
+                actor_identity: 0xD311_D,
+                reason: format!("delta-force-{force_id}"),
+            },
+        };
+        registry
+            .apply_at_boundary(&command, context, catalog)
+            .expect("force fixture must be admitted");
+    }
+
+    #[test]
+    fn complete_force_restore_delta_matrix_binds_classifications_ordinals_records_and_hash() {
+        let catalog = catalog();
+        let captured_context = context(1, 3);
+        let rebound_context = context(2, 4);
+
+        // Current state: force 5 will be removed by restore; force 20 is
+        // retained but moves from ordinal 2 to 1; force 30 is replaced; force
+        // 40 is retained without moving. All retained snapshot entries rebind
+        // to the new validity epochs.
+        let mut current = ForceRegistry::new();
+        for (force_id, target_id, value) in
+            [(5, 1, true), (20, 2, true), (30, 3, false), (40, 4, true)]
+        {
+            create_force(
+                &mut current,
+                &catalog,
+                captured_context,
+                force_id,
+                target_id,
+                value,
+            );
+        }
+
+        // Captured state: force 25 is added by restore, while all other
+        // surviving identities use the same complete provenance as current.
+        let mut captured = ForceRegistry::new();
+        for (force_id, target_id, value) in
+            [(20, 2, true), (25, 5, true), (30, 3, true), (40, 4, true)]
+        {
+            create_force(
+                &mut captured,
+                &catalog,
+                captured_context,
+                force_id,
+                target_id,
+                value,
+            );
+        }
+        let captured_snapshot = captured.snapshot(captured_context);
+        let (planned, _) =
+            ForceRegistry::rebind_snapshot(&captured_snapshot, rebound_context, &catalog)
+                .expect("captured registry must rebind through production validation");
+
+        let deltas = force_restore_deltas(&current, &planned);
+        assert_eq!(
+            deltas
+                .iter()
+                .map(|delta| delta.force_id)
+                .collect::<Vec<_>>(),
+            [
+                ForceId(5),
+                ForceId(20),
+                ForceId(25),
+                ForceId(30),
+                ForceId(40)
+            ]
+        );
+
+        let expected = [
+            (
+                ForceId(5),
+                vec![ForceRestoreClassification::Removed],
+                Some(1),
+                None,
+            ),
+            (
+                ForceId(20),
+                vec![
+                    ForceRestoreClassification::Retained,
+                    ForceRestoreClassification::Reordered,
+                    ForceRestoreClassification::EpochRebound,
+                ],
+                Some(2),
+                Some(1),
+            ),
+            (
+                ForceId(25),
+                vec![ForceRestoreClassification::Added],
+                None,
+                Some(2),
+            ),
+            (
+                ForceId(30),
+                vec![
+                    ForceRestoreClassification::Replaced,
+                    ForceRestoreClassification::EpochRebound,
+                ],
+                Some(3),
+                Some(3),
+            ),
+            (
+                ForceId(40),
+                vec![
+                    ForceRestoreClassification::Retained,
+                    ForceRestoreClassification::EpochRebound,
+                ],
+                Some(4),
+                Some(4),
+            ),
+        ];
+        for (delta, (force_id, classifications, before_ordinal, after_ordinal)) in
+            deltas.iter().zip(expected)
+        {
+            assert_eq!(delta.force_id, force_id);
+            assert_eq!(delta.classifications, classifications);
+            assert_eq!(delta.before_ordinal, before_ordinal);
+            assert_eq!(delta.after_ordinal, after_ordinal);
+            assert_eq!(delta.before.as_ref(), current.entry(force_id));
+            assert_eq!(delta.after.as_ref(), planned.entry(force_id));
+        }
+
+        let current_hash = current.registry_hash();
+        let snapshot_hash = captured_snapshot.registry_hash;
+        let planned_hash = planned.registry_hash();
+        let delta_hash =
+            hash_force_restore_deltas(current_hash, snapshot_hash, planned_hash, &deltas);
+        assert_eq!(
+            delta_hash,
+            hash_force_restore_deltas(current_hash, snapshot_hash, planned_hash, &deltas),
+            "canonical delta hashing must be deterministic"
+        );
+        assert_ne!(delta_hash, Hash32::ZERO);
+
+        let mut reordered = deltas.clone();
+        reordered.swap(0, 1);
+        assert_ne!(
+            delta_hash,
+            hash_force_restore_deltas(current_hash, snapshot_hash, planned_hash, &reordered),
+            "canonical delta hashing must bind record order"
+        );
+        let mut provenance_changed = deltas.clone();
+        provenance_changed[1]
+            .after
+            .as_mut()
+            .expect("retained after record")
+            .audit_context_hash = hash("changed-provenance");
+        provenance_changed[1]
+            .after
+            .as_mut()
+            .expect("retained after record")
+            .entry_hash = hash("changed-complete-record-hash");
+        assert_ne!(
+            delta_hash,
+            hash_force_restore_deltas(
+                current_hash,
+                snapshot_hash,
+                planned_hash,
+                &provenance_changed,
+            ),
+            "canonical delta hashing must bind the complete before/after record hash"
+        );
+    }
+}
+
 fn identity_from_hash(hash: Hash32) -> u128 {
     let mut identity = [0_u8; 16];
     identity.copy_from_slice(&hash.as_bytes()[..16]);

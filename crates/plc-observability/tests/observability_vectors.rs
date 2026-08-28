@@ -883,6 +883,181 @@ fn trace_snapshot_restore_rebinds_epoch_atomically_and_waits_for_run() {
     assert!(restored.capture(completed[0]).unwrap().verify());
 }
 
+#[test]
+fn restored_diagnostic_trace_uses_the_restore_epoch_and_strict_event_baseline() {
+    let catalog = catalog();
+    let registry = DiagnosticRegistry::edu21_runtime();
+    let expected = registry.by_code("EDU-CPU-0002").unwrap();
+    let unrelated = registry.by_code("EDU-RTM-0007").unwrap();
+    let config_id = TraceConfigId(21);
+    let mut trace = TraceEngine::new(TraceLimits::edu21()).unwrap();
+    trace
+        .upsert_config(TraceConfig {
+            id: config_id,
+            trigger_id: TraceTriggerId(121),
+            name: "restored diagnostic baseline".into(),
+            channels: vec![TraceChannel {
+                id: TraceChannelId(21),
+                alias: "input".into(),
+                probe: TraceProbeKind::LoadedTarget {
+                    target: TargetReference::Stable(StableTargetId(20)),
+                    layer: ProbeLayer::Effective,
+                },
+                display_unit: None,
+            }],
+            cadence: TraceCadence::EveryScans(100),
+            trigger: TraceTrigger::DiagnosticEvent(DiagnosticEventTrigger {
+                definition_id: expected.id,
+                code_version: expected.code_version,
+                lifecycle: DiagnosticEventKind::OneShot,
+                primary_target_id: None,
+                root_occurrence_id: None,
+            }),
+            pre_trigger_samples: 0,
+            post_trigger_samples: 0,
+            post_trigger_duration_ms: None,
+            maximum_duration_ms: 100,
+        })
+        .unwrap();
+    let captured_context = context(CpuState::Stop, PublicationBoundary::SerializedCommand, 0, 0);
+    trace
+        .arm_with_diagnostics(config_id, captured_context, &catalog, &registry)
+        .unwrap();
+    let snapshot = trace.capture_snapshot(captured_context);
+    assert!(snapshot.verify());
+
+    let mut rebound_context = captured_context;
+    rebound_context.universe_epoch += 1;
+    rebound_context.controller_epoch += 1;
+    rebound_context.session_epoch += 1;
+    rebound_context.event_sequence = 10;
+    let restore_key = TraceEventKey {
+        universe_epoch: rebound_context.universe_epoch,
+        event_sequence: rebound_context.event_sequence,
+    };
+    let mut restored =
+        TraceEngine::restore_snapshot(&snapshot, rebound_context, &catalog, restore_key).unwrap();
+
+    // Neither a matching event from the captured epoch nor one exactly equal
+    // to the restore boundary can fire. A later unrelated event advances the
+    // live comparison baseline even though the 100-scan cadence is not due.
+    let stale_epoch_match = TraceDiagnosticEvent {
+        definition_id: expected.id,
+        code_version: expected.code_version,
+        lifecycle: DiagnosticEventKind::OneShot,
+        primary_target_id: None,
+        root_occurrence_id: OccurrenceId(0x2101),
+        occurrence_id: OccurrenceId(0x2101),
+        key: TraceEventKey {
+            universe_epoch: captured_context.universe_epoch,
+            event_sequence: 999,
+        },
+    };
+    let restore_boundary_match = TraceDiagnosticEvent {
+        definition_id: expected.id,
+        code_version: expected.code_version,
+        lifecycle: DiagnosticEventKind::OneShot,
+        primary_target_id: None,
+        root_occurrence_id: OccurrenceId(0x2102),
+        occurrence_id: OccurrenceId(0x2102),
+        key: restore_key,
+    };
+    let unrelated_later = TraceDiagnosticEvent {
+        definition_id: unrelated.id,
+        code_version: unrelated.code_version,
+        lifecycle: DiagnosticEventKind::OneShot,
+        primary_target_id: None,
+        root_occurrence_id: OccurrenceId(0x2103),
+        occurrence_id: OccurrenceId(0x2103),
+        key: TraceEventKey {
+            universe_epoch: rebound_context.universe_epoch,
+            event_sequence: 11,
+        },
+    };
+    let mut publish_context = rebound_context;
+    publish_context.cpu_state = CpuState::Run;
+    publish_context.publication_boundary = PublicationBoundary::ScanEnd;
+    publish_context.scan_sequence = 1;
+    publish_context.event_sequence = 11;
+    publish_context.virtual_timestamp_ms = 10;
+    assert!(
+        restored
+            .publish(
+                publish_context,
+                &[value_bool(true)],
+                &[stale_epoch_match, restore_boundary_match, unrelated_later,],
+            )
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(restored.state(config_id), TraceState::Armed);
+
+    // Equality with the advanced comparison baseline is also excluded.
+    let equal_advanced_baseline = TraceDiagnosticEvent {
+        definition_id: expected.id,
+        code_version: expected.code_version,
+        lifecycle: DiagnosticEventKind::OneShot,
+        primary_target_id: None,
+        root_occurrence_id: OccurrenceId(0x2104),
+        occurrence_id: OccurrenceId(0x2104),
+        key: unrelated_later.key,
+    };
+    publish_context.scan_sequence = 2;
+    publish_context.event_sequence = 12;
+    publish_context.virtual_timestamp_ms = 20;
+    assert!(
+        restored
+            .publish(
+                publish_context,
+                &[value_bool(true)],
+                &[equal_advanced_baseline],
+            )
+            .unwrap()
+            .is_empty()
+    );
+    assert_eq!(restored.state(config_id), TraceState::Armed);
+
+    let strictly_later_match = TraceDiagnosticEvent {
+        definition_id: expected.id,
+        code_version: expected.code_version,
+        lifecycle: DiagnosticEventKind::OneShot,
+        primary_target_id: None,
+        root_occurrence_id: OccurrenceId(0x2105),
+        occurrence_id: OccurrenceId(0x2105),
+        key: TraceEventKey {
+            universe_epoch: rebound_context.universe_epoch,
+            event_sequence: 12,
+        },
+    };
+    publish_context.scan_sequence = 3;
+    publish_context.event_sequence = 13;
+    publish_context.virtual_timestamp_ms = 30;
+    let completed = restored
+        .publish(
+            publish_context,
+            &[value_bool(true)],
+            &[strictly_later_match],
+        )
+        .unwrap();
+    assert_eq!(completed.len(), 1);
+    let capture = restored.capture(completed[0]).unwrap();
+    assert!(capture.verify());
+    assert_eq!(capture.universe_epoch, rebound_context.universe_epoch);
+    assert_eq!(
+        capture.armed_event_key.universe_epoch,
+        captured_context.universe_epoch
+    );
+    assert_eq!(capture.live_comparison_baseline, strictly_later_match.key);
+    assert_eq!(
+        capture.matched_occurrence_id,
+        Some(strictly_later_match.occurrence_id)
+    );
+    assert_eq!(
+        capture.samples[0].diagnostic_occurrence_ids,
+        vec![strictly_later_match.occurrence_id]
+    );
+}
+
 fn condition_key(registry: &DiagnosticRegistry, subject: u128) -> ConditionKey {
     ConditionKey {
         definition_id: registry.by_code("EDU-RTM-0007").unwrap().id,
