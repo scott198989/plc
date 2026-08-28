@@ -116,7 +116,57 @@ describe("canonical authoring payloads", () => {
     expect(collectIdentities(after)).toEqual(identitiesBefore);
     expect(updateGraphNodeFields(graph, crypto.randomUUID(), { mode: "normally-closed" })).toBeNull();
   });
+
+  it("authors real LAD calls to compatible FBD and SCL functions", () => {
+    const fbd = createFbdProgramPayload();
+    const scl = createSclProgramPayload("fc");
+    const fbdBlockId = crypto.randomUUID();
+    const sclBlockId = crypto.randomUUID();
+    const payload = createLadProgramPayload(1, [
+      {
+        inputFormalId: requiredMember(fbd, "InputValue"),
+        outputFormalId: requiredMember(fbd, "Result"),
+        resultName: "FbdResult",
+        targetBlockId: fbdBlockId,
+      },
+      {
+        inputFormalId: requiredMember(scl, "InputValue"),
+        outputFormalId: requiredMember(scl, "Result"),
+        resultName: "SclResult",
+        targetBlockId: sclBlockId,
+      },
+    ]);
+    const graph = record(payload.graph);
+    const network = record(list(graph.networks)[0]);
+    const nodes = list(network.nodes).map(record);
+    expect(nodes.map((node) => node.nodeKind)).toEqual([
+      "power-source",
+      "call",
+      "call",
+      "contact",
+      "contact",
+      "coil",
+    ]);
+    const calls = nodes.filter((node) => node.nodeKind === "call");
+    expect(calls.map((node) => node.targetBlockId)).toEqual([fbdBlockId, sclBlockId]);
+    expect(calls.map((node) => node.instructionCode)).toEqual([
+      { $type: "u64", value: "512" },
+      { $type: "u64", value: "512" },
+    ]);
+    expect(calls.every((node) => list(node.pins).length === 2)).toBe(true);
+    expect(interfaceMemberIdentity(payload, "FbdResult")).toMatch(UUID);
+    expect(interfaceMemberIdentity(payload, "SclResult")).toMatch(UUID);
+    expect(list(network.edges)).toHaveLength(5);
+  });
 });
+
+const requiredMember = (payload: Parameters<typeof interfaceMemberIdentity>[0], name: string): string => {
+  const identity = interfaceMemberIdentity(payload, name);
+  if (identity === null) {
+    throw new Error(`Expected interface member ${name}.`);
+  }
+  return identity;
+};
 
 const collectIdentities = (value: unknown): readonly string[] => {
   const identities: string[] = [];

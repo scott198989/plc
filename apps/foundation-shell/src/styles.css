@@ -926,7 +926,7 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 .graph-network__heading code { color: #6d7a80; font-size: 9px; font-weight: 500; letter-spacing: 0; text-transform: none; }
 
 .lad-rung {
-  min-width: 690px;
+  min-width: 760px;
   min-height: 264px;
   padding: 34px 30px;
   display: flex;
@@ -939,7 +939,7 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 .lad-rail--right { margin-left: auto; }
 
 .lad-power-source {
-  width: 68px;
+  width: 52px;
   padding-top: 62px;
   display: flex;
   flex-direction: column;
@@ -953,7 +953,7 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
   position: absolute;
   top: 72px;
   right: 100%;
-  width: 34px;
+  width: 26px;
   height: 2px;
   background: #31464b;
 }
@@ -964,9 +964,9 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 
 .lad-element {
   position: relative;
-  width: min(260px, 28vw);
-  min-width: 190px;
-  margin-left: 34px;
+  width: min(205px, 22vw);
+  min-width: 150px;
+  margin-left: 26px;
   border: 1px solid #aab5b8;
   padding: 18px 14px 14px;
   display: grid;
@@ -980,7 +980,7 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
   position: absolute;
   top: 72px;
   left: 100%;
-  width: 34px;
+  width: 26px;
   height: 2px;
   background: #31464b;
 }
@@ -1001,6 +1001,15 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 .lad-element select,
 .fbd-node select { width: 100%; min-width: 0; height: 30px; border: 1px solid #aab5b8; padding: 0 7px; background: #f8fafa; color: #26373d; font-size: 9px; }
 .lad-element--unsupported { color: var(--danger); }
+
+.lad-call { min-width: 142px; width: 152px; align-content: stretch; padding: 0; }
+.lad-call__title { min-height: 38px; border-bottom: 1px solid #afbbbd; display: flex; align-items: center; justify-content: space-between; background: #e4efee; }
+.lad-call__title span { padding-left: 10px; color: #55706f; font-size: 8px; font-weight: 780; letter-spacing: 0.08em; }
+.lad-call__title strong { align-self: stretch; min-width: 46px; border-left: 1px solid #afbbbd; display: grid; place-items: center; color: #163f3c; font: 700 13px "Cascadia Mono", "Consolas", monospace; }
+.lad-call__target { padding: 12px 10px 9px; display: grid; gap: 5px; }
+.lad-call__target span { color: #66757b; font-size: 8px; font-weight: 720; letter-spacing: 0.05em; text-transform: uppercase; }
+.lad-call__target code { overflow: hidden; color: #33464c; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.lad-call__pins { margin-top: auto; border-top: 1px solid #e1e6e7; padding: 7px 9px; display: flex; justify-content: space-between; color: #68777c; font-size: 8px; }
 
 .fbd-flow {
   min-width: 720px;

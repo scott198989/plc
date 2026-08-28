@@ -59,19 +59,124 @@ const fbdPort = (
   status: "active",
 });
 
+export type LadFcCallTarget = Readonly<{
+  inputFormalId: string;
+  outputFormalId: string;
+  resultName: string;
+  targetBlockId: string;
+}>;
+
 /**
- * Creates a coordinate-free semantic LAD graph. The visible editor is free to
- * lay the rung out differently without changing this executable state.
+ * Creates a coordinate-free semantic LAD graph. When compatible FC targets
+ * are supplied, the rung calls each frontend through real block-member pins
+ * and consumes both results in power flow. The visible editor is free to lay
+ * the rung out differently without changing this executable state.
  */
-export const createLadProgramPayload = (engineeringNumber = 1): ProjectPayload => {
+export const createLadProgramPayload = (
+  engineeringNumber = 1,
+  callTargets: readonly LadFcCallTarget[] = [],
+): ProjectPayload => {
   const input = interfaceMember("InputValue", "temp", 0, "BOOL");
   const output = interfaceMember("OutputValue", "temp", 1, "BOOL");
   const inputMemberId = recordMemberId(input);
   const outputMemberId = recordMemberId(output);
+  const callResults = callTargets.map((target, index) => ({
+    member: interfaceMember(target.resultName, "temp", index + 2, "BOOL"),
+    target,
+  }));
   const sourceOutput = crypto.randomUUID();
-  const contactInput = crypto.randomUUID();
-  const contactOutput = crypto.randomUUID();
   const coilInput = crypto.randomUUID();
+  const nodes: ProjectPayloadValue[] = [recordValue({
+    id: crypto.randomUUID(),
+    nodeKind: "power-source",
+    powerPorts: [ladderPowerPort(sourceOutput, "output")],
+    semanticOrder: unsignedValue(0),
+  })];
+  const edges: ProjectPayloadValue[] = [];
+  let previousOutput = sourceOutput;
+  let semanticOrder = 1;
+
+  if (callResults.length === 0) {
+    const contactInput = crypto.randomUUID();
+    const contactOutput = crypto.randomUUID();
+    nodes.push(recordValue({
+      id: crypto.randomUUID(),
+      mode: "normally-open",
+      nodeKind: "contact",
+      operand: ladderOperand(inputMemberId),
+      powerPorts: [
+        ladderPowerPort(contactInput, "input"),
+        ladderPowerPort(contactOutput, "output"),
+      ],
+      semanticOrder: unsignedValue(semanticOrder),
+    }));
+    edges.push(ladderEdge(previousOutput, contactInput));
+    previousOutput = contactOutput;
+    semanticOrder += 1;
+  } else {
+    for (const { member, target } of callResults) {
+      const callInput = crypto.randomUUID();
+      const callOutput = crypto.randomUUID();
+      nodes.push(recordValue({
+        callSiteId: crypto.randomUUID(),
+        id: crypto.randomUUID(),
+        instance: null,
+        instructionCode: unsignedValue(0x0200),
+        nodeKind: "call",
+        pins: [
+          ladderCallPin(
+            "InputValue",
+            "input",
+            target.inputFormalId,
+            inputMemberId,
+          ),
+          ladderCallPin(
+            "Result",
+            "output",
+            target.outputFormalId,
+            recordMemberId(member),
+          ),
+        ],
+        powerPorts: [
+          ladderPowerPort(callInput, "input"),
+          ladderPowerPort(callOutput, "output"),
+        ],
+        semanticOrder: unsignedValue(semanticOrder),
+        targetBlockId: target.targetBlockId,
+      }));
+      edges.push(ladderEdge(previousOutput, callInput));
+      previousOutput = callOutput;
+      semanticOrder += 1;
+    }
+    for (const { member } of callResults) {
+      const contactInput = crypto.randomUUID();
+      const contactOutput = crypto.randomUUID();
+      nodes.push(recordValue({
+        id: crypto.randomUUID(),
+        mode: "normally-open",
+        nodeKind: "contact",
+        operand: ladderOperand(recordMemberId(member)),
+        powerPorts: [
+          ladderPowerPort(contactInput, "input"),
+          ladderPowerPort(contactOutput, "output"),
+        ],
+        semanticOrder: unsignedValue(semanticOrder),
+      }));
+      edges.push(ladderEdge(previousOutput, contactInput));
+      previousOutput = contactOutput;
+      semanticOrder += 1;
+    }
+  }
+
+  nodes.push(recordValue({
+    id: crypto.randomUUID(),
+    mode: "normal",
+    nodeKind: "coil",
+    operand: ladderOperand(outputMemberId),
+    powerPorts: [ladderPowerPort(coilInput, "input")],
+    semanticOrder: unsignedValue(semanticOrder),
+  }));
+  edges.push(ladderEdge(previousOutput, coilInput));
 
   return {
     blockKind: "OB",
@@ -81,57 +186,40 @@ export const createLadProgramPayload = (engineeringNumber = 1): ProjectPayload =
       networks: [
         graphNetwork({
           branches: [],
-          edges: [
-            recordValue({
-              id: crypto.randomUUID(),
-              sourcePortId: sourceOutput,
-              targetPortId: contactInput,
-            }),
-            recordValue({
-              id: crypto.randomUUID(),
-              sourcePortId: contactOutput,
-              targetPortId: coilInput,
-            }),
-          ],
+          edges,
           id: crypto.randomUUID(),
-          nodes: [
-            recordValue({
-              id: crypto.randomUUID(),
-              nodeKind: "power-source",
-              powerPorts: [ladderPowerPort(sourceOutput, "output")],
-              semanticOrder: unsignedValue(0),
-            }),
-            recordValue({
-              id: crypto.randomUUID(),
-              mode: "normally-open",
-              nodeKind: "contact",
-              operand: ladderOperand(inputMemberId),
-              powerPorts: [
-                ladderPowerPort(contactInput, "input"),
-                ladderPowerPort(contactOutput, "output"),
-              ],
-              semanticOrder: unsignedValue(1),
-            }),
-            recordValue({
-              id: crypto.randomUUID(),
-              mode: "normal",
-              nodeKind: "coil",
-              operand: ladderOperand(outputMemberId),
-              powerPorts: [ladderPowerPort(coilInput, "input")],
-              semanticOrder: unsignedValue(2),
-            }),
-          ],
+          nodes,
           semanticOrder: unsignedValue(0),
         }),
       ],
       schema: "edu.lad-semantic-graph/1",
       semanticRevision: unsignedValue(0),
     }),
-    interface: [input, output],
+    interface: [input, output, ...callResults.map(({ member }) => member)],
     language: "LAD",
     obRole: "CyclicMain",
   };
 };
+
+const ladderEdge = (sourcePortId: string, targetPortId: string): ProjectPayloadValue =>
+  recordValue({ id: crypto.randomUUID(), sourcePortId, targetPortId });
+
+const ladderCallPin = (
+  name: string,
+  direction: "input" | "output",
+  formalId: string,
+  callerMemberId: string,
+): ProjectPayloadValue => recordValue({
+  binding: ladderOperand(callerMemberId),
+  dataType: "BOOL",
+  direction,
+  formalId,
+  formalKind: "block-member",
+  id: crypto.randomUUID(),
+  name,
+  required: true,
+  status: "active",
+});
 
 /** Creates a typed, coordinate-free FBD function with one real NOT node. */
 export const createFbdProgramPayload = (engineeringNumber = 1): ProjectPayload => {
@@ -261,8 +349,8 @@ export const createSclProgramPayload = (
         blockKind: "FC",
         engineeringNumber: unsignedValue(engineeringNumber),
         interface: [
-          interfaceMember("InputValue", "input", 0),
-          interfaceMember("Result", "output", 1),
+          interfaceMember("InputValue", "input", 0, "BOOL"),
+          interfaceMember("Result", "output", 1, "BOOL"),
         ],
         language: "SCL",
         sourceText: "",

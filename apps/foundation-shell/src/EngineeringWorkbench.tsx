@@ -779,6 +779,21 @@ const LadderNetworkEditor = ({
           if (nodeKind === "power-source") {
             return <div className="lad-power-source" key={nodeId}><span aria-hidden="true">L+</span><small>Power</small></div>;
           }
+          if (nodeKind === "call") {
+            const targetBlockId = typeof node.targetBlockId === "string" ? node.targetBlockId : "unresolved";
+            return (
+              <div className="lad-element lad-call" key={nodeId}>
+                <div className="lad-call__title"><span>CALL</span><strong>FC</strong></div>
+                <div className="lad-call__target">
+                  <span>Target block</span>
+                  <code title={targetBlockId}>{targetBlockId.slice(0, 8)}…{targetBlockId.slice(-4)}</code>
+                </div>
+                <div className="lad-call__pins">
+                  <span>InputValue</span><span>Result</span>
+                </div>
+              </div>
+            );
+          }
           if (nodeKind === "contact") {
             return (
               <div className="lad-element lad-contact" key={nodeId}>
@@ -1127,7 +1142,10 @@ const creationOptions = (
           label: "Ladder organization block",
           objectKind: "program-block",
           payloadSchema: "edu.program-block/1",
-          semanticPayload: () => createLadProgramPayload(nextEngineeringNumber(snapshot, "OB")),
+          semanticPayload: () => createLadProgramPayload(
+            nextEngineeringNumber(snapshot, "OB"),
+            ladFcCallTargets(snapshot, parent.id),
+          ),
         },
         {
           baseName: "Function",
@@ -1320,6 +1338,42 @@ const nextEngineeringNumber = (
     }
   }
   return Math.min(maximum + 1, 4_294_967_295);
+};
+
+const ladFcCallTargets = (
+  snapshot: WorkbenchSnapshot,
+  controllerId: string,
+): readonly Readonly<{
+  inputFormalId: string;
+  outputFormalId: string;
+  resultName: string;
+  targetBlockId: string;
+}>[] => {
+  const compatible = Object.values(snapshot.objects)
+    .filter((object) =>
+      object.lifecycle === "active" &&
+      object.parentId === controllerId &&
+      object.kind === "FC" &&
+      (object.semanticPayload.language === "FBD" || object.semanticPayload.language === "SCL")
+    )
+    .sort((left, right) => left.creationOrdinal.localeCompare(right.creationOrdinal));
+  const selected = ["FBD", "SCL"].flatMap((language) => {
+    const block = compatible.find((candidate) => candidate.semanticPayload.language === language);
+    if (block === undefined) {
+      return [];
+    }
+    const inputFormalId = interfaceMemberIdentity(block.semanticPayload, "InputValue");
+    const outputFormalId = interfaceMemberIdentity(block.semanticPayload, "Result");
+    return inputFormalId === null || outputFormalId === null
+      ? []
+      : [{
+          inputFormalId,
+          outputFormalId,
+          resultName: language === "FBD" ? "FbdResult" : "SclResult",
+          targetBlockId: block.id,
+        }];
+  });
+  return selected.length === 2 ? selected : [];
 };
 
 const nextObjectName = (

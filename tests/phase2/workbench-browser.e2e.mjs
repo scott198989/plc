@@ -102,19 +102,9 @@ try {
   }).waitFor();
 
   await treeItem(page, "Controller").click();
-  await addObject(page, "Ladder organization block");
-  await page.getByRole("heading", { level: 1, name: "Ladder cycle" }).waitFor();
-  await page.getByRole("region", { name: "LAD network 1" }).waitFor();
-  const contactMode = page.getByLabel("Contact");
-  await contactMode.selectOption("normally-closed");
-  await contactMode.selectOption("normally-open");
-  const ladderScreenshot = path.join(evidenceDirectory, "workbench-lad-editor.png");
-  await page.screenshot({ fullPage: true, path: ladderScreenshot });
-
-  await treeItem(page, "Controller").click();
   await addObject(page, "Reusable SCL function");
   await page.getByRole("heading", { level: 1, name: "Function" }).waitFor();
-  const sclSource = "Result := InputValue;";
+  const sclSource = "Result := NOT InputValue;";
   await page.getByLabel("SCL source").fill(sclSource);
   await page.getByRole("button", { name: "Apply SCL source" }).click();
   if (await page.getByLabel("SCL source").inputValue() !== sclSource) {
@@ -128,6 +118,20 @@ try {
   await page.getByText("NOT", { exact: true }).waitFor();
   const fbdScreenshot = path.join(evidenceDirectory, "workbench-fbd-editor.png");
   await page.screenshot({ fullPage: true, path: fbdScreenshot });
+
+  await treeItem(page, "Controller").click();
+  await addObject(page, "Ladder organization block");
+  await page.getByRole("heading", { level: 1, name: "Ladder cycle" }).waitFor();
+  await page.getByRole("region", { name: "LAD network 1" }).waitFor();
+  await page.getByText("CALL", { exact: true }).first().waitFor();
+  if (await page.getByText("CALL", { exact: true }).count() !== 2) {
+    throw new Error("mixed-language LAD block did not retain both real FC call nodes");
+  }
+  const contactMode = page.getByLabel("Contact").first();
+  await contactMode.selectOption("normally-closed");
+  await contactMode.selectOption("normally-open");
+  const ladderScreenshot = path.join(evidenceDirectory, "workbench-lad-editor.png");
+  await page.screenshot({ fullPage: true, path: ladderScreenshot });
 
   await treeItem(page, "Controller").click();
   await addObject(page, "State-owning SCL block");
