@@ -159,14 +159,10 @@ ASSESSMENTS: dict[str, dict[str, Any]] = {
         ["crates/plc-compiler/tests/scl_grammar_golden.rs", "crates/plc-compiler/tests/language_service_snapshot.rs"],
     ),
     "VER-SCL-0002": assessment(
-        PARTIAL,
-        "Expressions, assignment, CASE and every structured loop form, FC calls, work-budget faults, and stable source occurrence mappings execute through verified control-flow graphs in the production runtime.",
+        READY,
+        "Expressions, assignment, CASE and every structured loop form, FC and FB calls, work-budget faults, and stable source occurrence mappings execute through verified control-flow graphs in the production runtime. The SCL FB vector binds an explicit instance identity, persists state across scans, snapshots it, restores it, and advances from the restored value.",
         ["crates/plc-compiler/src/lowering.rs", "crates/plc-compiler/src/runtime_adapter.rs", "crates/plc-runtime/src/controller.rs"],
         ["crates/plc-compiler/tests/scl_control_flow.rs", "crates/plc-compiler/tests/runtime_vertical_slice.rs", "crates/plc-compiler/tests/mixed_language_runtime.rs"],
-        [
-            "No SCL runtime vector executes an FB/stateful call with stable instance identity and persisted state.",
-        ],
-        "LANE-LANGUAGE-BUILD-SOURCEMAP",
     ),
     "VER-INS-0001": assessment(
         READY,
@@ -199,12 +195,10 @@ ASSESSMENTS: dict[str, dict[str, Any]] = {
         ["crates/plc-compiler/tests/compiler_pipeline.rs", "crates/plc-compiler/tests/frontend_composition.rs", "crates/plc-lad/tests/lad_contract.rs", "crates/plc-language-tools/tests/fbd_contract.rs"],
     ),
     "VER-SMAP-0001": assessment(
-        PARTIAL,
-        "SCL definitions, diagnostics, probes, call effects, and runtime faults relocate by semantic identity across formatting-only edits; LAD and FBD graph anchors relocate by stable graph identity and fail closed after removal.",
+        READY,
+        "SCL definitions, diagnostics, probes, call effects, and runtime faults relocate by semantic identity across formatting-only edits. LAD and FBD graph anchors relocate by stable graph identity and fail closed after removal; the FBD runtime-fault vector loads and executes a faulting graph, maps the emitted runtime source identity, then follows that exact anchor through an offline graph edit.",
         ["crates/plc-compiler/src/source.rs", "crates/plc-compiler/src/ir.rs", "crates/plc-observability/src/navigation.rs", "crates/plc-system/src/session.rs"],
         ["crates/plc-compiler/tests/source_map_navigation.rs", "crates/plc-compiler/tests/diagnostic_source_mapping.rs", "crates/plc-language-tools/tests/fbd_contract.rs", "crates/plc-lad/tests/lad_contract.rs"],
-        ["No executable LAD/FBD runtime-fault relocation vector follows a loaded fault anchor across an offline graph edit."],
-        "LANE-LANGUAGE-BUILD-SOURCEMAP",
     ),
     "VER-RTM-0001": assessment(
         READY,
@@ -231,15 +225,10 @@ ASSESSMENTS: dict[str, dict[str, Any]] = {
         "LANE-FAULT-SNAPSHOT-OBSERVATION",
     ),
     "VER-SNP-0001": assessment(
-        PARTIAL,
-        "Controller, force, trace, diagnostic, and hardware snapshots are content-addressed and atomically restored; the canonical replay package is byte-stable, typed, causally ordered, branchable, and reports the first divergent state region.",
-        ["crates/plc-runtime/src/controller.rs", "crates/plc-observability/src/force.rs", "crates/plc-observability/src/trace.rs", "crates/plc-observability/src/diagnostics.rs", "crates/plc-system/src/session.rs", "crates/plc-system/src/replay_package.rs"],
+        READY,
+        "Controller, force, trace, diagnostic, hardware, and complete virtual-I/O snapshots are content-addressed and atomically restored. Restore preview exposes and hash-binds complete ForceRegistry before/after records, canonical order, provenance, and complete VirtualIOBoundary state. The production replay executor reconstructs an EngineeringSession from the referenced aggregate snapshot, admits only the closed simulator ingress language, drives every recorded ingress and generated event, and compares independently calculated boundary regions. Canonical replay packages remain byte-stable, typed, causally ordered, branchable, and first-divergence reporting.",
+        ["crates/plc-runtime/src/controller.rs", "crates/plc-observability/src/force.rs", "crates/plc-observability/src/trace.rs", "crates/plc-observability/src/diagnostics.rs", "crates/plc-system/src/session.rs", "crates/plc-system/src/replay_package.rs", "crates/plc-system/src/replay_executor.rs"],
         ["crates/plc-runtime/tests/runtime_vectors.rs", "crates/plc-observability/tests/observability_vectors.rs", "crates/plc-system/tests/system_journeys.rs", "crates/plc-system/tests/replay_verification.rs"],
-        [
-            "No production executor reconstructs an EngineeringSession from the package initial snapshot and drives every recorded ingress to the expected boundary hashes.",
-            "The aggregate restore preview does not yet prove the complete ForceRegistry full-record/order/provenance delta together with complete VirtualIOBoundary state.",
-        ],
-        "LANE-FAULT-SNAPSHOT-OBSERVATION",
     ),
     "VER-COM-0001": assessment(
         READY,
