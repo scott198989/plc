@@ -9,14 +9,23 @@
 //! native tests and `wasm32`.
 
 mod canonical;
+mod condition;
 mod diagnostic;
 mod hardware;
 mod ids;
 mod network;
+mod process_image;
 mod profile;
 mod symbols;
 mod types;
 
+pub use condition::{
+    ChannelConditionProjection, ConditionLifecycle, HardwareConditionEngine,
+    HardwareConditionError, HardwareConditionEvent, HardwareConditionKey,
+    HardwareConditionSnapshot, HardwareDiagnosticCode, HardwareFaultAction, HardwareFaultCommand,
+    HardwareFaultReceipt, NaturalChannelSample, ObservedHardwareCondition, RuntimeDeviceRole,
+    RuntimeHardwareConfiguration, RuntimeModuleConfiguration,
+};
 pub use diagnostic::{Diagnostic, DiagnosticCode, DiagnosticTarget, Severity, TargetKind};
 pub use hardware::{
     AddressArea, AddressRequest, AddressSpan, AllocationChange, AllocationPreview, ChannelAddress,
@@ -36,11 +45,13 @@ pub use network::{
     VirtualIpAddress, VirtualLink, VirtualNetwork, VirtualPort, VirtualSubnet,
 };
 pub use plc_core::{Sha256Digest, Uuid};
+pub use process_image::{ChannelRawValue, ProcessImageError};
 pub use profile::{
     ArtifactLifecycleAction, Capability, ChannelLayout, ControllerCatalogId, ControllerDefinition,
     DiagnosticPolicy, EDU21_COMPILER_CAPABILITY_KEYS, EDU21_MANIFEST_HASH, EDU21_PROFILE_ID,
-    EDU21_PROFILE_VERSION, ForceLifecycleAction, IoLifecycleAction, LifecycleRule, ModuleCatalogId,
-    ModuleDefinition, PlacementClass, ProfileAllowlist, ProfileError, ProfileLimits, ProfilePin,
+    EDU21_PROFILE_VERSION, EDU21_REQUIRED_MANIFEST_FIELD_COUNT, ForceLifecycleAction,
+    IoLifecycleAction, LifecycleRule, ManifestScalar, ModuleCatalogId, ModuleDefinition,
+    PlacementClass, ProfileAllowlist, ProfileError, ProfileLimits, ProfilePin,
     RestartRetentionPolicy, SchedulingPolicy, TrainingProfile, ValueLifecycleAction,
 };
 pub use symbols::{

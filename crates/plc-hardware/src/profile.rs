@@ -10,6 +10,7 @@ use crate::canonical::CanonicalEncoder;
 pub const EDU21_PROFILE_ID: &str = "EDU-21 Core";
 pub const EDU21_PROFILE_VERSION: &str = "1.0.0";
 pub const EDU21_CATALOG_VERSION: &str = "1.0.0";
+pub const EDU21_REQUIRED_MANIFEST_FIELD_COUNT: usize = 222;
 /// Fine-grained compiler capabilities projected from the shipped training
 /// profile. The compiler hashes this ordered material independently while the
 /// training-profile manifest remains the authority for whether the compiler
@@ -31,6 +32,14 @@ pub struct ProfilePin {
     pub id: String,
     pub version: String,
     pub manifest_hash: Sha256Digest,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ManifestScalar {
+    Bool(bool),
+    Unsigned(u64),
+    OptionalUnsigned(Option<u64>),
+    Text(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -218,6 +227,20 @@ pub struct SchedulingPolicy {
     pub call_depth: u8,
 }
 
+impl SchedulingPolicy {
+    #[must_use]
+    pub const fn edu21() -> Self {
+        Self {
+            scan_quantum_ms: 10,
+            cyclic_main_count: 1,
+            startup_count: 1,
+            timed_cyclic_count: 8,
+            work_units_per_scan: 100_000,
+            call_depth: 64,
+        }
+    }
+}
+
 #[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct DiagnosticPolicy {
@@ -225,6 +248,18 @@ pub struct DiagnosticPolicy {
     pub multiple_writer_is_blocking: bool,
     pub unsafe_temp_is_blocking: bool,
     pub missing_consumed_return_is_blocking: bool,
+}
+
+impl DiagnosticPolicy {
+    #[must_use]
+    pub const fn edu21() -> Self {
+        Self {
+            unreachable_scl_is_blocking: false,
+            multiple_writer_is_blocking: false,
+            unsafe_temp_is_blocking: true,
+            missing_consumed_return_is_blocking: true,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -483,20 +518,8 @@ impl TrainingProfile {
             catalog_version: EDU21_CATALOG_VERSION,
             capabilities: Capability::ALL.into_iter().collect(),
             limits: ProfileLimits::edu21(),
-            scheduling: SchedulingPolicy {
-                scan_quantum_ms: 10,
-                cyclic_main_count: 1,
-                startup_count: 1,
-                timed_cyclic_count: 8,
-                work_units_per_scan: 100_000,
-                call_depth: 64,
-            },
-            diagnostics: DiagnosticPolicy {
-                unreachable_scl_is_blocking: false,
-                multiple_writer_is_blocking: false,
-                unsafe_temp_is_blocking: true,
-                missing_consumed_return_is_blocking: true,
-            },
+            scheduling: SchedulingPolicy::edu21(),
+            diagnostics: DiagnosticPolicy::edu21(),
             restart_retention: RestartRetentionPolicy::edu21(),
             controllers: controller_catalog(),
             modules: module_catalog(),
@@ -603,6 +626,46 @@ impl TrainingProfile {
         &self.modules
     }
 
+    /// Returns the normalized, unique field inventory used by the shipped
+    /// declarative manifest. This is intentionally data-only and contains no
+    /// executable callbacks, endpoint names, transports, or host capability.
+    pub fn manifest_fields(&self) -> Result<BTreeMap<String, ManifestScalar>, ProfileError> {
+        let mut fields = BTreeMap::new();
+        insert_manifest_field(
+            &mut fields,
+            "profile.id".to_owned(),
+            ManifestScalar::Text(self.id.to_owned()),
+        )?;
+        insert_manifest_field(
+            &mut fields,
+            "profile.version".to_owned(),
+            ManifestScalar::Text(self.version.to_owned()),
+        )?;
+        insert_manifest_field(
+            &mut fields,
+            "profile.catalogVersion".to_owned(),
+            ManifestScalar::Text(self.catalog_version.to_owned()),
+        )?;
+        for capability in &self.capabilities {
+            insert_manifest_field(
+                &mut fields,
+                format!("capability.{}", capability.key()),
+                ManifestScalar::Bool(true),
+            )?;
+        }
+        insert_limit_fields(&mut fields, &self.limits)?;
+        insert_scheduling_fields(&mut fields, &self.scheduling)?;
+        insert_diagnostic_fields(&mut fields, &self.diagnostics)?;
+        insert_restart_fields(&mut fields, &self.restart_retention)?;
+        for definition in self.controllers.values() {
+            insert_controller_fields(&mut fields, definition)?;
+        }
+        for definition in self.modules.values() {
+            insert_module_fields(&mut fields, definition)?;
+        }
+        Ok(fields)
+    }
+
     pub fn validate(&self) -> Result<(), ProfileError> {
         if self.id != EDU21_PROFILE_ID
             || self.version != EDU21_PROFILE_VERSION
@@ -619,19 +682,26 @@ impl TrainingProfile {
         if self.capabilities.len() != Capability::ALL.len() {
             return Err(ProfileError::InvalidManifest("unknown capability"));
         }
-        if self.limits.controllers_per_project != 8
-            || self.limits.type_nesting == 0
-            || self.limits.array_dimensions == 0
-            || self
-                .limits
-                .ordinary_conditions_per_controller
-                .saturating_add(1)
-                != self.limits.active_conditions_per_controller
-        {
-            return Err(ProfileError::InvalidManifest("limit inconsistency"));
+        if self.limits != ProfileLimits::edu21() {
+            return Err(ProfileError::InvalidManifest("limits"));
         }
-        if self.controllers.len() != 3 || self.modules.len() != 9 {
-            return Err(ProfileError::InvalidManifest("catalog completeness"));
+        if self.scheduling != SchedulingPolicy::edu21() {
+            return Err(ProfileError::InvalidManifest("scheduling"));
+        }
+        if self.diagnostics != DiagnosticPolicy::edu21() {
+            return Err(ProfileError::InvalidManifest("diagnostic policy"));
+        }
+        if self.restart_retention != RestartRetentionPolicy::edu21() {
+            return Err(ProfileError::InvalidManifest("restart/retention"));
+        }
+        if self.controllers != controller_catalog() {
+            return Err(ProfileError::InvalidManifest("controller catalog"));
+        }
+        if self.modules != module_catalog() {
+            return Err(ProfileError::InvalidManifest("module catalog"));
+        }
+        if self.manifest_fields()?.len() != EDU21_REQUIRED_MANIFEST_FIELD_COUNT {
+            return Err(ProfileError::InvalidManifest("manifest field completeness"));
         }
         if self.manifest_hash != EDU21_MANIFEST_HASH
             || self.compute_manifest_hash() != self.manifest_hash
@@ -887,6 +957,371 @@ const fn module(
     }
 }
 
+const fn value_lifecycle_token(value: ValueLifecycleAction) -> &'static str {
+    match value {
+        ValueLifecycleAction::Preserve => "Preserve",
+        ValueLifecycleAction::ReloadLoadedStart => "ReloadLoadedStart",
+        ValueLifecycleAction::RestoreRetainStore => "RestoreRetainStore",
+        ValueLifecycleAction::ClearThenLoadRetainedStart => "ClearThenLoadRetainedStart",
+        ValueLifecycleAction::PreserveCompatibleIdentity => "PreserveCompatibleIdentity",
+        ValueLifecycleAction::PreserveDeclaredCompatibleIdentity => {
+            "PreserveDeclaredCompatibleIdentity"
+        }
+    }
+}
+
+const fn io_lifecycle_token(value: IoLifecycleAction) -> &'static str {
+    match value {
+        IoLifecycleAction::FreshInputOutputDefaultsUntilCommit => {
+            "FreshInputOutputDefaultsUntilCommit"
+        }
+        IoLifecycleAction::EffectiveOutputDefaults => "EffectiveOutputDefaults",
+        IoLifecycleAction::ResetFreshInput => "ResetFreshInput",
+        IoLifecycleAction::Reset => "Reset",
+        IoLifecycleAction::NoMixedScan => "NoMixedScan",
+        IoLifecycleAction::ResetAsPreviewed => "ResetAsPreviewed",
+    }
+}
+
+const fn artifact_lifecycle_token(value: ArtifactLifecycleAction) -> &'static str {
+    match value {
+        ArtifactLifecycleAction::Preserve => "Preserve",
+        ArtifactLifecycleAction::ReplaceAtomically => "ReplaceAtomically",
+    }
+}
+
+const fn force_lifecycle_token(value: ForceLifecycleAction) -> &'static str {
+    match value {
+        ForceLifecycleAction::Preserve => "Preserve",
+        ForceLifecycleAction::ClearThroughApprovedPreview => "ClearThroughApprovedPreview",
+        ForceLifecycleAction::RegistryMustBeEmpty => "RegistryMustBeEmpty",
+    }
+}
+
+fn channel_layout_token(value: ChannelLayout) -> String {
+    match value {
+        ChannelLayout::None => "None".to_owned(),
+        ChannelLayout::DigitalInputs(count) => format!("DigitalInputs({count})"),
+        ChannelLayout::DigitalOutputs(count) => format!("DigitalOutputs({count})"),
+        ChannelLayout::AnalogInputs(count) => format!("AnalogInputs({count})"),
+        ChannelLayout::AnalogOutputs(count) => format!("AnalogOutputs({count})"),
+        ChannelLayout::MixedDigital { inputs, outputs } => {
+            format!("MixedDigital {{ inputs: {inputs}, outputs: {outputs} }}")
+        }
+        ChannelLayout::TemperatureInputs(count) => format!("TemperatureInputs({count})"),
+    }
+}
+
+const fn placement_token(value: PlacementClass) -> &'static str {
+    match value {
+        PlacementClass::ModularPowerSlotZero => "ModularPowerSlotZero",
+        PlacementClass::StationHeadSlotZero => "StationHeadSlotZero",
+        PlacementClass::Expansion => "Expansion",
+    }
+}
+
+fn insert_manifest_field(
+    fields: &mut BTreeMap<String, ManifestScalar>,
+    path: String,
+    value: ManifestScalar,
+) -> Result<(), ProfileError> {
+    if fields.insert(path, value).is_some() {
+        Err(ProfileError::InvalidManifest("duplicate manifest field"))
+    } else {
+        Ok(())
+    }
+}
+
+fn insert_limit_fields(
+    fields: &mut BTreeMap<String, ManifestScalar>,
+    limits: &ProfileLimits,
+) -> Result<(), ProfileError> {
+    macro_rules! field {
+        ($name:literal, $value:expr) => {
+            insert_manifest_field(
+                fields,
+                concat!("limit.", $name).to_owned(),
+                ManifestScalar::Unsigned($value),
+            )?;
+        };
+    }
+    field!(
+        "controllersPerProject",
+        u64::from(limits.controllers_per_project)
+    );
+    field!("projectObjects", u64::from(limits.project_objects));
+    field!("tagsPerController", u64::from(limits.tags_per_controller));
+    field!(
+        "namedTypesPerProject",
+        u64::from(limits.named_types_per_project)
+    );
+    field!(
+        "sourceBytesPerBlock",
+        u64::from(limits.source_bytes_per_block)
+    );
+    field!("typeNesting", u64::from(limits.type_nesting));
+    field!("membersPerType", u64::from(limits.members_per_type));
+    field!("arrayDimensions", u64::from(limits.array_dimensions));
+    field!("arrayElements", limits.array_elements);
+    field!("syntaxNesting", u64::from(limits.syntax_nesting));
+    field!("networksPerBlock", u64::from(limits.networks_per_block));
+    field!("nodesPerNetwork", u64::from(limits.nodes_per_network));
+    field!("edgesPerNetwork", u64::from(limits.edges_per_network));
+    field!("dependencyEdges", limits.dependency_edges);
+    field!(
+        "diagnosticsPerBuild",
+        u64::from(limits.diagnostics_per_build)
+    );
+    field!(
+        "constantEvaluationOperations",
+        limits.constant_evaluation_operations
+    );
+    field!(
+        "semanticWorkUnitsPerBuild",
+        limits.semantic_work_units_per_build
+    );
+    field!("artifactPackageBytes", limits.artifact_package_bytes);
+    field!("packageBytes", limits.package_bytes);
+    field!("packageMemberBytes", limits.package_member_bytes);
+    field!("expandedPackageBytes", limits.expanded_package_bytes);
+    field!("packageMembers", u64::from(limits.package_members));
+    field!("packageNesting", u64::from(limits.package_nesting));
+    field!(
+        "normalizedPathBytes",
+        u64::from(limits.normalized_path_bytes)
+    );
+    field!("stringFieldBytes", u64::from(limits.string_field_bytes));
+    field!("expansionRatio", u64::from(limits.expansion_ratio));
+    field!(
+        "watchTablesPerProject",
+        u64::from(limits.watch_tables_per_project)
+    );
+    field!("watchRowsPerTable", u64::from(limits.watch_rows_per_table));
+    field!(
+        "activeSubscriptionsPerController",
+        u64::from(limits.active_subscriptions_per_controller)
+    );
+    field!(
+        "retainedSamplesPerWatchRow",
+        u64::from(limits.retained_samples_per_watch_row)
+    );
+    field!(
+        "traceConfigurationsPerProject",
+        u64::from(limits.trace_configurations_per_project)
+    );
+    field!(
+        "traceChannelsPerCapture",
+        u64::from(limits.trace_channels_per_capture)
+    );
+    field!("traceSamplesPerCapture", limits.trace_samples_per_capture);
+    field!(
+        "concurrentTracesPerController",
+        u64::from(limits.concurrent_traces_per_controller)
+    );
+    field!("traceDurationVirtualMs", limits.trace_duration_virtual_ms);
+    field!("traceTriggerDepth", u64::from(limits.trace_trigger_depth));
+    field!("traceTriggerNodes", u64::from(limits.trace_trigger_nodes));
+    field!(
+        "activeConditionsPerController",
+        u64::from(limits.active_conditions_per_controller)
+    );
+    field!(
+        "ordinaryConditionsPerController",
+        u64::from(limits.ordinary_conditions_per_controller)
+    );
+    field!(
+        "retainedDiagnosticEvents",
+        u64::from(limits.retained_diagnostic_events)
+    );
+    field!("snapshotBytes", limits.snapshot_bytes);
+    Ok(())
+}
+
+fn insert_scheduling_fields(
+    fields: &mut BTreeMap<String, ManifestScalar>,
+    policy: &SchedulingPolicy,
+) -> Result<(), ProfileError> {
+    for (name, value) in [
+        ("scanQuantumMs", u64::from(policy.scan_quantum_ms)),
+        ("cyclicMainCount", u64::from(policy.cyclic_main_count)),
+        ("startupCount", u64::from(policy.startup_count)),
+        ("timedCyclicCount", u64::from(policy.timed_cyclic_count)),
+        ("workUnitsPerScan", u64::from(policy.work_units_per_scan)),
+        ("callDepth", u64::from(policy.call_depth)),
+    ] {
+        insert_manifest_field(
+            fields,
+            format!("scheduling.{name}"),
+            ManifestScalar::Unsigned(value),
+        )?;
+    }
+    Ok(())
+}
+
+fn insert_diagnostic_fields(
+    fields: &mut BTreeMap<String, ManifestScalar>,
+    policy: &DiagnosticPolicy,
+) -> Result<(), ProfileError> {
+    for (name, value) in [
+        (
+            "unreachableSclIsBlocking",
+            policy.unreachable_scl_is_blocking,
+        ),
+        (
+            "multipleWriterIsBlocking",
+            policy.multiple_writer_is_blocking,
+        ),
+        ("unsafeTempIsBlocking", policy.unsafe_temp_is_blocking),
+        (
+            "missingConsumedReturnIsBlocking",
+            policy.missing_consumed_return_is_blocking,
+        ),
+    ] {
+        insert_manifest_field(
+            fields,
+            format!("diagnostic.{name}"),
+            ManifestScalar::Bool(value),
+        )?;
+    }
+    Ok(())
+}
+
+fn insert_restart_fields(
+    fields: &mut BTreeMap<String, ManifestScalar>,
+    policy: &RestartRetentionPolicy,
+) -> Result<(), ProfileError> {
+    for (name, rule) in [
+        ("stopToRun", &policy.stop_to_run),
+        ("runToStop", &policy.run_to_stop),
+        ("warmRestart", &policy.warm_restart),
+        ("simulatedPowerCycle", &policy.simulated_power_cycle),
+        ("memoryReset", &policy.memory_reset),
+        ("compatibleCodeLoad", &policy.compatible_code_load),
+        ("schemaChangingLoad", &policy.schema_changing_load),
+    ] {
+        for (field_name, value) in [
+            (
+                "nonRetentive",
+                value_lifecycle_token(rule.non_retentive).to_owned(),
+            ),
+            (
+                "retentive",
+                value_lifecycle_token(rule.retentive).to_owned(),
+            ),
+            ("io", io_lifecycle_token(rule.io).to_owned()),
+            (
+                "artifact",
+                artifact_lifecycle_token(rule.artifact).to_owned(),
+            ),
+            ("forces", force_lifecycle_token(rule.forces).to_owned()),
+        ] {
+            insert_manifest_field(
+                fields,
+                format!("restart.{name}.{field_name}"),
+                ManifestScalar::Text(value),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn insert_controller_fields(
+    fields: &mut BTreeMap<String, ManifestScalar>,
+    definition: &ControllerDefinition,
+) -> Result<(), ProfileError> {
+    let prefix = format!("controller.{}", definition.id.as_str());
+    insert_manifest_field(
+        fields,
+        format!("{prefix}.id"),
+        ManifestScalar::Text(definition.id.as_str().to_owned()),
+    )?;
+    insert_manifest_field(
+        fields,
+        format!("{prefix}.displayName"),
+        ManifestScalar::Text(definition.display_name.to_owned()),
+    )?;
+    for (name, value) in [
+        (
+            "localFirstExpansionSlot",
+            u64::from(definition.local_first_expansion_slot),
+        ),
+        ("localLastSlot", u64::from(definition.local_last_slot)),
+        (
+            "distributedStations",
+            u64::from(definition.distributed_stations),
+        ),
+        ("inputBytes", u64::from(definition.input_bytes)),
+        ("outputBytes", u64::from(definition.output_bytes)),
+        ("markerBytes", u64::from(definition.marker_bytes)),
+        ("dbDataBytes", u64::from(definition.db_data_bytes)),
+        ("blockCapacity", u64::from(definition.block_capacity)),
+        (
+            "integratedInterfaces",
+            u64::from(definition.integrated_interfaces),
+        ),
+    ] {
+        insert_manifest_field(
+            fields,
+            format!("{prefix}.{name}"),
+            ManifestScalar::Unsigned(value),
+        )?;
+    }
+    insert_manifest_field(
+        fields,
+        format!("{prefix}.controllerSlot"),
+        ManifestScalar::OptionalUnsigned(definition.controller_slot.map(u64::from)),
+    )?;
+    insert_manifest_field(
+        fields,
+        format!("{prefix}.requiresPowerSlotZero"),
+        ManifestScalar::Bool(definition.requires_power_slot_zero),
+    )?;
+    Ok(())
+}
+
+fn insert_module_fields(
+    fields: &mut BTreeMap<String, ManifestScalar>,
+    definition: &ModuleDefinition,
+) -> Result<(), ProfileError> {
+    let prefix = format!("module.{}", definition.id.as_str());
+    insert_manifest_field(
+        fields,
+        format!("{prefix}.id"),
+        ManifestScalar::Text(definition.id.as_str().to_owned()),
+    )?;
+    for (name, value) in [
+        ("displayName", definition.display_name.to_owned()),
+        ("channels", channel_layout_token(definition.channels)),
+        (
+            "placement",
+            placement_token(definition.placement).to_owned(),
+        ),
+    ] {
+        insert_manifest_field(
+            fields,
+            format!("{prefix}.{name}"),
+            ManifestScalar::Text(value),
+        )?;
+    }
+    for (name, value) in [
+        ("inputBytes", u64::from(definition.input_bytes)),
+        ("outputBytes", u64::from(definition.output_bytes)),
+        ("virtualPorts", u64::from(definition.virtual_ports)),
+    ] {
+        insert_manifest_field(
+            fields,
+            format!("{prefix}.{name}"),
+            ManifestScalar::Unsigned(value),
+        )?;
+    }
+    insert_manifest_field(
+        fields,
+        format!("{prefix}.supportsWireBreak"),
+        ManifestScalar::Bool(definition.supports_wire_break),
+    )?;
+    Ok(())
+}
+
 fn encode_limits(limits: &ProfileLimits, encoder: &mut CanonicalEncoder) {
     let values = [
         u64::from(limits.controllers_per_project),
@@ -963,11 +1398,11 @@ fn encode_restart_policy(policy: &RestartRetentionPolicy, encoder: &mut Canonica
         &policy.compatible_code_load,
         &policy.schema_changing_load,
     ] {
-        encoder.text(&format!("{:?}", rule.non_retentive));
-        encoder.text(&format!("{:?}", rule.retentive));
-        encoder.text(&format!("{:?}", rule.io));
-        encoder.text(&format!("{:?}", rule.artifact));
-        encoder.text(&format!("{:?}", rule.forces));
+        encoder.text(value_lifecycle_token(rule.non_retentive));
+        encoder.text(value_lifecycle_token(rule.retentive));
+        encoder.text(io_lifecycle_token(rule.io));
+        encoder.text(artifact_lifecycle_token(rule.artifact));
+        encoder.text(force_lifecycle_token(rule.forces));
     }
 }
 
@@ -990,10 +1425,10 @@ fn encode_controller(definition: &ControllerDefinition, encoder: &mut CanonicalE
 fn encode_module(definition: &ModuleDefinition, encoder: &mut CanonicalEncoder) {
     encoder.text(definition.id.as_str());
     encoder.text(definition.display_name);
-    encoder.text(&format!("{:?}", definition.channels));
+    encoder.text(&channel_layout_token(definition.channels));
     encoder.u32(definition.input_bytes);
     encoder.u32(definition.output_bytes);
-    encoder.text(&format!("{:?}", definition.placement));
+    encoder.text(placement_token(definition.placement));
     encoder.u8(definition.virtual_ports);
     encoder.bool(definition.supports_wire_break);
 }
@@ -1002,7 +1437,10 @@ fn encode_module(definition: &ModuleDefinition, encoder: &mut CanonicalEncoder) 
 mod tests {
     use plc_core::Sha256Digest;
 
-    use super::{ProfileAllowlist, ProfileError, TrainingProfile};
+    use super::{
+        Capability, ControllerCatalogId, ForceLifecycleAction, ModuleCatalogId, ProfileAllowlist,
+        ProfileError, TrainingProfile,
+    };
 
     #[test]
     fn shipped_profile_is_complete_hashed_and_allowlisted_only_by_pin() {
@@ -1039,5 +1477,53 @@ mod tests {
                 .all(|pair| pair[0] < pair[1])
         );
         assert!(profile.validate().is_ok());
+    }
+
+    #[test]
+    fn every_manifest_section_is_unique_hash_bound_and_fails_closed() {
+        let baseline = TrainingProfile::edu21();
+        let fields = baseline.manifest_fields().expect("field inventory");
+        assert_eq!(fields.len(), super::EDU21_REQUIRED_MANIFEST_FIELD_COUNT);
+
+        let mut candidates = Vec::new();
+        let mut missing_capability = baseline.clone();
+        missing_capability.capabilities.remove(&Capability::Force);
+        candidates.push(missing_capability);
+
+        let mut invalid_limit = baseline.clone();
+        invalid_limit.limits.snapshot_bytes = 0;
+        candidates.push(invalid_limit);
+
+        let mut invalid_scheduling = baseline.clone();
+        invalid_scheduling.scheduling.scan_quantum_ms = 0;
+        candidates.push(invalid_scheduling);
+
+        let mut invalid_diagnostics = baseline.clone();
+        invalid_diagnostics.diagnostics.unsafe_temp_is_blocking = false;
+        candidates.push(invalid_diagnostics);
+
+        let mut invalid_retention = baseline.clone();
+        invalid_retention.restart_retention.warm_restart.forces =
+            ForceLifecycleAction::RegistryMustBeEmpty;
+        candidates.push(invalid_retention);
+
+        let mut missing_controller = baseline.clone();
+        missing_controller
+            .controllers
+            .remove(&ControllerCatalogId::VctrlC1);
+        candidates.push(missing_controller);
+
+        let mut missing_module = baseline.clone();
+        missing_module.modules.remove(&ModuleCatalogId::Vdi16);
+        candidates.push(missing_module);
+
+        for candidate in candidates {
+            assert!(candidate.validate().is_err());
+            assert_ne!(
+                candidate.compute_manifest_hash(),
+                baseline.manifest_hash(),
+                "every owned section participates in the normalized manifest hash"
+            );
+        }
     }
 }

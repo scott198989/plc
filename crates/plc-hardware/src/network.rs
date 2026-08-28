@@ -304,6 +304,92 @@ impl VirtualNetwork {
         Ok(changed)
     }
 
+    /// Changes only the in-memory runtime availability of every interface and
+    /// port owned by a configured virtual device. Engineering configuration is
+    /// intentionally untouched.
+    pub fn set_device_attachment_runtime_state(
+        &mut self,
+        id: VirtualDeviceId,
+        state: RuntimeState,
+    ) -> Result<bool, NetworkError> {
+        if !self.devices.contains_key(&id) {
+            return Err(NetworkError::UnknownIdentity(id.uuid()));
+        }
+        let interface_ids: BTreeSet<_> = self
+            .interfaces
+            .values()
+            .filter(|interface| interface.owner_device_id == id)
+            .map(|interface| interface.id)
+            .collect();
+        let mut changed = false;
+        for interface_id in &interface_ids {
+            if let Some(interface) = self.interfaces.get_mut(interface_id) {
+                changed |= interface.runtime_state != state;
+                interface.runtime_state = state;
+            }
+        }
+        for port in self
+            .ports
+            .values_mut()
+            .filter(|port| interface_ids.contains(&port.owner_interface_id))
+        {
+            changed |= port.runtime_state != state;
+            port.runtime_state = state;
+        }
+        Ok(changed)
+    }
+
+    /// Changes the in-memory runtime availability of the one interface and its
+    /// ports provided by a configured VLINK-2 module.
+    pub fn set_provider_module_runtime_state(
+        &mut self,
+        module_id: ModuleId,
+        state: RuntimeState,
+    ) -> Result<bool, NetworkError> {
+        let interface_ids: BTreeSet<_> = self
+            .interfaces
+            .values()
+            .filter(|interface| interface.provider_module_id == Some(module_id))
+            .map(|interface| interface.id)
+            .collect();
+        if interface_ids.is_empty() {
+            return Err(NetworkError::UnknownIdentity(module_id.uuid()));
+        }
+        let mut changed = false;
+        for interface_id in &interface_ids {
+            if let Some(interface) = self.interfaces.get_mut(interface_id) {
+                changed |= interface.runtime_state != state;
+                interface.runtime_state = state;
+            }
+        }
+        for port in self
+            .ports
+            .values_mut()
+            .filter(|port| interface_ids.contains(&port.owner_interface_id))
+        {
+            changed |= port.runtime_state != state;
+            port.runtime_state = state;
+        }
+        Ok(changed)
+    }
+
+    /// Returns the effective state of a configured link after link, endpoint,
+    /// interface, and owning-device runtime conditions are combined.
+    pub fn effective_link_runtime_state(
+        &self,
+        id: VirtualLinkId,
+    ) -> Result<RuntimeState, NetworkError> {
+        let link = self
+            .links
+            .get(&id)
+            .ok_or(NetworkError::UnknownIdentity(id.uuid()))?;
+        Ok(if self.link_is_traversable(link) {
+            RuntimeState::Available
+        } else {
+            RuntimeState::Unavailable
+        })
+    }
+
     #[must_use]
     pub fn validate_configuration(&self) -> Vec<Diagnostic> {
         let mut diagnostics = Vec::new();
