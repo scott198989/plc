@@ -12,14 +12,14 @@ use plc_types::{
 
 use crate::{
     ArtifactError, ArtifactPackage, BlockId, CanonicalValue, ChannelDirection, ChannelId,
-    DeliveryReason, Hash32, InputCommand, InputReceipt, MAX_WORK_UNITS_PER_SCAN, MemoryId, Operand,
-    Operation, ProgramBlock, RUNTIME_SEMANTICS_VERSION, RuntimeActivation,
-    RuntimeAggregateInstructionCode, RuntimeAggregateSource, RuntimeBinaryOperator,
-    RuntimeBlockCall, RuntimeCallKind, RuntimeDisabledBehavior, RuntimeFormalRef,
-    RuntimeFunctionBlockInstance, RuntimeInstructionCode, RuntimeInstructionInstance,
-    RuntimeInstructionInvocation, RuntimeInstructionStateKind, RuntimeUnaryOperator,
-    SCAN_QUANTUM_MS, SCHEDULER_VERSION, StateId, StateStart, ValueType, VerifiedArtifact,
-    WORK_COST_VERSION,
+    DeliveredOutput, DeliveryReason, Hash32, InputCommand, InputReceipt, MAX_WORK_UNITS_PER_SCAN,
+    MemoryId, Operand, Operation, ProgramBlock, Quality, RUNTIME_SEMANTICS_VERSION,
+    RuntimeActivation, RuntimeAggregateInstructionCode, RuntimeAggregateSource,
+    RuntimeBinaryOperator, RuntimeBlockCall, RuntimeCallKind, RuntimeDisabledBehavior,
+    RuntimeFormalRef, RuntimeFunctionBlockInstance, RuntimeInstructionCode,
+    RuntimeInstructionInstance, RuntimeInstructionInvocation, RuntimeInstructionStateKind,
+    RuntimeUnaryOperator, SCAN_QUANTUM_MS, SCHEDULER_VERSION, StateId, StateStart, ValueType,
+    VerifiedArtifact, WORK_COST_VERSION,
     boundary::{CommandId, UniverseId, VirtualControllerId, VirtualIoBoundary},
     hash::SemanticHasher,
 };
@@ -89,6 +89,43 @@ pub struct RuntimeScanCommand {
     pub audit_context_hash: Hash32,
 }
 
+/// One authoritative virtual-hardware projection over a configured output.
+///
+/// This value never writes the CPU output image. It only projects what the
+/// virtual hardware boundary delivers after the CPU's ordinary mode-specific
+/// output policy has been established.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RuntimeOutputDeliveryOverride {
+    pub channel_id: ChannelId,
+    pub delivered_value: CanonicalValue,
+    pub quality: Quality,
+    pub suppressed: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeHardwareBoundaryCommand {
+    pub command_id: u128,
+    pub controller_id: VirtualControllerId,
+    pub expected_universe_epoch: u64,
+    pub expected_controller_epoch: u64,
+    pub expected_artifact_fingerprint: Hash32,
+    pub expected_state_hash: Hash32,
+    pub output_overrides: Vec<RuntimeOutputDeliveryOverride>,
+    pub audit_context_hash: Hash32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RuntimeHardwareBoundaryReceipt {
+    pub command_id: u128,
+    pub event_sequence: u64,
+    pub virtual_timestamp_ms: u64,
+    pub scan_sequence: u64,
+    pub cpu_state: CpuState,
+    pub delivered_outputs: Vec<DeliveredOutput>,
+    pub state_hash: Hash32,
+    pub replay_hash: Hash32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RuntimeAppliedWrite {
     pub target: RuntimeValueTarget,
@@ -130,6 +167,7 @@ pub struct RuntimeForceResetApproval {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeBoundaryError {
     WrongController,
+    StaleUniverseEpoch,
     StaleControllerEpoch,
     StaleArtifact,
     StaleState,
@@ -490,6 +528,7 @@ pub enum ReplayEventKind {
     InstanceCloned = 17,
     InstanceReplaced = 18,
     ObservationBoundary = 19,
+    HardwareBoundary = 20,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -1525,6 +1564,60 @@ impl VirtualController {
         Ok(receipt)
     }
 
+    /// Applies one serialized virtual-hardware delivery projection.
+    ///
+    /// Validation is completed against the current controller before a clone
+    /// is changed, so stale or malformed batches cannot partially rebase or
+    /// suppress output delivery. The CPU's natural and effective output images
+    /// are read-only throughout this operation.
+    pub fn apply_hardware_boundary(
+        &mut self,
+        command: &RuntimeHardwareBoundaryCommand,
+    ) -> Result<RuntimeHardwareBoundaryReceipt, RuntimeBoundaryError> {
+        self.validate_hardware_boundary_identity(command)?;
+        if !matches!(
+            self.cpu_state,
+            CpuState::Run | CpuState::Stop | CpuState::PausedEducational | CpuState::Faulted
+        ) {
+            return Err(RuntimeBoundaryError::CpuStateDisallowed(self.cpu_state));
+        }
+        self.validate_output_delivery_overrides(&command.output_overrides)?;
+
+        let mut candidate = self.clone();
+        let sequence = candidate.next_event_sequence();
+        candidate.rebase_ordinary_output_delivery(sequence);
+        for output_override in &command.output_overrides {
+            candidate.boundary.apply_output_delivery_override(
+                output_override.channel_id,
+                output_override.delivered_value,
+                output_override.quality,
+                output_override.suppressed,
+                sequence,
+            );
+        }
+        candidate.append_replay(
+            ReplayEventKind::HardwareBoundary,
+            sequence,
+            candidate.virtual_time_ms,
+            hash_runtime_hardware_boundary_command(command),
+            Hash32::ZERO,
+        );
+        candidate.finish_lifecycle_boundary();
+
+        let receipt = RuntimeHardwareBoundaryReceipt {
+            command_id: command.command_id,
+            event_sequence: sequence,
+            virtual_timestamp_ms: candidate.virtual_time_ms,
+            scan_sequence: candidate.scan_sequence,
+            cpu_state: candidate.cpu_state,
+            delivered_outputs: candidate.boundary.delivered_outputs().cloned().collect(),
+            state_hash: candidate.last_state_hash,
+            replay_hash: candidate.replay_hash(),
+        };
+        *self = candidate;
+        Ok(receipt)
+    }
+
     pub fn clear_force_overlays_for_reset(
         &mut self,
         approval: RuntimeForceResetApproval,
@@ -2163,6 +2256,46 @@ impl VirtualController {
         Ok(())
     }
 
+    fn validate_hardware_boundary_identity(
+        &self,
+        command: &RuntimeHardwareBoundaryCommand,
+    ) -> Result<(), RuntimeBoundaryError> {
+        if command.controller_id != self.controller_id {
+            return Err(RuntimeBoundaryError::WrongController);
+        }
+        if command.expected_universe_epoch != self.universe_epoch {
+            return Err(RuntimeBoundaryError::StaleUniverseEpoch);
+        }
+        if command.expected_controller_epoch != self.controller_epoch {
+            return Err(RuntimeBoundaryError::StaleControllerEpoch);
+        }
+        let fingerprint = self
+            .loaded_fingerprint()
+            .ok_or(RuntimeBoundaryError::NoLoadedArtifact)?;
+        if command.expected_artifact_fingerprint != fingerprint {
+            return Err(RuntimeBoundaryError::StaleArtifact);
+        }
+        if command.expected_state_hash != self.semantic_state_hash() {
+            return Err(RuntimeBoundaryError::StaleState);
+        }
+        Ok(())
+    }
+
+    fn validate_output_delivery_overrides(
+        &self,
+        overrides: &[RuntimeOutputDeliveryOverride],
+    ) -> Result<(), RuntimeBoundaryError> {
+        let mut channels = BTreeSet::new();
+        for output_override in overrides {
+            let target = RuntimeValueTarget::Output(output_override.channel_id);
+            if !channels.insert(output_override.channel_id) {
+                return Err(RuntimeBoundaryError::DuplicateTarget(target));
+            }
+            self.validate_target_value(target, Some(output_override.delivered_value))?;
+        }
+        Ok(())
+    }
+
     fn validate_natural_writes(
         &self,
         writes: &[RuntimeNaturalWrite],
@@ -2779,6 +2912,33 @@ impl VirtualController {
             kind: BoundaryKind::Lifecycle,
             state_hash: self.last_state_hash,
         });
+    }
+
+    fn rebase_ordinary_output_delivery(&mut self, sequence: u64) {
+        let artifact = self
+            .loaded
+            .as_ref()
+            .expect("hardware boundary validation requires a loaded artifact");
+        match self.cpu_state {
+            CpuState::Run => self.boundary.commit_outputs(
+                &self.image.effective_outputs,
+                sequence,
+                self.scan_sequence,
+            ),
+            CpuState::Stop | CpuState::PausedEducational => self.boundary.deliver_defaults(
+                &artifact.spec().channels,
+                sequence,
+                DeliveryReason::CpuModeDefault,
+            ),
+            CpuState::Faulted => self.boundary.deliver_defaults(
+                &artifact.spec().channels,
+                sequence,
+                DeliveryReason::FatalFaultDefault,
+            ),
+            CpuState::PoweredOff | CpuState::Startup | CpuState::Resetting => {
+                unreachable!("hardware boundary rejects transient or powered-off CPU states")
+            }
+        }
     }
 
     fn deliver_mode_defaults(&mut self, sequence: u64, reason: DeliveryReason) {
@@ -5162,6 +5322,25 @@ fn hash_runtime_scan_command(command: &RuntimeScanCommand) -> Hash32 {
     encode_natural_writes(&command.pre_program_writes, &mut hasher);
     encode_natural_writes(&command.post_program_writes, &mut hasher);
     encode_force_deltas(&command.force_deltas, &mut hasher);
+    hasher.hash(command.audit_context_hash);
+    hasher.finish()
+}
+
+fn hash_runtime_hardware_boundary_command(command: &RuntimeHardwareBoundaryCommand) -> Hash32 {
+    let mut hasher = SemanticHasher::new("PES-RUNTIME-HARDWARE-BOUNDARY-COMMAND-1");
+    hasher.u128(command.command_id);
+    hasher.u128(command.controller_id.0);
+    hasher.u64(command.expected_universe_epoch);
+    hasher.u64(command.expected_controller_epoch);
+    hasher.hash(command.expected_artifact_fingerprint);
+    hasher.hash(command.expected_state_hash);
+    hasher.u64(command.output_overrides.len() as u64);
+    for output_override in &command.output_overrides {
+        hasher.u32(output_override.channel_id.0);
+        output_override.delivered_value.encode(&mut hasher);
+        hasher.u8(output_override.quality as u8);
+        hasher.bool(output_override.suppressed);
+    }
     hasher.hash(command.audit_context_hash);
     hasher.finish()
 }

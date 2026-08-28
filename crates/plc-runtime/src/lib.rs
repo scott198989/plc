@@ -18,11 +18,12 @@ pub use controller::{
     DiagnosticSeverity, FaultContext, InstallOutcome, ReplayEvent, ReplayEventKind, ReplaySegment,
     RestartKind, RestoreApproval, RunOutcome, RuntimeAppliedWrite, RuntimeBoundaryCommand,
     RuntimeBoundaryError, RuntimeBoundaryReceipt, RuntimeCloneReport, RuntimeForceDelta,
-    RuntimeForceResetApproval, RuntimeInstallDisposition, RuntimeLifecycleError,
-    RuntimeNaturalWrite, RuntimePublicationBoundary, RuntimeReplacementReport, RuntimeScanCommand,
-    RuntimeScanReceipt, RuntimeStateTransferPlan, RuntimeValueTarget, ScanReport, SnapshotError,
-    StagedAtomicInstall, StagedControllerClone, StagedControllerReplacement, VirtualController,
-    canonical_force_overlay_hash,
+    RuntimeForceResetApproval, RuntimeHardwareBoundaryCommand, RuntimeHardwareBoundaryReceipt,
+    RuntimeInstallDisposition, RuntimeLifecycleError, RuntimeNaturalWrite,
+    RuntimeOutputDeliveryOverride, RuntimePublicationBoundary, RuntimeReplacementReport,
+    RuntimeScanCommand, RuntimeScanReceipt, RuntimeStateTransferPlan, RuntimeValueTarget,
+    ScanReport, SnapshotError, StagedAtomicInstall, StagedControllerClone,
+    StagedControllerReplacement, VirtualController, canonical_force_overlay_hash,
 };
 pub use hash::{Hash32, Sha256};
 pub use model::{
@@ -49,7 +50,7 @@ pub const MAX_DYNAMIC_CALL_DEPTH: u8 = 64;
 
 /// Version identities participate in artifact, snapshot, state, and replay
 /// hashes. Any semantic change requires a new value.
-pub const RUNTIME_SEMANTICS_VERSION: &str = "EDU-RTM-4";
+pub const RUNTIME_SEMANTICS_VERSION: &str = "EDU-RTM-5";
 pub const SCHEDULER_VERSION: &str = "EDU-SCH-1";
 pub const PRIORITY_TABLE_VERSION: &str = "EDU-PRIORITY-1";
 pub const WORK_COST_VERSION: &str = "EDU-WORK-1";

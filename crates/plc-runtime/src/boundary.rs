@@ -221,6 +221,25 @@ impl VirtualIoBoundary {
         }
     }
 
+    pub(crate) fn apply_output_delivery_override(
+        &mut self,
+        channel_id: ChannelId,
+        delivered_value: CanonicalValue,
+        quality: Quality,
+        suppressed: bool,
+        event_sequence: u64,
+    ) {
+        let output = self
+            .delivered_outputs
+            .get_mut(&channel_id)
+            .expect("validated output channel must exist");
+        output.canonical_value = delivered_value;
+        output.quality = quality;
+        output.suppressed = suppressed;
+        output.delivery_reason = DeliveryReason::HardwareSuppressed;
+        output.delivery_event_sequence = event_sequence;
+    }
+
     pub(crate) fn encode(&self, hasher: &mut SemanticHasher) {
         hasher.u128(self.controller_id.0);
         hasher.u32(self.schema_version);
