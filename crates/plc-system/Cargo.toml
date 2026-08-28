@@ -11,8 +11,15 @@ description = "Canonical project projection and integrated Phase 2 PLC engineeri
 path = "src/lib.rs"
 
 [dependencies]
+plc-commissioning = { path = "../plc-commissioning" }
+plc-compiler = { path = "../plc-compiler" }
 plc-core = { path = "../plc-core" }
 plc-hardware = { path = "../plc-hardware" }
+plc-lad = { path = "../plc-lad" }
+plc-language-tools = { path = "../plc-language-tools" }
+plc-observability = { path = "../plc-observability" }
+plc-program = { path = "../plc-program" }
+plc-runtime = { path = "../plc-runtime" }
 
 [lints.rust]
 unsafe_code = "forbid"

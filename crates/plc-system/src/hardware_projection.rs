@@ -21,6 +21,10 @@ const NETWORK_PREFIX: &str = "192.0.2.0";
 pub enum ProjectDiagnosticPhase {
     CanonicalProjection,
     Hardware,
+    SoftwareProjection,
+    ObservabilityProjection,
+    Compiler,
+    Integration,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -41,6 +45,7 @@ pub struct CanonicalHardwareProjection {
     hardware_project: HardwareProject,
     allocation_preview: Option<AllocationPreview>,
     artifact: Option<HardwareArtifact>,
+    origins: BTreeMap<Uuid, ObjectId>,
     diagnostics: Vec<ProjectDiagnostic>,
 }
 
@@ -73,6 +78,13 @@ impl CanonicalHardwareProjection {
     #[must_use]
     pub const fn artifact(&self) -> Option<&HardwareArtifact> {
         self.artifact.as_ref()
+    }
+
+    /// Resolves a hardware identity back to the canonical project object from
+    /// which it was deterministically derived.
+    #[must_use]
+    pub fn origin_for(&self, identity: Uuid) -> Option<ObjectId> {
+        self.origins.get(&identity).copied()
     }
 
     #[must_use]
@@ -182,6 +194,7 @@ pub fn project_hardware(project: &Project) -> CanonicalHardwareProjection {
         hardware_project,
         allocation_preview,
         artifact,
+        origins,
         diagnostics,
     }
 }

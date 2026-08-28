@@ -17,6 +17,8 @@ dependencies = [
 name = "plc-compiler"
 version = "0.1.0"
 dependencies = [
+ "plc-lad",
+ "plc-language-tools",
  "plc-program",
  "plc-runtime",
 ]
@@ -58,6 +60,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "plc-observability"
+version = "0.1.0"
+dependencies = [
+ "plc-commissioning",
+ "plc-runtime",
+]
+
+[[package]]
 name = "plc-program"
 version = "0.1.0"
 
@@ -69,6 +79,13 @@ version = "0.1.0"
 name = "plc-system"
 version = "0.1.0"
 dependencies = [
+ "plc-commissioning",
+ "plc-compiler",
  "plc-core",
  "plc-hardware",
+ "plc-lad",
+ "plc-language-tools",
+ "plc-observability",
+ "plc-program",
+ "plc-runtime",
 ]

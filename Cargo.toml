@@ -8,6 +8,7 @@ members = [
     "crates/plc-hardware",
     "crates/plc-lad",
     "crates/plc-language-tools",
+    "crates/plc-observability",
     "crates/plc-program",
     "crates/plc-runtime",
     "crates/plc-system",

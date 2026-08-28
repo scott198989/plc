@@ -1,0 +1,19 @@
+[package]
+name = "plc-observability"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+publish = false
+license = "UNLICENSED"
+description = "Deterministic monitoring, online control, tracing, diagnostics, and semantic navigation for the PLC Engineering Simulator"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+plc-runtime = { path = "../plc-runtime" }
+plc-commissioning = { path = "../plc-commissioning" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
