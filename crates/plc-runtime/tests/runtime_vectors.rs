@@ -858,14 +858,14 @@ fn journey_e_runtime_determinism_repeats_snapshot_seed_and_events() {
     assert_eq!(first, second);
     assert_eq!(
         first.0.to_hex(),
-        "553457f96e7f47009706c94e107ad9f59ab038b63e5b0cc67ee9cf2fb945b33e"
+        "3a24ae288bfa1dc50b41ceba4d752432af01c1dff08735fb6ef9e07da4282a96"
     );
     assert_eq!(
         first.1.to_hex(),
-        "d19e7ad0d0aa918512dd0310fd1634c3681e847efddaf1069c2563efce9e1bf6"
+        "4d119ec16db2890ab22f99f57bf121724388e7235bc825b3a8e014626395678d"
     );
     assert_eq!(
         first.2.last().unwrap().to_hex(),
-        "eff34148ee3b9d1f2a39f7dccdac161e66c1069977f4c514a356a4918f21912d"
+        "c34bed296c2fa4558e80861a5d4e6c3283e7dd8de3ae929376dd35b064085ab2"
     );
 }

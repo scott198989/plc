@@ -1,9 +1,9 @@
 //! Source-preserving SCL frontend.
 //!
 //! Source is never executed as host code. The lexer and recovery parser retain
-//! the exact source text and comments. Grammar that is not yet supported by the
-//! semantic/lowering slice is retained in explicit parsed-only nodes and emits
-//! a blocking diagnostic; only a fully bound and typed tree can be lowered.
+//! the exact source text and comments. Compound grammar is retained in explicit
+//! parsed-only nodes; executable control-flow nodes are consumed by the typed
+//! semantic pipeline, while unsupported nodes still emit blocking diagnostics.
 
 mod lexer;
 mod parser;
@@ -22,8 +22,8 @@ pub use semantics::{
 };
 
 pub(crate) use semantics::{
-    TypedBlock, TypedCall, TypedExpr, TypedExprKind, TypedStatement, TypedStatementKind,
-    bind_and_typecheck_with_program,
+    TypedBlock, TypedCall, TypedCaseArm, TypedExpr, TypedExprKind, TypedMember, TypedStatement,
+    TypedStatementKind, bind_and_typecheck_with_program,
 };
 
 use alloc::string::String;

@@ -9,8 +9,8 @@ use crate::{
     SourceAnchor, SourceMapEntry, SourceMapId, SourceMapSite, SourceMapTable, TYPED_IR_VERSION,
     TypedIrProgram, UnaryOperator,
     scl::{
-        BinaryOp, TypedBlock, TypedCall, TypedExpr, TypedExprKind, TypedStatement,
-        TypedStatementKind, UnaryOp,
+        BinaryOp, TypedBlock, TypedCall, TypedCaseArm, TypedExpr, TypedExprKind, TypedMember,
+        TypedStatement, TypedStatementKind, UnaryOp,
     },
 };
 
@@ -160,6 +160,21 @@ struct PartialBlock {
     terminator: Option<IrTerminator>,
 }
 
+#[derive(Clone, Copy)]
+struct LoopTargets {
+    exit: IrBasicBlockId,
+    continue_at: IrBasicBlockId,
+}
+
+#[derive(Clone, Copy)]
+struct ForIncrementControl {
+    condition_block: IrBasicBlockId,
+    exit_block: IrBasicBlockId,
+    limit: IrValueId,
+    step: IrValueId,
+    ascending: bool,
+}
+
 struct FunctionBuilder<'a, 'b> {
     owner: BlockId,
     kind: plc_program::ProgramUnitKind,
@@ -167,6 +182,7 @@ struct FunctionBuilder<'a, 'b> {
     context: &'b mut LoweringContext,
     next_block: u32,
     blocks: BTreeMap<IrBasicBlockId, PartialBlock>,
+    loops: Vec<LoopTargets>,
 }
 
 impl<'a, 'b> FunctionBuilder<'a, 'b> {
@@ -186,6 +202,7 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
             context,
             next_block: 1,
             blocks: BTreeMap::new(),
+            loops: Vec::new(),
         })
     }
 
@@ -233,6 +250,29 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
                     branches,
                     else_body,
                 } => self.lower_if(block, statement, branches, else_body)?,
+                TypedStatementKind::Case {
+                    selector,
+                    arms,
+                    else_body,
+                } => self.lower_case(block, statement, selector, arms, else_body)?,
+                TypedStatementKind::For {
+                    iterator,
+                    initial,
+                    limit,
+                    step,
+                    ascending,
+                    body,
+                } => self.lower_for(
+                    block, statement, iterator, initial, limit, step, *ascending, body,
+                )?,
+                TypedStatementKind::While { condition, body } => {
+                    self.lower_while(block, statement, condition, body)?
+                }
+                TypedStatementKind::Repeat { body, condition } => {
+                    self.lower_repeat(block, statement, body, condition)?
+                }
+                TypedStatementKind::Exit => self.lower_loop_control(block, statement, true)?,
+                TypedStatementKind::Continue => self.lower_loop_control(block, statement, false)?,
                 TypedStatementKind::Call(call) => {
                     self.lower_call(block, statement, call)?;
                     Some(block)
@@ -377,6 +417,456 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
         Ok(Some(merge))
     }
 
+    fn lower_case(
+        &mut self,
+        first_condition_block: IrBasicBlockId,
+        statement: &TypedStatement,
+        selector: &TypedExpr,
+        arms: &[TypedCaseArm],
+        else_body: &[TypedStatement],
+    ) -> Result<Option<IrBasicBlockId>, LoweringError> {
+        if arms.is_empty() {
+            return self.lower_statements(else_body, Some(first_condition_block));
+        }
+        let selector_value = self.lower_expr(first_condition_block, selector)?;
+        let merge = self.new_block()?;
+        let mut condition_block = first_condition_block;
+        for (index, arm) in arms.iter().enumerate() {
+            let matched = self.lower_case_condition(condition_block, selector_value, arm)?;
+            let when_true = self.new_block()?;
+            let last = index + 1 == arms.len();
+            let when_false = if last {
+                if else_body.is_empty() {
+                    merge
+                } else {
+                    self.new_block()?
+                }
+            } else {
+                self.new_block()?
+            };
+            self.terminate(
+                condition_block,
+                IrTerminatorKind::Branch {
+                    condition: matched,
+                    when_true,
+                    when_false,
+                },
+                self.anchor(statement.id, arm.range),
+                ProbeKind::Branch,
+                false,
+            )?;
+            if let Some(end) = self.lower_statements(&arm.body, Some(when_true))? {
+                self.terminate(
+                    end,
+                    IrTerminatorKind::Jump(merge),
+                    self.anchor(statement.id, arm.range),
+                    ProbeKind::Branch,
+                    true,
+                )?;
+            }
+            condition_block = when_false;
+        }
+        if !else_body.is_empty()
+            && let Some(end) = self.lower_statements(else_body, Some(condition_block))?
+        {
+            self.terminate(
+                end,
+                IrTerminatorKind::Jump(merge),
+                self.anchor(statement.id, statement.range),
+                ProbeKind::Branch,
+                true,
+            )?;
+        }
+        Ok(Some(merge))
+    }
+
+    fn lower_case_condition(
+        &mut self,
+        block: IrBasicBlockId,
+        selector: IrValueId,
+        arm: &TypedCaseArm,
+    ) -> Result<IrValueId, LoweringError> {
+        let mut combined = None;
+        for label in &arm.labels {
+            let lower = self.lower_expr(block, &label.lower)?;
+            let anchor = self.anchor(label.lower.id, label.range);
+            let matched = if let Some(upper) = &label.upper {
+                let at_or_above = self
+                    .emit(
+                        block,
+                        Some(IrType::Bool),
+                        IrOperationKind::Binary {
+                            operator: BinaryOperator::GreaterEqual,
+                            left: selector,
+                            right: lower,
+                        },
+                        anchor.clone(),
+                        ProbeKind::Expression,
+                    )?
+                    .ok_or(LoweringError::ErrorNode)?;
+                let upper = self.lower_expr(block, upper)?;
+                let at_or_below = self
+                    .emit(
+                        block,
+                        Some(IrType::Bool),
+                        IrOperationKind::Binary {
+                            operator: BinaryOperator::LessEqual,
+                            left: selector,
+                            right: upper,
+                        },
+                        anchor.clone(),
+                        ProbeKind::Expression,
+                    )?
+                    .ok_or(LoweringError::ErrorNode)?;
+                self.emit(
+                    block,
+                    Some(IrType::Bool),
+                    IrOperationKind::Binary {
+                        operator: BinaryOperator::And,
+                        left: at_or_above,
+                        right: at_or_below,
+                    },
+                    anchor.clone(),
+                    ProbeKind::Expression,
+                )?
+                .ok_or(LoweringError::ErrorNode)?
+            } else {
+                self.emit(
+                    block,
+                    Some(IrType::Bool),
+                    IrOperationKind::Binary {
+                        operator: BinaryOperator::Equal,
+                        left: selector,
+                        right: lower,
+                    },
+                    anchor.clone(),
+                    ProbeKind::Expression,
+                )?
+                .ok_or(LoweringError::ErrorNode)?
+            };
+            combined = Some(if let Some(previous) = combined {
+                self.emit(
+                    block,
+                    Some(IrType::Bool),
+                    IrOperationKind::Binary {
+                        operator: BinaryOperator::Or,
+                        left: previous,
+                        right: matched,
+                    },
+                    anchor,
+                    ProbeKind::Expression,
+                )?
+                .ok_or(LoweringError::ErrorNode)?
+            } else {
+                matched
+            });
+        }
+        combined.ok_or(LoweringError::ErrorNode)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn lower_for(
+        &mut self,
+        preheader: IrBasicBlockId,
+        statement: &TypedStatement,
+        iterator: &TypedMember,
+        initial: &TypedExpr,
+        limit: &TypedExpr,
+        step: &TypedExpr,
+        ascending: bool,
+        body: &[TypedStatement],
+    ) -> Result<Option<IrBasicBlockId>, LoweringError> {
+        let iterator_type = IrType::from_program_type(&iterator.data_type)
+            .ok_or_else(|| LoweringError::UnsupportedType(iterator.data_type.clone()))?;
+        let initial_value = self.lower_expr(preheader, initial)?;
+        self.emit(
+            preheader,
+            None,
+            IrOperationKind::StoreMember {
+                target: iterator.id,
+                value: initial_value,
+            },
+            self.anchor(statement.id, statement.range),
+            ProbeKind::StorageWrite,
+        )?;
+        let limit_value = self.lower_expr(preheader, limit)?;
+        let step_value = self.lower_expr(preheader, step)?;
+        let condition_block = self.new_block()?;
+        let body_block = self.new_block()?;
+        let increment_block = self.new_block()?;
+        let exit_block = self.new_block()?;
+        self.terminate(
+            preheader,
+            IrTerminatorKind::Jump(condition_block),
+            self.anchor(statement.id, statement.range),
+            ProbeKind::Branch,
+            true,
+        )?;
+
+        let current = self
+            .emit(
+                condition_block,
+                Some(iterator_type.clone()),
+                IrOperationKind::LoadMember {
+                    member: iterator.id,
+                },
+                self.anchor(statement.id, statement.range),
+                ProbeKind::StorageRead,
+            )?
+            .ok_or(LoweringError::ErrorNode)?;
+        let condition = self
+            .emit(
+                condition_block,
+                Some(IrType::Bool),
+                IrOperationKind::Binary {
+                    operator: if ascending {
+                        BinaryOperator::LessEqual
+                    } else {
+                        BinaryOperator::GreaterEqual
+                    },
+                    left: current,
+                    right: limit_value,
+                },
+                self.anchor(statement.id, statement.range),
+                ProbeKind::Expression,
+            )?
+            .ok_or(LoweringError::ErrorNode)?;
+        self.terminate(
+            condition_block,
+            IrTerminatorKind::Branch {
+                condition,
+                when_true: body_block,
+                when_false: exit_block,
+            },
+            self.anchor(statement.id, statement.range),
+            ProbeKind::Branch,
+            false,
+        )?;
+
+        self.loops.push(LoopTargets {
+            exit: exit_block,
+            continue_at: increment_block,
+        });
+        let body_end = self.lower_statements(body, Some(body_block))?;
+        self.loops.pop();
+        if let Some(body_end) = body_end {
+            self.terminate(
+                body_end,
+                IrTerminatorKind::Jump(increment_block),
+                self.anchor(statement.id, statement.range),
+                ProbeKind::Branch,
+                true,
+            )?;
+        }
+
+        self.lower_for_increment(
+            increment_block,
+            statement,
+            iterator,
+            &iterator_type,
+            ForIncrementControl {
+                condition_block,
+                exit_block,
+                limit: limit_value,
+                step: step_value,
+                ascending,
+            },
+        )?;
+        Ok(Some(exit_block))
+    }
+
+    fn lower_for_increment(
+        &mut self,
+        block: IrBasicBlockId,
+        statement: &TypedStatement,
+        iterator: &TypedMember,
+        iterator_type: &IrType,
+        control: ForIncrementControl,
+    ) -> Result<(), LoweringError> {
+        let current = self
+            .emit(
+                block,
+                Some(iterator_type.clone()),
+                IrOperationKind::LoadMember {
+                    member: iterator.id,
+                },
+                self.anchor(statement.id, statement.range),
+                ProbeKind::StorageRead,
+            )?
+            .ok_or(LoweringError::ErrorNode)?;
+        let can_advance = self
+            .emit(
+                block,
+                Some(IrType::Bool),
+                IrOperationKind::ForNextWithin {
+                    current,
+                    terminal: control.limit,
+                    step: control.step,
+                    ascending: control.ascending,
+                },
+                self.anchor(statement.id, statement.range),
+                ProbeKind::Expression,
+            )?
+            .ok_or(LoweringError::ErrorNode)?;
+        let advance_block = self.new_block()?;
+        self.terminate(
+            block,
+            IrTerminatorKind::Branch {
+                condition: can_advance,
+                when_true: advance_block,
+                when_false: control.exit_block,
+            },
+            self.anchor(statement.id, statement.range),
+            ProbeKind::Branch,
+            true,
+        )?;
+        let next = self
+            .emit(
+                advance_block,
+                Some(iterator_type.clone()),
+                IrOperationKind::Binary {
+                    operator: BinaryOperator::Add,
+                    left: current,
+                    right: control.step,
+                },
+                self.anchor(statement.id, statement.range),
+                ProbeKind::Expression,
+            )?
+            .ok_or(LoweringError::ErrorNode)?;
+        self.emit(
+            advance_block,
+            None,
+            IrOperationKind::StoreMember {
+                target: iterator.id,
+                value: next,
+            },
+            self.anchor(statement.id, statement.range),
+            ProbeKind::StorageWrite,
+        )?;
+        self.terminate(
+            advance_block,
+            IrTerminatorKind::Jump(control.condition_block),
+            self.anchor(statement.id, statement.range),
+            ProbeKind::Branch,
+            true,
+        )
+    }
+
+    fn lower_while(
+        &mut self,
+        preheader: IrBasicBlockId,
+        statement: &TypedStatement,
+        condition: &TypedExpr,
+        body: &[TypedStatement],
+    ) -> Result<Option<IrBasicBlockId>, LoweringError> {
+        let condition_block = self.new_block()?;
+        let body_block = self.new_block()?;
+        let exit_block = self.new_block()?;
+        self.terminate(
+            preheader,
+            IrTerminatorKind::Jump(condition_block),
+            self.anchor(statement.id, statement.range),
+            ProbeKind::Branch,
+            true,
+        )?;
+        let condition_value = self.lower_expr(condition_block, condition)?;
+        self.terminate(
+            condition_block,
+            IrTerminatorKind::Branch {
+                condition: condition_value,
+                when_true: body_block,
+                when_false: exit_block,
+            },
+            self.anchor(condition.id, condition.range),
+            ProbeKind::Branch,
+            false,
+        )?;
+        self.loops.push(LoopTargets {
+            exit: exit_block,
+            continue_at: condition_block,
+        });
+        let body_end = self.lower_statements(body, Some(body_block))?;
+        self.loops.pop();
+        if let Some(body_end) = body_end {
+            self.terminate(
+                body_end,
+                IrTerminatorKind::Jump(condition_block),
+                self.anchor(statement.id, statement.range),
+                ProbeKind::Branch,
+                true,
+            )?;
+        }
+        Ok(Some(exit_block))
+    }
+
+    fn lower_repeat(
+        &mut self,
+        preheader: IrBasicBlockId,
+        statement: &TypedStatement,
+        body: &[TypedStatement],
+        condition: &TypedExpr,
+    ) -> Result<Option<IrBasicBlockId>, LoweringError> {
+        let body_block = self.new_block()?;
+        let condition_block = self.new_block()?;
+        let exit_block = self.new_block()?;
+        self.terminate(
+            preheader,
+            IrTerminatorKind::Jump(body_block),
+            self.anchor(statement.id, statement.range),
+            ProbeKind::Branch,
+            true,
+        )?;
+        self.loops.push(LoopTargets {
+            exit: exit_block,
+            continue_at: condition_block,
+        });
+        let body_end = self.lower_statements(body, Some(body_block))?;
+        self.loops.pop();
+        if let Some(body_end) = body_end {
+            self.terminate(
+                body_end,
+                IrTerminatorKind::Jump(condition_block),
+                self.anchor(statement.id, statement.range),
+                ProbeKind::Branch,
+                true,
+            )?;
+        }
+        let condition_value = self.lower_expr(condition_block, condition)?;
+        self.terminate(
+            condition_block,
+            IrTerminatorKind::Branch {
+                condition: condition_value,
+                when_true: exit_block,
+                when_false: body_block,
+            },
+            self.anchor(condition.id, condition.range),
+            ProbeKind::Branch,
+            false,
+        )?;
+        Ok(Some(exit_block))
+    }
+
+    fn lower_loop_control(
+        &mut self,
+        block: IrBasicBlockId,
+        statement: &TypedStatement,
+        exit: bool,
+    ) -> Result<Option<IrBasicBlockId>, LoweringError> {
+        let targets = self.loops.last().copied().ok_or(LoweringError::ErrorNode)?;
+        self.terminate(
+            block,
+            IrTerminatorKind::Jump(if exit {
+                targets.exit
+            } else {
+                targets.continue_at
+            }),
+            self.anchor(statement.id, statement.range),
+            ProbeKind::Branch,
+            false,
+        )?;
+        Ok(None)
+    }
+
     fn lower_expr(
         &mut self,
         block: IrBasicBlockId,
@@ -432,6 +922,20 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
                         operator: lower_binary(*operator),
                         left,
                         right,
+                    },
+                    self.anchor(expression.id, expression.range),
+                    ProbeKind::Expression,
+                )?
+                .ok_or(LoweringError::ErrorNode)
+            }
+            TypedExprKind::Convert { source } => {
+                let source = self.lower_expr(block, source)?;
+                self.emit(
+                    block,
+                    Some(data_type.clone()),
+                    IrOperationKind::Convert {
+                        source,
+                        destination: data_type,
                     },
                     self.anchor(expression.id, expression.range),
                     ProbeKind::Expression,
@@ -530,6 +1034,7 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
             source_map,
             probe,
         });
+        self.context.operation_count = self.context.operation_count.saturating_add(1);
         Ok(())
     }
 

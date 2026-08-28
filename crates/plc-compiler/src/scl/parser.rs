@@ -12,10 +12,10 @@ pub struct MissingToken {
 
 /// A source-preserving parse of one canonical SCL body.
 ///
-/// [`Statement::parsed_only`] and [`Expr::parsed_only`] retain grammar that the
-/// current semantic/lowering slice cannot execute. Those nodes also carry a
-/// blocking `RECOGNIZED_UNSUPPORTED_SYNTAX` issue; they are never silently
-/// translated into executable behavior.
+/// [`Statement::parsed_only`] and [`Expr::parsed_only`] retain compound and
+/// postfix grammar without losing source shape. The semantic pipeline consumes
+/// its explicitly supported compound nodes; every other parsed-only form carries
+/// a blocking `RECOGNIZED_UNSUPPORTED_SYNTAX` issue.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SyntaxTree {
     source: SclSource,
@@ -74,10 +74,10 @@ pub fn parse_scl(source: &SclSource, limits: ResourceLimits) -> SyntaxTree {
 pub struct Statement {
     pub id: SemanticNodeId,
     pub range: TextRange,
-    /// The executable subset understood by the current semantic pipeline.
-    /// This is [`StatementKind::Error`] whenever `parsed_only` is present.
+    /// The simple-statement subset. Compound statements are source-preserved in
+    /// `parsed_only` and admitted individually by the semantic pipeline.
     pub kind: StatementKind,
-    /// Fully parsed syntax that is deliberately blocked from semantic lowering.
+    /// Fully parsed compound or unsupported syntax retained for semantic routing.
     pub parsed_only: Option<ParsedOnlyStatement>,
 }
 
@@ -725,11 +725,6 @@ impl Parser {
             start: start_token.range.start,
             end,
         };
-        self.unsupported(
-            range,
-            id,
-            "CASE syntax is parsed and preserved but semantic lowering is not yet available",
-        );
         Statement {
             id,
             range,
@@ -869,11 +864,6 @@ impl Parser {
             start: start_token.range.start,
             end,
         };
-        self.unsupported(
-            range,
-            id,
-            "FOR syntax is parsed and preserved but semantic lowering is not yet available",
-        );
         Statement {
             id,
             range,
@@ -908,11 +898,6 @@ impl Parser {
             start: start_token.range.start,
             end,
         };
-        self.unsupported(
-            range,
-            id,
-            "WHILE syntax is parsed and preserved but semantic lowering is not yet available",
-        );
         Statement {
             id,
             range,
@@ -943,11 +928,6 @@ impl Parser {
             start: start_token.range.start,
             end,
         };
-        self.unsupported(
-            range,
-            id,
-            "REPEAT syntax is parsed and preserved but semantic lowering is not yet available",
-        );
         Statement {
             id,
             range,
@@ -964,15 +944,6 @@ impl Parser {
             start: token.range.start,
             end,
         };
-        self.unsupported(
-            range,
-            id,
-            if exit {
-                "EXIT is parsed but loop-control lowering is not yet available"
-            } else {
-                "CONTINUE is parsed but loop-control lowering is not yet available"
-            },
-        );
         Statement {
             id,
             range,

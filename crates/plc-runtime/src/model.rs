@@ -804,6 +804,15 @@ pub enum Operation {
         destination: ValueType,
         target: MemoryId,
     },
+    /// Tests a FOR increment in widened mathematical space and publishes only
+    /// whether the exact signed next value remains within the terminal bound.
+    ForNextWithin {
+        current: Operand,
+        terminal: Operand,
+        step: Operand,
+        ascending: bool,
+        target: MemoryId,
+    },
     InvokeInstruction(RuntimeInstructionInvocation),
     CallBlock(RuntimeBlockCall),
     InvocationOutput {
@@ -811,6 +820,18 @@ pub enum Operation {
         formal: RuntimeFormalRef,
         target: MemoryId,
     },
+    /// Transfers control to an exact zero-based instruction index in this block.
+    Jump {
+        target: u32,
+    },
+    /// Selects one of two exact zero-based instruction indices from a BOOL value.
+    Branch {
+        condition: Operand,
+        when_true: u32,
+        when_false: u32,
+    },
+    /// Returns from this runtime block to its caller or task boundary.
+    Return,
 }
 
 impl Operation {
@@ -965,6 +986,20 @@ impl Operation {
                 hasher.u8(*destination as u8);
                 hasher.u32(target.0);
             }
+            Self::ForNextWithin {
+                current,
+                terminal,
+                step,
+                ascending,
+                target,
+            } => {
+                hasher.u8(20);
+                current.encode(hasher);
+                terminal.encode(hasher);
+                step.encode(hasher);
+                hasher.bool(*ascending);
+                hasher.u32(target.0);
+            }
             Self::InvokeInstruction(invocation) => {
                 hasher.u8(13);
                 invocation.encode(hasher);
@@ -983,6 +1018,21 @@ impl Operation {
                 formal.encode(hasher);
                 hasher.u32(target.0);
             }
+            Self::Jump { target } => {
+                hasher.u8(17);
+                hasher.u32(*target);
+            }
+            Self::Branch {
+                condition,
+                when_true,
+                when_false,
+            } => {
+                hasher.u8(18);
+                condition.encode(hasher);
+                hasher.u32(*when_true);
+                hasher.u32(*when_false);
+            }
+            Self::Return => hasher.u8(19),
         }
     }
 }
@@ -1259,6 +1309,7 @@ pub enum ArtifactError {
     InvalidInvocation { block: BlockId, operation_id: u32 },
     InvalidInvocationProjection { block: BlockId, operation_id: u32 },
     InvalidBlockSignature { block: BlockId, operation_id: u32 },
+    InvalidControlFlow { block: BlockId, operation_id: u32 },
     RecursiveBlockCall(BlockId),
     DynamicCallDepthExceeded(BlockId),
 }
@@ -1385,6 +1436,7 @@ fn validate_block_inner(
     call_path.push(block.id);
     let mut operation_ids = BTreeSet::new();
     let mut invocation_outputs = BTreeMap::<(u32, RuntimeFormalRef), (ValueType, bool)>::new();
+    let instruction_count = u32::try_from(block.instructions.len()).unwrap_or(u32::MAX);
     for instruction in &block.instructions {
         if !operation_ids.insert(instruction.operation_id) {
             return Err(ArtifactError::DuplicateOperation {
@@ -1411,6 +1463,22 @@ fn validate_block_inner(
             return Err(ArtifactError::DuplicateStateUse(state_id));
         }
         match instruction.operation() {
+            Operation::Jump { target } if *target >= instruction_count => {
+                return Err(ArtifactError::InvalidControlFlow {
+                    block: block.id,
+                    operation_id: instruction.operation_id,
+                });
+            }
+            Operation::Branch {
+                when_true,
+                when_false,
+                ..
+            } if *when_true >= instruction_count || *when_false >= instruction_count => {
+                return Err(ArtifactError::InvalidControlFlow {
+                    block: block.id,
+                    operation_id: instruction.operation_id,
+                });
+            }
             Operation::InvokeInstruction(invocation) => {
                 validate_instruction_invocation(
                     spec,
@@ -1475,7 +1543,11 @@ fn validate_block_inner(
             | Operation::CounterUp { .. }
             | Operation::Unary { .. }
             | Operation::Binary { .. }
-            | Operation::Convert { .. } => {}
+            | Operation::Convert { .. }
+            | Operation::ForNextWithin { .. }
+            | Operation::Jump { .. }
+            | Operation::Branch { .. }
+            | Operation::Return => {}
         }
     }
     if invocation_outputs.values().any(|(_, projected)| !projected) {
@@ -1725,6 +1797,23 @@ fn validate_operation(spec: &ArtifactSpec, operation: &Operation) -> Result<(), 
             }
             same(memory_type(*target)?, *destination)
         }
+        Operation::ForNextWithin {
+            current,
+            terminal,
+            step,
+            target,
+            ..
+        } => {
+            let current_type = operand_type(*current)?;
+            same(operand_type(*terminal)?, current_type)?;
+            same(operand_type(*step)?, current_type)?;
+            if !current_type.primitive_type().is_signed_integer() {
+                return Err(ArtifactError::TypeMismatch);
+            }
+            same(memory_type(*target)?, ValueType::Bool)
+        }
+        Operation::Branch { condition, .. } => same(operand_type(*condition)?, ValueType::Bool),
+        Operation::Jump { .. } | Operation::Return => Ok(()),
         Operation::InvokeInstruction(_)
         | Operation::CallBlock(_)
         | Operation::InvocationOutput { .. } => Ok(()),
@@ -2200,5 +2289,22 @@ mod tests {
             VerifiedArtifact::accept(&transported),
             Err(ArtifactError::UnsupportedSchema(2))
         ));
+    }
+
+    #[test]
+    fn package_validation_rejects_out_of_range_control_flow_targets() {
+        let mut spec = empty_spec();
+        spec.program.cyclic.instructions.push(Instruction::new(
+            41,
+            0,
+            Operation::Jump { target: 1 },
+        ));
+        assert_eq!(
+            ArtifactPackage::seal_verified(spec),
+            Err(ArtifactError::InvalidControlFlow {
+                block: BlockId(1),
+                operation_id: 41,
+            })
+        );
     }
 }

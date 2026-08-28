@@ -3,9 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use plc_compiler::{
     BuildAttempt, BuildAttemptId, BuildOutcome, BuildScope, BuildSnapshot, CancellationToken,
     Compiler, CompilerProfile, CompilerStage, DiagnosticCode, DiagnosticSeverity, Hash32,
-    IrBasicBlockId, IrTerminatorKind, ResourceLimits, SclSource, SourceLanguage, SourceMapTable,
-    TYPED_IR_VERSION, TypedIrProgram, VerificationError, phase2_diagnostic_registry,
-    verify_typed_ir,
+    IrBasicBlockId, IrOperationKind, IrTerminatorKind, ResourceLimits, SclSource, SourceLanguage,
+    SourceMapTable, TYPED_IR_VERSION, TypedIrProgram, VerificationError,
+    phase2_diagnostic_registry, verify_typed_ir,
 };
 use plc_hardware::{EDU21_COMPILER_CAPABILITY_KEYS, TrainingProfile};
 use plc_program::{
@@ -374,7 +374,7 @@ fn malformed_and_unsupported_source_never_produce_artifacts() {
             DiagnosticCode::MALFORMED_STRUCTURE,
         ),
         (
-            "WHILE TRUE DO Result := 1; END_WHILE;",
+            "Result.member := 1;",
             DiagnosticCode::RECOGNIZED_UNSUPPORTED_SYNTAX,
         ),
         ("Enabled := 1 < 2 < 3;", DiagnosticCode::MALFORMED_STRUCTURE),
@@ -778,6 +778,61 @@ fn independent_verifier_rejects_tampered_control_flow() {
         Err(VerificationError::MissingTarget(
             MAIN,
             IrBasicBlockId::new(u32::MAX)
+        ))
+    );
+}
+
+#[test]
+fn independent_verifier_rejects_non_dominating_cross_block_values() {
+    let program = base_program();
+    let compiler = Compiler::new(ResourceLimits::default()).unwrap();
+    let completion = compile(
+        &compiler,
+        snapshot(&program, &base_sources("")),
+        BuildScope::RebuildAllSoftware,
+        82,
+        None,
+        None,
+    );
+    let artifact = completion.artifact().unwrap();
+    let mut functions = artifact.verified_ir().program().functions().clone();
+    let function = functions.get_mut(&MAIN).unwrap();
+    let (when_true, when_false) = match function.blocks[&function.entry].terminator.kind {
+        IrTerminatorKind::Branch {
+            when_true,
+            when_false,
+            ..
+        } => (when_true, when_false),
+        ref other => panic!("expected branch terminator, got {other:?}"),
+    };
+    let branch_value = function.blocks[&when_true]
+        .operations
+        .iter()
+        .find_map(|operation| operation.result.as_ref().map(|result| result.id))
+        .expect("true branch defines a value");
+    let sibling = function.blocks.get_mut(&when_false).unwrap();
+    let store = sibling
+        .operations
+        .iter_mut()
+        .find(|operation| matches!(operation.kind, IrOperationKind::StoreMember { .. }))
+        .expect("false branch stores a value");
+    let IrOperationKind::StoreMember { value, .. } = &mut store.kind else {
+        unreachable!();
+    };
+    *value = branch_value;
+
+    let tampered = TypedIrProgram::from_untrusted_parts(TYPED_IR_VERSION, functions);
+    assert_eq!(
+        verify_typed_ir(
+            tampered,
+            artifact.source_maps(),
+            artifact.probe_table(),
+            &program,
+        ),
+        Err(VerificationError::NonDominatingValue(
+            MAIN,
+            branch_value,
+            when_false,
         ))
     );
 }

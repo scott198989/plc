@@ -54,6 +54,11 @@ pub enum RuntimeMappedSite {
         operation_id: u32,
         source_identity: u128,
     },
+    Terminator {
+        block: RuntimeBlockId,
+        operation_id: u32,
+        source_identity: u128,
+    },
     BlockReturn {
         block: RuntimeBlockId,
     },
@@ -120,6 +125,10 @@ impl RuntimeArtifactProjection {
             matches!(
                 binding.runtime_site,
                 RuntimeMappedSite::Instruction {
+                    source_identity: candidate,
+                    ..
+                }
+                | RuntimeMappedSite::Terminator {
                     source_identity: candidate,
                     ..
                 } if candidate == source_identity
@@ -429,7 +438,9 @@ fn allocate_block_bindings(
         .collect()
 }
 
-#[allow(clippy::too_many_arguments)]
+// Keeping recursive call discovery and CFG materialization in one transaction
+// makes cycle cleanup and source-binding emission atomic on every error path.
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn lower_function_recursive(
     owner: ProgramBlockId,
     ir: &TypedIrProgram,
@@ -453,89 +464,180 @@ fn lower_function_recursive(
         .functions()
         .get(&owner)
         .ok_or(RuntimeAdapterError::MissingCallableBody(owner))?;
-    if function.blocks.len() != 1 || function.entry != *function.blocks.keys().next().unwrap() {
+    if !function.blocks.contains_key(&function.entry) {
         return Err(RuntimeAdapterError::UnsupportedControlFlow {
             owner: function.owner,
             basic_block: function.entry,
-        });
-    }
-    let block = function.blocks.get(&function.entry).ok_or(
-        RuntimeAdapterError::UnsupportedControlFlow {
-            owner: function.owner,
-            basic_block: function.entry,
-        },
-    )?;
-    if block.terminator.kind != IrTerminatorKind::Return {
-        return Err(RuntimeAdapterError::UnsupportedControlFlow {
-            owner: function.owner,
-            basic_block: block.id,
         });
     }
 
-    for operation in &block.operations {
-        if let IrOperationKind::CallBlock { target, .. } = operation.kind {
-            lower_function_recursive(
-                target,
-                ir,
-                program,
-                runtime_blocks,
-                member_memory,
-                value_memory,
-                source_maps,
-                probes,
-                source_bindings,
-                lowered_blocks,
-                visiting,
-            )?;
+    for block in function.blocks.values() {
+        for operation in &block.operations {
+            if let IrOperationKind::CallBlock { target, .. } = operation.kind {
+                lower_function_recursive(
+                    target,
+                    ir,
+                    program,
+                    runtime_blocks,
+                    member_memory,
+                    value_memory,
+                    source_maps,
+                    probes,
+                    source_bindings,
+                    lowered_blocks,
+                    visiting,
+                )?;
+            }
         }
     }
 
-    let mut values = BTreeMap::new();
-    let mut instructions = Vec::with_capacity(block.operations.len());
-    let runtime_block = runtime_blocks[&owner];
-    for operation in &block.operations {
-        let result_memory = operation
-            .result
-            .as_ref()
-            .map(|result| value_memory[&(owner, result.id)]);
-        let lowered = lower_operation(
-            owner,
-            operation,
-            result_memory,
-            &values,
-            member_memory,
-            program,
-            lowered_blocks,
-            source_maps,
+    let mut block_order = Vec::with_capacity(function.blocks.len());
+    block_order.push(function.entry);
+    block_order.extend(
+        function
+            .blocks
+            .keys()
+            .copied()
+            .filter(|block| *block != function.entry),
+    );
+    let mut block_offsets = BTreeMap::new();
+    let mut instruction_count = 0_u32;
+    for block_id in &block_order {
+        let block = &function.blocks[block_id];
+        block_offsets.insert(*block_id, instruction_count);
+        let block_size = u32::try_from(block.operations.len())
+            .ok()
+            .and_then(|count| count.checked_add(1))
+            .ok_or(RuntimeAdapterError::IdentityExhausted(
+                "runtime control-flow instructions",
+            ))?;
+        instruction_count = instruction_count.checked_add(block_size).ok_or(
+            RuntimeAdapterError::IdentityExhausted("runtime control-flow instructions"),
         )?;
-        let source_identity = pack_source_identity(runtime_block, operation);
-        let binding = operation_source_binding(
+    }
+
+    let values: BTreeMap<_, _> = function
+        .blocks
+        .values()
+        .flat_map(|block| block.operations.iter())
+        .filter_map(|operation| {
+            operation
+                .result
+                .as_ref()
+                .map(|result| (result.id, value_memory[&(owner, result.id)]))
+        })
+        .collect();
+    let mut instructions = Vec::with_capacity(
+        usize::try_from(instruction_count)
+            .map_err(|_| RuntimeAdapterError::IdentityExhausted("runtime instructions"))?,
+    );
+    let runtime_block = runtime_blocks[&owner];
+    let mut next_terminator_id = function
+        .blocks
+        .values()
+        .flat_map(|block| block.operations.iter())
+        .map(|operation| operation.id.get())
+        .max()
+        .unwrap_or(0)
+        .checked_add(1)
+        .ok_or(RuntimeAdapterError::IdentityExhausted(
+            "runtime terminator operation",
+        ))?;
+    for block_id in block_order {
+        let block = &function.blocks[&block_id];
+        for operation in &block.operations {
+            let result_memory = operation
+                .result
+                .as_ref()
+                .map(|result| value_memory[&(owner, result.id)]);
+            let lowered = lower_operation(
+                owner,
+                operation,
+                result_memory,
+                &values,
+                member_memory,
+                program,
+                lowered_blocks,
+                source_maps,
+            )?;
+            let source_identity = pack_source_identity(runtime_block, operation);
+            let binding = operation_source_binding(
+                function.owner,
+                block.id,
+                runtime_block,
+                operation,
+                source_identity,
+                source_maps,
+                probes,
+            )?;
+            source_bindings.push(binding);
+            instructions.push(RuntimeInstruction::new(
+                operation.id.get(),
+                source_identity,
+                lowered,
+            ));
+        }
+        let terminator_id = next_terminator_id;
+        next_terminator_id =
+            next_terminator_id
+                .checked_add(1)
+                .ok_or(RuntimeAdapterError::IdentityExhausted(
+                    "runtime terminator operation",
+                ))?;
+        let lowered = match block.terminator.kind {
+            IrTerminatorKind::Jump(target) => RuntimeOperation::Jump {
+                target: *block_offsets.get(&target).ok_or(
+                    RuntimeAdapterError::UnsupportedControlFlow {
+                        owner,
+                        basic_block: target,
+                    },
+                )?,
+            },
+            IrTerminatorKind::Branch {
+                condition,
+                when_true,
+                when_false,
+            } => RuntimeOperation::Branch {
+                condition: RuntimeOperand::Memory(*values.get(&condition).ok_or(
+                    RuntimeAdapterError::UnknownValue {
+                        owner,
+                        operation: IrOperationId::new(terminator_id),
+                        value: condition,
+                    },
+                )?),
+                when_true: *block_offsets.get(&when_true).ok_or(
+                    RuntimeAdapterError::UnsupportedControlFlow {
+                        owner,
+                        basic_block: when_true,
+                    },
+                )?,
+                when_false: *block_offsets.get(&when_false).ok_or(
+                    RuntimeAdapterError::UnsupportedControlFlow {
+                        owner,
+                        basic_block: when_false,
+                    },
+                )?,
+            },
+            IrTerminatorKind::Return => RuntimeOperation::Return,
+        };
+        let source_identity =
+            pack_terminator_source_identity(runtime_block, &block.terminator, terminator_id);
+        source_bindings.push(terminator_source_binding(
             function.owner,
             block.id,
             runtime_block,
-            operation,
+            terminator_id,
             source_identity,
+            &block.terminator,
             source_maps,
             probes,
-        )?;
-        source_bindings.push(binding);
+        )?);
         instructions.push(RuntimeInstruction::new(
-            operation.id.get(),
+            terminator_id,
             source_identity,
             lowered,
         ));
-        if let Some(result) = &operation.result {
-            values.insert(result.id, value_memory[&(owner, result.id)]);
-        }
     }
-    source_bindings.push(terminator_source_binding(
-        function.owner,
-        block.id,
-        runtime_block,
-        &block.terminator,
-        source_maps,
-        probes,
-    )?);
     lowered_blocks.insert(
         owner,
         RuntimeProgramBlock {
@@ -613,6 +715,18 @@ fn lower_operation(
             operator: runtime_binary(*operator),
             left: value(*left)?,
             right: value(*right)?,
+            target: result()?,
+        }),
+        IrOperationKind::ForNextWithin {
+            current,
+            terminal,
+            step,
+            ascending,
+        } => Ok(RuntimeOperation::ForNextWithin {
+            current: value(*current)?,
+            terminal: value(*terminal)?,
+            step: value(*step)?,
+            ascending: *ascending,
             target: result()?,
         }),
         IrOperationKind::Convert {
@@ -1001,17 +1115,22 @@ fn operation_source_binding(
     )
 }
 
+#[allow(clippy::too_many_arguments)]
 fn terminator_source_binding(
     owner: ProgramBlockId,
     basic_block: IrBasicBlockId,
     runtime_block: RuntimeBlockId,
+    operation_id: u32,
+    source_identity: u128,
     terminator: &IrTerminator,
     source_maps: &SourceMapTable,
     probes: &ProbeTable,
 ) -> Result<RuntimeSourceBinding, RuntimeAdapterError> {
     source_binding(
-        RuntimeMappedSite::BlockReturn {
+        RuntimeMappedSite::Terminator {
             block: runtime_block,
+            operation_id,
+            source_identity,
         },
         SourceMapSite {
             function: owner,
@@ -1060,6 +1179,17 @@ const fn pack_source_identity(runtime_block: RuntimeBlockId, operation: &IrOpera
         | (operation.source_map.get() as u128) << 64
         | (operation.probe.get() as u128) << 32
         | operation.id.get() as u128
+}
+
+const fn pack_terminator_source_identity(
+    runtime_block: RuntimeBlockId,
+    terminator: &IrTerminator,
+    operation_id: u32,
+) -> u128 {
+    (runtime_block.get() as u128) << 96
+        | (terminator.source_map.get() as u128) << 64
+        | (terminator.probe.get() as u128) << 32
+        | operation_id as u128
 }
 
 fn allocate_memory_id(next: &mut u32) -> Result<MemoryId, RuntimeAdapterError> {

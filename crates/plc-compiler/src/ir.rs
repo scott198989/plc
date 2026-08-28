@@ -193,6 +193,14 @@ pub enum IrOperationKind {
         left: IrValueId,
         right: IrValueId,
     },
+    /// Decides in widened mathematical space whether one FOR increment remains
+    /// on the inclusive terminal side. The widened value is never materialized.
+    ForNextWithin {
+        current: IrValueId,
+        terminal: IrValueId,
+        step: IrValueId,
+        ascending: bool,
+    },
     Convert {
         source: IrValueId,
         destination: IrType,
@@ -256,6 +264,7 @@ impl IrOperationKind {
                 BinaryOperator::Minimum => RuntimeOperationId("EDU.RT.MINIMUM.v1"),
                 BinaryOperator::Maximum => RuntimeOperationId("EDU.RT.MAXIMUM.v1"),
             },
+            Self::ForNextWithin { .. } => RuntimeOperationId("EDU.RT.FOR_NEXT_WITHIN.v1"),
             Self::Convert { .. } => RuntimeOperationId("EDU.RT.CONVERT_CHECKED.v1"),
             Self::InvokeInstruction { .. } => RuntimeOperationId("EDU.RT.INVOKE_INSTRUCTION.v1"),
             Self::CallBlock { .. } => RuntimeOperationId("EDU.RT.CALL_BLOCK.v1"),
@@ -519,6 +528,7 @@ pub enum VerificationError {
     DuplicateOperation(BlockId, IrOperationId),
     DuplicateValue(BlockId, IrValueId),
     UnknownValue(BlockId, IrValueId),
+    NonDominatingValue(BlockId, IrValueId, IrBasicBlockId),
     UnknownMember(BlockId, InterfaceMemberId),
     ReadOnlyStore(BlockId, InterfaceMemberId),
     TypeMismatch(BlockId, IrOperationId),
@@ -602,7 +612,28 @@ pub fn verify_typed_ir(
             ));
         }
         let mut operation_ids = BTreeSet::new();
-        let mut value_ids = BTreeSet::new();
+        let mut value_types = BTreeMap::<IrValueId, IrType>::new();
+        let mut value_definitions = BTreeMap::<IrValueId, (IrBasicBlockId, usize)>::new();
+        for block in function.blocks.values() {
+            for (index, operation) in block.operations.iter().enumerate() {
+                if !operation_ids.insert(operation.id) {
+                    return Err(VerificationError::DuplicateOperation(
+                        function.owner,
+                        operation.id,
+                    ));
+                }
+                if let Some(result) = &operation.result {
+                    if value_types
+                        .insert(result.id, result.data_type.clone())
+                        .is_some()
+                    {
+                        return Err(VerificationError::DuplicateValue(function.owner, result.id));
+                    }
+                    value_definitions.insert(result.id, (block.id, index));
+                }
+            }
+        }
+        verify_value_dominance(function, &value_definitions)?;
         for (&block_key, block) in &function.blocks {
             if block_key != block.id {
                 return Err(VerificationError::BlockKeyMismatch(
@@ -610,16 +641,9 @@ pub fn verify_typed_ir(
                     block_key,
                 ));
             }
-            let mut value_types = BTreeMap::<IrValueId, IrType>::new();
             let mut invocations = BTreeMap::<IrOperationId, VerifiedInvocation>::new();
             let mut projected_outputs = BTreeSet::<(IrOperationId, IrFormalRef)>::new();
             for operation in &block.operations {
-                if !operation_ids.insert(operation.id) {
-                    return Err(VerificationError::DuplicateOperation(
-                        function.owner,
-                        operation.id,
-                    ));
-                }
                 verify_source_probe(
                     function.owner,
                     block.id,
@@ -643,12 +667,6 @@ pub fn verify_typed_ir(
                 )?;
                 if let Some(invocation) = invocation {
                     invocations.insert(operation.id, invocation);
-                }
-                if let Some(result) = &operation.result {
-                    if !value_ids.insert(result.id) {
-                        return Err(VerificationError::DuplicateValue(function.owner, result.id));
-                    }
-                    value_types.insert(result.id, result.data_type.clone());
                 }
             }
             verify_terminator(
@@ -696,6 +714,213 @@ pub fn verify_typed_ir(
         program: ir,
         verification_hash: hasher.finish(),
     })
+}
+
+fn verify_value_dominance(
+    function: &IrFunction,
+    definitions: &BTreeMap<IrValueId, (IrBasicBlockId, usize)>,
+) -> Result<(), VerificationError> {
+    let reachable = reachable_ir_blocks(function);
+    let predecessors = ir_predecessors(function, &reachable);
+    let dominators = ir_dominators(function.entry, &reachable, &predecessors);
+
+    for block in function.blocks.values() {
+        for (operation_index, operation) in block.operations.iter().enumerate() {
+            for value in operation_value_uses(&operation.kind) {
+                verify_dominating_use(
+                    function.owner,
+                    block.id,
+                    operation_index,
+                    value,
+                    definitions,
+                    dominators.get(&block.id),
+                )?;
+            }
+        }
+        if let IrTerminatorKind::Branch { condition, .. } = block.terminator.kind {
+            verify_dominating_use(
+                function.owner,
+                block.id,
+                block.operations.len(),
+                condition,
+                definitions,
+                dominators.get(&block.id),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+fn reachable_ir_blocks(function: &IrFunction) -> BTreeSet<IrBasicBlockId> {
+    let mut reachable = BTreeSet::new();
+    let mut pending = alloc::vec![function.entry];
+    while let Some(block_id) = pending.pop() {
+        if !reachable.insert(block_id) {
+            continue;
+        }
+        let Some(block) = function.blocks.get(&block_id) else {
+            continue;
+        };
+        match block.terminator.kind {
+            IrTerminatorKind::Jump(target) => pending.push(target),
+            IrTerminatorKind::Branch {
+                when_true,
+                when_false,
+                ..
+            } => {
+                pending.push(when_false);
+                pending.push(when_true);
+            }
+            IrTerminatorKind::Return => {}
+        }
+    }
+    reachable
+}
+
+fn ir_predecessors(
+    function: &IrFunction,
+    reachable: &BTreeSet<IrBasicBlockId>,
+) -> BTreeMap<IrBasicBlockId, BTreeSet<IrBasicBlockId>> {
+    let mut predecessors = BTreeMap::<IrBasicBlockId, BTreeSet<IrBasicBlockId>>::new();
+    for block_id in reachable {
+        predecessors.entry(*block_id).or_default();
+    }
+    for block_id in reachable {
+        let Some(block) = function.blocks.get(block_id) else {
+            continue;
+        };
+        match &block.terminator.kind {
+            IrTerminatorKind::Jump(target) => {
+                if reachable.contains(target) {
+                    predecessors.entry(*target).or_default().insert(*block_id);
+                }
+            }
+            IrTerminatorKind::Branch {
+                when_true,
+                when_false,
+                ..
+            } => {
+                if reachable.contains(when_true) {
+                    predecessors
+                        .entry(*when_true)
+                        .or_default()
+                        .insert(*block_id);
+                }
+                if reachable.contains(when_false) {
+                    predecessors
+                        .entry(*when_false)
+                        .or_default()
+                        .insert(*block_id);
+                }
+            }
+            IrTerminatorKind::Return => {}
+        }
+    }
+    predecessors
+}
+
+fn ir_dominators(
+    entry: IrBasicBlockId,
+    reachable: &BTreeSet<IrBasicBlockId>,
+    predecessors: &BTreeMap<IrBasicBlockId, BTreeSet<IrBasicBlockId>>,
+) -> BTreeMap<IrBasicBlockId, BTreeSet<IrBasicBlockId>> {
+    let mut dominators = BTreeMap::<IrBasicBlockId, BTreeSet<IrBasicBlockId>>::new();
+    for block_id in reachable {
+        dominators.insert(
+            *block_id,
+            if *block_id == entry {
+                BTreeSet::from([entry])
+            } else {
+                reachable.clone()
+            },
+        );
+    }
+    loop {
+        let mut changed = false;
+        for block_id in reachable.iter().copied().filter(|id| *id != entry) {
+            let incoming = &predecessors[&block_id];
+            let mut next = if let Some(first) = incoming.first() {
+                dominators[first].clone()
+            } else {
+                BTreeSet::new()
+            };
+            for predecessor in incoming.iter().skip(1) {
+                next.retain(|candidate| dominators[predecessor].contains(candidate));
+            }
+            next.insert(block_id);
+            if dominators[&block_id] != next {
+                dominators.insert(block_id, next);
+                changed = true;
+            }
+        }
+        if !changed {
+            break;
+        }
+    }
+    dominators
+}
+
+fn verify_dominating_use(
+    owner: BlockId,
+    use_block: IrBasicBlockId,
+    use_index: usize,
+    value: IrValueId,
+    definitions: &BTreeMap<IrValueId, (IrBasicBlockId, usize)>,
+    dominators: Option<&BTreeSet<IrBasicBlockId>>,
+) -> Result<(), VerificationError> {
+    let Some((definition_block, definition_index)) = definitions.get(&value).copied() else {
+        return Err(VerificationError::UnknownValue(owner, value));
+    };
+    let valid = if definition_block == use_block {
+        definition_index < use_index
+    } else {
+        dominators.is_some_and(|blocks| blocks.contains(&definition_block))
+    };
+    if valid {
+        Ok(())
+    } else {
+        Err(VerificationError::NonDominatingValue(
+            owner, value, use_block,
+        ))
+    }
+}
+
+fn operation_value_uses(kind: &IrOperationKind) -> Vec<IrValueId> {
+    let mut values = Vec::new();
+    match kind {
+        IrOperationKind::Constant(_)
+        | IrOperationKind::LoadMember { .. }
+        | IrOperationKind::InvocationOutput { .. } => {}
+        IrOperationKind::StoreMember { value, .. } => values.push(*value),
+        IrOperationKind::Unary { operand, .. } => values.push(*operand),
+        IrOperationKind::Binary { left, right, .. } => {
+            values.push(*left);
+            values.push(*right);
+        }
+        IrOperationKind::ForNextWithin {
+            current,
+            terminal,
+            step,
+            ..
+        } => {
+            values.push(*current);
+            values.push(*terminal);
+            values.push(*step);
+        }
+        IrOperationKind::Convert { source, .. } => values.push(*source),
+        IrOperationKind::InvokeInstruction {
+            inputs, activation, ..
+        }
+        | IrOperationKind::CallBlock {
+            inputs, activation, ..
+        } => {
+            values.extend(inputs.iter().map(|input| input.value));
+            if let Some(activation) = activation {
+                values.push(activation.enable);
+            }
+        }
+    }
+    values
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -840,6 +1065,33 @@ fn verify_operation(
                 result_type.ok_or(VerificationError::MissingResult(function, operation.id))?;
             let valid = verify_binary_types(*operator, left_type, right_type, result);
             if !valid {
+                return Err(VerificationError::TypeMismatch(function, operation.id));
+            }
+            None
+        }
+        IrOperationKind::ForNextWithin {
+            current,
+            terminal,
+            step,
+            ..
+        } => {
+            let current_type = values
+                .get(current)
+                .ok_or(VerificationError::UnknownValue(function, *current))?;
+            let terminal_type = values
+                .get(terminal)
+                .ok_or(VerificationError::UnknownValue(function, *terminal))?;
+            let step_type = values
+                .get(step)
+                .ok_or(VerificationError::UnknownValue(function, *step))?;
+            let signed = current_type
+                .primitive_type()
+                .is_some_and(PrimitiveType::is_signed_integer);
+            if !signed
+                || current_type != terminal_type
+                || current_type != step_type
+                || result_type != Some(&IrType::Bool)
+            {
                 return Err(VerificationError::TypeMismatch(function, operation.id));
             }
             None
@@ -1554,14 +1806,7 @@ fn canonical_matches_ir(value: &CanonicalValue, data_type: &IrType) -> bool {
 
 fn encode_operation(hasher: &mut CanonicalHasher, operation: &IrOperation) {
     hasher.u32(operation.id.get());
-    match &operation.result {
-        Some(result) => {
-            hasher.bool(true);
-            hasher.u32(result.id.get());
-            encode_type(hasher, &result.data_type);
-        }
-        None => hasher.bool(false),
-    }
+    encode_operation_result(hasher, operation.result.as_ref());
     match &operation.kind {
         IrOperationKind::Constant(value) => {
             hasher.u8(1);
@@ -1590,6 +1835,18 @@ fn encode_operation(hasher: &mut CanonicalHasher, operation: &IrOperation) {
             hasher.u8(binary_tag(*operator));
             hasher.u32(left.get());
             hasher.u32(right.get());
+        }
+        IrOperationKind::ForNextWithin {
+            current,
+            terminal,
+            step,
+            ascending,
+        } => {
+            hasher.u8(10);
+            hasher.u32(current.get());
+            hasher.u32(terminal.get());
+            hasher.u32(step.get());
+            hasher.bool(*ascending);
         }
         IrOperationKind::Convert {
             source,
@@ -1642,6 +1899,17 @@ fn encode_operation(hasher: &mut CanonicalHasher, operation: &IrOperation) {
         }
     }
     hasher.string(operation.kind.runtime_operation().0);
+}
+
+fn encode_operation_result(hasher: &mut CanonicalHasher, result: Option<&IrValue>) {
+    match result {
+        Some(result) => {
+            hasher.bool(true);
+            hasher.u32(result.id.get());
+            encode_type(hasher, &result.data_type);
+        }
+        None => hasher.bool(false),
+    }
 }
 
 fn encode_invocation(

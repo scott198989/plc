@@ -118,6 +118,33 @@ fn lexer_accepts_exact_canonical_non_time_type_prefix_registry() {
 }
 
 #[test]
+fn lexer_preserves_case_range_after_typed_integer_literals() {
+    let input = source("DINT#2..DINT#4");
+    let lexed = lex_scl(&input, ResourceLimits::default());
+    assert!(lexed.issues().is_empty(), "{:?}", lexed.issues());
+    assert_eq!(
+        lexed
+            .tokens()
+            .iter()
+            .map(|token| token.kind)
+            .collect::<Vec<_>>(),
+        vec![
+            TokenKind::TypedLiteral,
+            TokenKind::DotDot,
+            TokenKind::TypedLiteral,
+            TokenKind::Eof,
+        ]
+    );
+    assert_eq!(
+        lexed.tokens()[..3]
+            .iter()
+            .map(|token| input.range_text(token.range).expect("token range"))
+            .collect::<Vec<_>>(),
+        vec!["DINT#2", "..", "DINT#4"]
+    );
+}
+
+#[test]
 fn lexer_uses_longest_valid_operator_tokens() {
     let source = source(":= => <> <= >= .. . : = < >");
     let lexed = lex_scl(&source, ResourceLimits::default());
@@ -142,7 +169,7 @@ fn lexer_uses_longest_valid_operator_tokens() {
 }
 
 #[test]
-fn complete_body_statement_grammar_parses_with_explicit_fail_closed_nodes() {
+fn complete_body_statement_grammar_preserves_executable_compound_nodes() {
     let text = r"
 target := TRUE;
 Block(In := 1, Out => result);
@@ -212,7 +239,7 @@ RETURN;
     ));
     assert!(matches!(tree.statements()[7].kind, StatementKind::Return));
 
-    assert!(has_issue(
+    assert!(!has_issue(
         &tree,
         DiagnosticCode::RECOGNIZED_UNSUPPORTED_SYNTAX
     ));

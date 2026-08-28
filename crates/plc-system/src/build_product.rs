@@ -665,11 +665,66 @@ fn inject_io_binding_operations(
                 RuntimeTarget::Memory(_) => {}
             }
         }
-        prefix.append(&mut block.instructions);
-        prefix.append(&mut suffix);
-        block.instructions = prefix;
+        inject_control_flow_safe_io(block, prefix, suffix, next_operation_id)?;
     }
     Ok(())
+}
+
+fn inject_control_flow_safe_io(
+    block: &mut RuntimeProgramBlock,
+    mut prefix: Vec<Instruction>,
+    suffix: Vec<Instruction>,
+    final_return_id: u32,
+) -> Result<(), SystemBuildError> {
+    let prefix_len = u32::try_from(prefix.len()).map_err(|_| {
+        SystemBuildError::RuntimeArtifact("runtime I/O prefix is too large".to_owned())
+    })?;
+    let body_len = u32::try_from(block.instructions.len()).map_err(|_| {
+        SystemBuildError::RuntimeArtifact("runtime control-flow body is too large".to_owned())
+    })?;
+    let epilogue_start = prefix_len.checked_add(body_len).ok_or_else(|| {
+        SystemBuildError::RuntimeArtifact("runtime control-flow identity exhausted".to_owned())
+    })?;
+    let has_epilogue = !suffix.is_empty();
+    let mut body = Vec::with_capacity(block.instructions.len());
+    for instruction in core::mem::take(&mut block.instructions) {
+        let operation = match instruction.operation() {
+            Operation::Jump { target } => Operation::Jump {
+                target: shifted_instruction_target(*target, prefix_len)?,
+            },
+            Operation::Branch {
+                condition,
+                when_true,
+                when_false,
+            } => Operation::Branch {
+                condition: *condition,
+                when_true: shifted_instruction_target(*when_true, prefix_len)?,
+                when_false: shifted_instruction_target(*when_false, prefix_len)?,
+            },
+            Operation::Return if has_epilogue => Operation::Jump {
+                target: epilogue_start,
+            },
+            operation => operation.clone(),
+        };
+        body.push(Instruction::new(
+            instruction.operation_id,
+            instruction.source_identity,
+            operation,
+        ));
+    }
+    prefix.append(&mut body);
+    prefix.extend(suffix);
+    if has_epilogue {
+        prefix.push(Instruction::new(final_return_id, 0, Operation::Return));
+    }
+    block.instructions = prefix;
+    Ok(())
+}
+
+fn shifted_instruction_target(target: u32, prefix_len: u32) -> Result<u32, SystemBuildError> {
+    target.checked_add(prefix_len).ok_or_else(|| {
+        SystemBuildError::RuntimeArtifact("runtime control-flow target exhausted".to_owned())
+    })
 }
 
 fn scheduled_block_mut(
@@ -837,4 +892,74 @@ fn combined_build_hash(project: Sha256Digest, compiler: Hash32, hardware: Sha256
 
 const fn core_hash(value: Sha256Digest) -> Hash32 {
     Hash32::from_bytes(value.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn io_injection_shifts_cfg_targets_and_routes_returns_through_output_epilogue() {
+        let condition = MemoryId::new(1);
+        let output = MemoryId::new(2);
+        let mut block = RuntimeProgramBlock {
+            id: plc_runtime::BlockId(7),
+            instructions: vec![
+                Instruction::new(1, 101, Operation::Jump { target: 2 }),
+                Instruction::new(
+                    2,
+                    102,
+                    Operation::Branch {
+                        condition: Operand::Memory(condition),
+                        when_true: 0,
+                        when_false: 2,
+                    },
+                ),
+                Instruction::new(3, 103, Operation::Return),
+            ],
+        };
+        let prefix = vec![Instruction::new(
+            4,
+            104,
+            Operation::LoadInput {
+                channel: ChannelId::new(1),
+                target: condition,
+            },
+        )];
+        let suffix = vec![Instruction::new(
+            5,
+            105,
+            Operation::StoreOutput {
+                source: Operand::Memory(output),
+                channel: ChannelId::new(2),
+            },
+        )];
+
+        inject_control_flow_safe_io(&mut block, prefix, suffix, 6).expect("bounded injection");
+
+        assert!(matches!(
+            block.instructions[1].operation(),
+            Operation::Jump { target: 3 }
+        ));
+        assert!(matches!(
+            block.instructions[2].operation(),
+            Operation::Branch {
+                when_true: 1,
+                when_false: 3,
+                ..
+            }
+        ));
+        assert!(matches!(
+            block.instructions[3].operation(),
+            Operation::Jump { target: 4 }
+        ));
+        assert!(matches!(
+            block.instructions[4].operation(),
+            Operation::StoreOutput { .. }
+        ));
+        assert!(matches!(
+            block.instructions[5].operation(),
+            Operation::Return
+        ));
+    }
 }

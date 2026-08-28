@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use plc_compiler::{
     BuildAttempt, BuildAttemptId, BuildOutcome, BuildScope, BuildSnapshot, Compiler,
-    CompilerProfile, ResourceLimits, RuntimeAdapterError, RuntimeMappedSite, SclSource,
+    CompilerProfile, ResourceLimits, RuntimeMappedSite, SclSource,
 };
 use plc_program::{
     BlockId, BlockInterface, ControllerId, ControllerProgram, DataType, EngineeringNumber,
@@ -100,6 +100,11 @@ fn nontrivial_scl_compiles_loads_runs_and_is_observed_through_virtual_controller
                 block,
                 operation_id,
                 source_identity,
+            }
+            | RuntimeMappedSite::Terminator {
+                block,
+                operation_id,
+                source_identity,
             } if block == runtime_block
                 && operation_id == instruction.operation_id
                 && source_identity == instruction.source_identity
@@ -108,7 +113,7 @@ fn nontrivial_scl_compiles_loads_runs_and_is_observed_through_virtual_controller
     }
     assert!(projection.source_bindings().iter().any(|binding| matches!(
         binding.runtime_site,
-        RuntimeMappedSite::BlockReturn { block } if block == runtime_block
+        RuntimeMappedSite::Terminator { block, .. } if block == runtime_block
     )));
 
     let mut controller =
@@ -160,7 +165,7 @@ fn nontrivial_scl_compiles_loads_runs_and_is_observed_through_virtual_controller
 }
 
 #[test]
-fn runtime_projection_rejects_control_flow_but_executes_real_without_approximation() {
+fn runtime_projection_executes_control_flow_and_real_without_approximation() {
     let branch_program = program_with_members([
         member(FIRST, "Gate", DataType::Bool, 0),
         member(RESULT, "Result", DataType::DInt, 1),
@@ -171,10 +176,26 @@ fn runtime_projection_rejects_control_flow_but_executes_real_without_approximati
         2,
     );
     assert_eq!(completion.report().outcome(), BuildOutcome::ArtifactCreated);
+    let branch_projection = completion
+        .artifact()
+        .unwrap()
+        .runtime_projection()
+        .expect("verified branch CFG is executable");
+    let mut branch_controller =
+        VirtualController::new(UniverseId(0xCAFE), VirtualControllerId(0xBEF1), 0x43);
+    branch_controller.power_on().unwrap();
+    branch_controller
+        .install_verified_artifact(branch_projection.package())
+        .unwrap();
+    branch_controller.request_run(RestartKind::Resume).unwrap();
     assert!(matches!(
-        completion.artifact().unwrap().runtime_projection(),
-        Err(RuntimeAdapterError::UnsupportedControlFlow { owner: MAIN, .. })
+        branch_controller.run_scan().unwrap(),
+        RunOutcome::Completed(_)
     ));
+    assert_eq!(
+        branch_controller.actual_memory(branch_projection.memory_for(MAIN, RESULT).unwrap()),
+        Some(CanonicalValue::I32(1))
+    );
 
     let real_program = program_with_members([member(RESULT, "Result", DataType::Real, 0)]);
     let completion = compile(&real_program, "Result := REAL#1.25;", 3);

@@ -675,6 +675,17 @@ fn remap_operation_kind(
             left: remap.value(*left)?,
             right: remap.value(*right)?,
         },
+        IrOperationKind::ForNextWithin {
+            current,
+            terminal,
+            step,
+            ascending,
+        } => IrOperationKind::ForNextWithin {
+            current: remap.value(*current)?,
+            terminal: remap.value(*terminal)?,
+            step: remap.value(*step)?,
+            ascending: *ascending,
+        },
         IrOperationKind::Convert {
             source,
             destination,

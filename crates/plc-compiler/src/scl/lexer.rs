@@ -358,23 +358,22 @@ impl Lexer {
             self.scan_quoted(start, TokenKind::TypedLiteral);
             return;
         }
-        while self
-            .source
-            .text()
-            .as_bytes()
-            .get(self.offset)
-            .is_some_and(|value| {
-                value.is_ascii_alphanumeric()
-                    || matches!(*value, b'.' | b'#')
-                    || (matches!(*value, b'+' | b'-')
-                        && self
-                            .source
-                            .text()
-                            .as_bytes()
-                            .get(self.offset.saturating_sub(1))
-                            .is_some_and(|previous| matches!(*previous, b'E' | b'e')))
-            })
-        {
+        while let Some(value) = self.source.text().as_bytes().get(self.offset) {
+            if *value == b'.' && self.source.text().as_bytes().get(self.offset + 1) == Some(&b'.') {
+                break;
+            }
+            let accepted = value.is_ascii_alphanumeric()
+                || matches!(*value, b'.' | b'#')
+                || (matches!(*value, b'+' | b'-')
+                    && self
+                        .source
+                        .text()
+                        .as_bytes()
+                        .get(self.offset.saturating_sub(1))
+                        .is_some_and(|previous| matches!(*previous, b'E' | b'e')));
+            if !accepted {
+                break;
+            }
             self.offset += 1;
         }
         if self.offset == literal_start {

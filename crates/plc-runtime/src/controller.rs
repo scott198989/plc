@@ -2776,7 +2776,9 @@ impl VirtualController {
         call_boundaries: &mut Vec<CallBoundaryEvent>,
     ) -> Result<BlockExecution, (ExecutionFault, FaultContext)> {
         let fingerprint = self.loaded_fingerprint().unwrap_or(Hash32::ZERO);
-        for instruction in &block.instructions {
+        let mut program_counter = 0_usize;
+        while program_counter < block.instructions.len() {
+            let instruction = &block.instructions[program_counter];
             let context = FaultContext {
                 artifact_fingerprint: fingerprint,
                 block_id: block.id,
@@ -2788,19 +2790,44 @@ impl VirtualController {
                 work_units_before_operation: *work_units,
             };
             self.charge_work(work_units, instruction.work_units(), &context)?;
-            self.execute_operation(
-                block.id,
-                instruction.operation_id,
-                instruction.source_identity,
-                instruction.operation(),
-                scan_sequence,
-                work_units,
-                dynamic_depth,
-                &mut execution,
-                executed_blocks,
-                call_boundaries,
-                &context,
-            )?;
+            match instruction.operation() {
+                Operation::Jump { target } => {
+                    program_counter = usize::try_from(*target)
+                        .map_err(|_| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+                }
+                Operation::Branch {
+                    condition,
+                    when_true,
+                    when_false,
+                } => {
+                    let condition = self
+                        .read_execution_bool(&execution, *condition)
+                        .map_err(|fault| (fault, context.clone()))?
+                        .ok_or_else(|| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+                    program_counter =
+                        usize::try_from(if condition { *when_true } else { *when_false })
+                            .map_err(|_| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+                }
+                Operation::Return => break,
+                operation => {
+                    self.execute_operation(
+                        block.id,
+                        instruction.operation_id,
+                        instruction.source_identity,
+                        operation,
+                        scan_sequence,
+                        work_units,
+                        dynamic_depth,
+                        &mut execution,
+                        executed_blocks,
+                        call_boundaries,
+                        &context,
+                    )?;
+                    program_counter = program_counter
+                        .checked_add(1)
+                        .ok_or_else(|| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+                }
+            }
         }
         Ok(execution)
     }
@@ -2838,6 +2865,9 @@ impl VirtualController {
     ) -> Result<(), (ExecutionFault, FaultContext)> {
         let local = |fault| (fault, context.clone());
         match operation {
+            Operation::Jump { .. } | Operation::Branch { .. } | Operation::Return => {
+                Err(local(ExecutionFault::RuntimeInvariant))
+            }
             Operation::Noop => Ok(()),
             Operation::SetMemory { target, value } => {
                 self.write_execution_memory(execution, *target, *value);
@@ -3062,6 +3092,15 @@ impl VirtualController {
                 self.write_execution_memory(execution, *target, runtime_value);
                 Ok(())
             }
+            Operation::ForNextWithin {
+                current,
+                terminal,
+                step,
+                ascending,
+                target,
+            } => self
+                .execute_for_next_within(execution, *current, *terminal, *step, *ascending, *target)
+                .map_err(local),
             Operation::InvokeInstruction(invocation) => self
                 .execute_instruction_invocation(operation_id, invocation, execution)
                 .map_err(local),
@@ -3174,6 +3213,41 @@ impl VirtualController {
         };
         let value = evaluate_binary(operator, left, right)?;
         self.write_execution_memory(execution, target, value);
+        Ok(())
+    }
+
+    fn execute_for_next_within(
+        &mut self,
+        execution: &mut BlockExecution,
+        current: Operand,
+        terminal: Operand,
+        step: Operand,
+        ascending: bool,
+        target: MemoryId,
+    ) -> Result<(), ExecutionFault> {
+        let (Some(current), Some(terminal), Some(step)) = (
+            self.read_execution_operand(execution, current)?,
+            self.read_execution_operand(execution, terminal)?,
+            self.read_execution_operand(execution, step)?,
+        ) else {
+            Self::suppress_execution_memory(execution, target);
+            return Ok(());
+        };
+        let current = signed_integer_i128(current).ok_or(ExecutionFault::RuntimeInvariant)?;
+        let terminal = signed_integer_i128(terminal).ok_or(ExecutionFault::RuntimeInvariant)?;
+        let step = signed_integer_i128(step).ok_or(ExecutionFault::RuntimeInvariant)?;
+        if (ascending && step <= 0) || (!ascending && step >= 0) {
+            return Err(ExecutionFault::RuntimeInvariant);
+        }
+        let next = current
+            .checked_add(step)
+            .ok_or(ExecutionFault::RuntimeInvariant)?;
+        let within = if ascending {
+            next <= terminal
+        } else {
+            next >= terminal
+        };
+        self.write_execution_memory(execution, target, CanonicalValue::Bool(within));
         Ok(())
     }
 
@@ -4417,6 +4491,28 @@ fn evaluate_binary(
     }
 }
 
+fn signed_integer_i128(value: CanonicalValue) -> Option<i128> {
+    match value {
+        CanonicalValue::I8(value) => Some(i128::from(value)),
+        CanonicalValue::I16(value) => Some(i128::from(value)),
+        CanonicalValue::I32(value) => Some(i128::from(value)),
+        CanonicalValue::I64(value) => Some(i128::from(value)),
+        CanonicalValue::Bool(_)
+        | CanonicalValue::U32(_)
+        | CanonicalValue::TimeMs(_)
+        | CanonicalValue::U8(_)
+        | CanonicalValue::U16(_)
+        | CanonicalValue::U64(_)
+        | CanonicalValue::Bits8(_)
+        | CanonicalValue::Bits16(_)
+        | CanonicalValue::Bits32(_)
+        | CanonicalValue::Bits64(_)
+        | CanonicalValue::F32(_)
+        | CanonicalValue::F64(_)
+        | CanonicalValue::Char(_) => None,
+    }
+}
+
 const fn map_scalar_fault(fault: ScalarFault) -> ExecutionFault {
     match fault {
         ScalarFault::DivideByZero => ExecutionFault::DivideByZero,
@@ -4444,7 +4540,8 @@ fn collect_operand_memory(operand: Operand, target: &mut BTreeSet<MemoryId>) {
 #[allow(clippy::too_many_lines)]
 fn collect_operation_memory_ids(operation: &Operation, target: &mut BTreeSet<MemoryId>) {
     match operation {
-        Operation::Noop => {}
+        Operation::Noop | Operation::Jump { .. } | Operation::Return => {}
+        Operation::Branch { condition, .. } => collect_operand_memory(*condition, target),
         Operation::SetMemory { target: memory, .. }
         | Operation::LoadInput { target: memory, .. }
         | Operation::InvocationOutput { target: memory, .. } => {
@@ -4483,6 +4580,18 @@ fn collect_operation_memory_ids(operation: &Operation, target: &mut BTreeSet<Mem
             ..
         } => {
             collect_operand_memory(*source, target);
+            target.insert(*memory);
+        }
+        Operation::ForNextWithin {
+            current,
+            terminal,
+            step,
+            target: memory,
+            ..
+        } => {
+            collect_operand_memory(*current, target);
+            collect_operand_memory(*terminal, target);
+            collect_operand_memory(*step, target);
             target.insert(*memory);
         }
         Operation::DivideI32 {
