@@ -5,6 +5,7 @@ import {
   createSclProgramPayload,
   createTracePayload,
   createWatchPayload,
+  interfaceMemberIdentity,
   unsignedValue,
 } from "./canonical-authoring";
 import type {
@@ -586,7 +587,7 @@ const SclProgramEditor = ({
               applySource();
             }
           }}
-          placeholder={"InputValue := 7;\nOutputValue := InputValue + 5;"}
+          placeholder={"WorkingValue := 7;\nOutputValue := InputValue;"}
           spellCheck="false"
           value={source}
         />
@@ -852,11 +853,29 @@ const creationOptions = (
       ];
     }
     case "SymbolTable":
+      {
+        const controllerId = parent.parentId;
+        const controllerBlocks = Object.values(snapshot.objects).filter(
+          (object) => object.lifecycle === "active" && object.parentId === controllerId,
+        );
+        const cyclic = controllerBlocks.find((object) => object.kind === "OB");
+        const globalData = controllerBlocks.find((object) => object.kind === "GlobalDB");
+        const binding = (
+          object: WorkbenchObjectView | undefined,
+          memberName: string,
+        ): Readonly<{ blockId: string; memberId: string }> | null => {
+          if (object === undefined) {
+            return null;
+          }
+          const memberId = interfaceMemberIdentity(object.semanticPayload, memberName);
+          return memberId === null ? null : { blockId: object.id, memberId };
+        };
       return [
-        tagTemplate("Input tag", "I", "Input"),
-        tagTemplate("Output tag", "Q", "Output"),
-        tagTemplate("Memory tag", "M", "Memory"),
+        tagTemplate("Input tag", "I", "Input", binding(cyclic, "InputValue")),
+        tagTemplate("Output tag", "Q", "Output", binding(cyclic, "OutputValue")),
+        tagTemplate("Memory tag", "M", "Memory", binding(globalData, "MemoryValue")),
       ];
+      }
     default:
       return [];
   }
@@ -881,7 +900,12 @@ const moduleTemplate = (
   },
 });
 
-const tagTemplate = (label: string, area: "I" | "M" | "Q", baseName: string): CreateObjectTemplate => ({
+const tagTemplate = (
+  label: string,
+  area: "I" | "M" | "Q",
+  baseName: string,
+  programBinding: Readonly<{ blockId: string; memberId: string }> | null,
+): CreateObjectTemplate => ({
   baseName,
   description: `${area}-area BOOL with automatic allocation`,
   glyph: area,
@@ -892,6 +916,7 @@ const tagTemplate = (label: string, area: "I" | "M" | "Q", baseName: string): Cr
     addressArea: area,
     addressIntent: "auto",
     dataType: "BOOL",
+    ...(programBinding ?? {}),
     tagKind: area === "I" ? "Input" : area === "Q" ? "Output" : "Memory",
   },
 });

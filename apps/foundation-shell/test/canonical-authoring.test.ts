@@ -4,6 +4,7 @@ import {
   createDataBlockPayload,
   createSclProgramPayload,
   createTracePayload,
+  interfaceMemberIdentity,
 } from "../src/canonical-authoring";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -23,10 +24,12 @@ describe("canonical authoring payloads", () => {
     }
     const firstIds = firstMembers.map(memberId);
     const secondIds = secondMembers.map(memberId);
-    expect(firstIds).toHaveLength(2);
-    expect(new Set(firstIds).size).toBe(2);
+    expect(firstIds).toHaveLength(3);
+    expect(new Set(firstIds).size).toBe(3);
     expect(firstIds.every((id) => UUID.test(id))).toBe(true);
     expect(secondIds).not.toEqual(firstIds);
+    expect(interfaceMemberIdentity(first, "InputValue")).toBe(firstIds[0]);
+    expect(interfaceMemberIdentity(first, "Missing")).toBeNull();
   });
 
   it("pins DB and trace limits into typed canonical values", () => {

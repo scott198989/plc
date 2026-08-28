@@ -104,7 +104,7 @@ try {
   await treeItem(page, "Controller").click();
   await addObject(page, "Organization block");
   await page.getByRole("heading", { level: 1, name: "Main cycle" }).waitFor();
-  const sclSource = "InputValue := 7;\nOutputValue := InputValue + 5;";
+  const sclSource = "WorkingValue := 7;\nOutputValue := InputValue;";
   await page.getByLabel("SCL source").fill(sclSource);
   await page.getByRole("button", { name: "Apply SCL source" }).click();
   await page.getByLabel("SCL source").waitFor();

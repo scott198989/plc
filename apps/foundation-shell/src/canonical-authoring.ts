@@ -18,6 +18,7 @@ const interfaceMember = (
   name: string,
   role: "input" | "output" | "static" | "temp",
   order: number,
+  dataType: "BOOL" | "DINT" = "DINT",
 ): ProjectPayloadValue => recordValue({
   id: crypto.randomUUID(),
   name,
@@ -25,7 +26,7 @@ const interfaceMember = (
   requiredOutput: role === "output",
   retentive: false,
   role,
-  type: "DINT",
+  type: dataType,
 });
 
 /**
@@ -43,8 +44,9 @@ export const createSclProgramPayload = (
         blockKind: "OB",
         engineeringNumber: unsignedValue(engineeringNumber),
         interface: [
-          interfaceMember("InputValue", "temp", 0),
-          interfaceMember("OutputValue", "temp", 1),
+          interfaceMember("InputValue", "temp", 0, "BOOL"),
+          interfaceMember("OutputValue", "temp", 1, "BOOL"),
+          interfaceMember("WorkingValue", "temp", 2),
         ],
         language: "SCL",
         obRole: "CyclicMain",
@@ -84,7 +86,7 @@ export const createDataBlockPayload = (
   ? {
       dbKind: kind,
       engineeringNumber: unsignedValue(engineeringNumber),
-      members: [interfaceMember("MemoryValue", "static", 0)],
+      members: [interfaceMember("MemoryValue", "static", 0, "BOOL")],
     }
   : {
       dbKind: kind,
@@ -104,3 +106,34 @@ export const createTracePayload = (): ProjectPayload => ({
   state: "idle",
   trigger: "immediate",
 });
+
+export const interfaceMemberIdentity = (
+  payload: ProjectPayload,
+  memberName: string,
+): string | null => {
+  const members = payload.interface ?? payload.members;
+  if (!Array.isArray(members)) {
+    return null;
+  }
+  for (const member of members) {
+    if (
+      typeof member !== "object" ||
+      member === null ||
+      Array.isArray(member) ||
+      !("$type" in member) ||
+      member.$type !== "record" ||
+      !("value" in member) ||
+      typeof member.value !== "object" ||
+      member.value === null ||
+      Array.isArray(member.value)
+    ) {
+      continue;
+    }
+    const name = member.value.name;
+    const id = member.value.id;
+    if (name === memberName && typeof id === "string") {
+      return id;
+    }
+  }
+  return null;
+};
