@@ -30,6 +30,8 @@ import type {
 
 const PROFILE_MANIFEST_HASH =
   "9febe00e579c161920610be4d2079621b6255217a623f29ee0f656fcd992ed9a";
+const PROFILE_ID = "EDU-21 Core";
+const PROFILE_VERSION = "1.0.0";
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_PROJECT_OBJECTS = 16_384;
 const ZERO_HASH = "0".repeat(64);
@@ -195,6 +197,30 @@ type RawKernelCommandResult = Readonly<{
   undoToken: string | null;
 }>;
 
+type RawSystemDiagnostic = Readonly<{
+  blocking: boolean;
+  code: string;
+  message: string;
+  phase: string;
+  primaryObjectId: string;
+  relatedObjectIds: readonly string[];
+}>;
+
+type RawSystemQuery = Readonly<{
+  allocationChangeCount: number;
+  artifactFingerprint: string | null;
+  canBuild: boolean;
+  channelBindingCount: number;
+  diagnostics: readonly RawSystemDiagnostic[];
+  profile: Readonly<{
+    id: string;
+    manifestHash: string;
+    version: string;
+  }>;
+  sourceDocumentHash: string;
+  sourceSemanticFingerprint: string;
+}>;
+
 class EngineeringWorkerError extends Error {
   public readonly code: string;
 
@@ -266,9 +292,9 @@ class EngineeringWorkerEngine {
           displayName: request.displayName,
           documentId: request.documentId,
           profile: {
-            id: "EDU-21 Core",
+            id: PROFILE_ID,
             manifestHash: PROFILE_MANIFEST_HASH,
-            version: "1.0.0",
+            version: PROFILE_VERSION,
           },
           rootId: request.projectRootId,
           schemaVersion: 1,
@@ -723,7 +749,10 @@ class EngineeringWorkerEngine {
   }
 
   private async snapshot(query: RawKernelQuery, queryId: string): Promise<WorkbenchSnapshot> {
-    const receipt = await projectSnapshotReceipt(query);
+    const system = parseSystemQuery((await this.#kernelPromise).systemQuery(), query);
+    const systemDiagnostics = await contractSystemDiagnostics(system.diagnostics, query);
+    const diagnostics = [...this.#currentDiagnostics, ...systemDiagnostics];
+    const receipt = await projectSnapshotReceipt(query, system);
     const queryMessage = {
       context: { consistency: "current", queryId },
       kind: PLC_MESSAGE_KIND.query,
@@ -736,7 +765,7 @@ class EngineeringWorkerEngine {
       inReplyTo: queryId,
       kind: PLC_MESSAGE_KIND.result,
       result: {
-        diagnostics: this.#currentDiagnostics,
+        diagnostics,
         outcome: "ok",
         queryId,
         queryKind: "project.get-summary",
@@ -748,7 +777,7 @@ class EngineeringWorkerEngine {
     } as const;
     validatePhase2PlcMessage(result);
     return projectReceiptToWorkbench(receipt, {
-      diagnostics: this.#currentDiagnostics,
+      diagnostics,
       fileGrantId: this.#fileGrantId,
       redoLabel: query.status.canRedo ? "Redo last reverted change" : null,
       undoLabel: query.status.canUndo ? "Undo last committed change" : null,
@@ -856,6 +885,7 @@ const projectMutationReceipt = (
 
 const projectSnapshotReceipt = async (
   query: RawKernelQuery,
+  system: RawSystemQuery,
 ): Promise<ProjectSnapshotReceipt> => {
   const objectById = new Map(query.project.objects.map((object) => [object.id, object]));
   const childIds = new Map<string, string[]>();
@@ -923,7 +953,7 @@ const projectSnapshotReceipt = async (
         .filter((object) => object.kind === "controller")
         .map((object) => ({
           controllerId: object.id,
-          hardware: "not-built" as const,
+          hardware: system.canBuild ? "current" as const : "blocked" as const,
           loadedArtifactFingerprint: null,
           software: "not-built" as const,
         })),
@@ -975,6 +1005,41 @@ const contractDiagnostics = async (
     sourceRevisionHash: upperHash(query.status.documentHash),
   })),
   severity: "Error" as const,
+})));
+
+const contractSystemDiagnostics = async (
+  diagnostics: readonly RawSystemDiagnostic[],
+  query: RawKernelQuery,
+): Promise<readonly Diagnostic[]> => Promise.all(diagnostics.map(async (diagnostic) => ({
+  blocking: diagnostic.blocking,
+  cause: truncateCharacters(diagnostic.message, 2_048),
+  code: diagnostic.code,
+  diagnosticId: await deriveUuid([
+    query.status.semanticFingerprint,
+    diagnostic.code,
+    diagnostic.phase,
+    diagnostic.primaryObjectId,
+    diagnostic.message,
+    ...diagnostic.relatedObjectIds,
+  ].join(":")),
+  parameters: [],
+  phase: diagnostic.phase,
+  primaryAnchor: {
+    anchorKind: "project" as const,
+    ownerObjectId: diagnostic.primaryObjectId,
+    propertyPath: [],
+    sourceRevisionHash: upperHash(query.status.semanticFingerprint),
+  },
+  recoveryHint: diagnostic.blocking
+    ? "Resolve this canonical project condition before building or loading."
+    : "Review this canonical engineering warning before loading.",
+  relatedAnchors: diagnostic.relatedObjectIds.map((objectId) => ({
+    anchorKind: "project" as const,
+    ownerObjectId: objectId,
+    propertyPath: [],
+    sourceRevisionHash: upperHash(query.status.semanticFingerprint),
+  })),
+  severity: diagnostic.blocking ? "Error" as const : "Warning" as const,
 })));
 
 const collectClosure = (
@@ -1316,6 +1381,156 @@ const parseKernelQuery = (bytes: Uint8Array): RawKernelQuery => {
       semanticRevision: requireDecimal(projectRecord.semanticRevision, "kernel semantic revision"),
     },
     status,
+  };
+};
+
+const parseSystemQuery = (
+  bytes: Uint8Array,
+  kernelQuery: RawKernelQuery,
+): RawSystemQuery => {
+  const record = requireRecord(decodeJson(bytes), "canonical system query");
+  requireExactKeys(
+    record,
+    [
+      "allocationChangeCount",
+      "artifactFingerprint",
+      "canBuild",
+      "channelBindingCount",
+      "diagnostics",
+      "profile",
+      "schemaVersion",
+      "sourceDocumentHash",
+      "sourceSemanticFingerprint",
+    ],
+    "canonical system query",
+  );
+  if (record.schemaVersion !== 1) {
+    throw new EngineeringWorkerError(
+      "INVALID_CORE_RESPONSE",
+      "The canonical system query schema is unsupported.",
+    );
+  }
+  const profile = requireRecord(record.profile, "canonical system profile");
+  requireExactKeys(profile, ["id", "manifestHash", "version"], "canonical system profile");
+  const profileId = requireString(profile.id, "canonical system profile ID", 128);
+  const profileVersion = requireString(profile.version, "canonical system profile version", 64);
+  const manifestHash = requireHash(
+    profile.manifestHash,
+    "canonical system profile manifest hash",
+  );
+  if (
+    profileId !== PROFILE_ID ||
+    profileVersion !== PROFILE_VERSION ||
+    manifestHash.toLowerCase() !== PROFILE_MANIFEST_HASH
+  ) {
+    throw new EngineeringWorkerError(
+      "INVALID_CORE_RESPONSE",
+      "The canonical system did not use the shipped EDU-21 profile.",
+    );
+  }
+  const sourceDocumentHash = requireHash(
+    record.sourceDocumentHash,
+    "canonical system document hash",
+  );
+  const sourceSemanticFingerprint = requireHash(
+    record.sourceSemanticFingerprint,
+    "canonical system semantic fingerprint",
+  );
+  if (
+    sourceDocumentHash.toLowerCase() !== kernelQuery.status.documentHash.toLowerCase() ||
+    sourceSemanticFingerprint.toLowerCase() !==
+      kernelQuery.status.semanticFingerprint.toLowerCase()
+  ) {
+    throw new EngineeringWorkerError(
+      "INVALID_CORE_RESPONSE",
+      "The canonical system projection does not match the active project snapshot.",
+    );
+  }
+  const objectIds = new Set(kernelQuery.project.objects.map((object) => object.id));
+  const diagnostics = requireArray(
+    record.diagnostics,
+    "canonical system diagnostics",
+    10_000,
+  ).map((input) => {
+    const diagnostic = requireRecord(input, "canonical system diagnostic");
+    requireExactKeys(
+      diagnostic,
+      [
+        "blocking",
+        "code",
+        "message",
+        "phase",
+        "primaryObjectId",
+        "relatedObjectIds",
+      ],
+      "canonical system diagnostic",
+    );
+    const primaryObjectId = requireUuid(
+      diagnostic.primaryObjectId,
+      "canonical diagnostic primary object",
+    );
+    const relatedObjectIds = requireArray(
+      diagnostic.relatedObjectIds,
+      "canonical diagnostic related objects",
+      256,
+    ).map((input) => requireUuid(input, "canonical diagnostic related object"));
+    if (
+      !objectIds.has(primaryObjectId) ||
+      relatedObjectIds.some((id) => !objectIds.has(id)) ||
+      relatedObjectIds.includes(primaryObjectId) ||
+      new Set(relatedObjectIds).size !== relatedObjectIds.length
+    ) {
+      throw new EngineeringWorkerError(
+        "INVALID_CORE_RESPONSE",
+        "A canonical system diagnostic has invalid project anchors.",
+      );
+    }
+    return {
+      blocking: requireBoolean(diagnostic.blocking, "canonical diagnostic blocking flag"),
+      code: requireString(diagnostic.code, "canonical diagnostic code", 128),
+      message: requireString(diagnostic.message, "canonical diagnostic message", 2_048),
+      phase: requireString(diagnostic.phase, "canonical diagnostic phase", 128),
+      primaryObjectId,
+      relatedObjectIds,
+    };
+  });
+  const artifactFingerprint = nullableHash(
+    record.artifactFingerprint,
+    "canonical hardware artifact fingerprint",
+  );
+  const canBuild = requireBoolean(record.canBuild, "canonical hardware canBuild");
+  if (
+    canBuild !== (artifactFingerprint !== null) ||
+    (canBuild && diagnostics.some((diagnostic) => diagnostic.blocking))
+  ) {
+    throw new EngineeringWorkerError(
+      "INVALID_CORE_RESPONSE",
+      "The canonical hardware build state is internally inconsistent.",
+    );
+  }
+  return {
+    allocationChangeCount: requireSafeInteger(
+      record.allocationChangeCount,
+      "canonical allocation change count",
+      0,
+      MAX_PROJECT_OBJECTS,
+    ),
+    artifactFingerprint,
+    canBuild,
+    channelBindingCount: requireSafeInteger(
+      record.channelBindingCount,
+      "canonical channel binding count",
+      0,
+      1_000_000,
+    ),
+    diagnostics,
+    profile: {
+      id: profileId,
+      manifestHash,
+      version: profileVersion,
+    },
+    sourceDocumentHash,
+    sourceSemanticFingerprint,
   };
 };
 

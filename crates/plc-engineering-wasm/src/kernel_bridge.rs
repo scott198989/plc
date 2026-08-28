@@ -2,6 +2,8 @@ use core::fmt;
 
 use plc_core::{DecodeLimits, KernelSession, ProtocolError, Uuid, sha256};
 
+use crate::system_bridge::project_system_query;
+
 const APPLICATION_VERSION: &str = "plc-engineering-simulator/0.2.0";
 const QUERY_PROJECT: &[u8] = br#"{"operation":"query-project","schemaVersion":1}"#;
 const MAX_BRIDGE_INPUT_BYTES: usize = 32 * 1024 * 1024;
@@ -95,6 +97,11 @@ impl KernelBridge {
             .ok_or(BridgeError::NoActiveSession)?
             .handle(QUERY_PROJECT)
             .map_err(Into::into)
+    }
+
+    pub(crate) fn system_query(&self) -> Result<Vec<u8>, BridgeError> {
+        let active = self.active.as_ref().ok_or(BridgeError::NoActiveSession)?;
+        Ok(project_system_query(active.project()))
     }
 
     pub(crate) fn prepare_save(&mut self, mode: SaveMode) -> Result<Vec<u8>, BridgeError> {
@@ -212,6 +219,21 @@ mod exports {
     #[unsafe(no_mangle)]
     pub extern "C" fn plc_session_handle(length: u32) -> i32 {
         run_with_input(length, KernelBridge::handle)
+    }
+
+    #[allow(unsafe_code)]
+    #[unsafe(no_mangle)]
+    pub extern "C" fn plc_session_system_query() -> i32 {
+        match BRIDGE.with_borrow(KernelBridge::system_query) {
+            Ok(output) => {
+                write_output(output);
+                STATUS_OK
+            }
+            Err(error) => {
+                write_error(error);
+                STATUS_ERROR
+            }
+        }
     }
 
     #[allow(unsafe_code)]
@@ -349,7 +371,7 @@ mod tests {
     use super::{BridgeError, KernelBridge, SaveMode};
     use plc_core::{DecodeLimits, KernelSession, Uuid, sha256};
 
-    const CREATE: &[u8] = br#"{"displayName":"Bridge","documentId":"cda496e1-165b-4ab0-9ddc-9ad749bf75a4","profile":{"id":"edu-21","manifestHash":"0909090909090909090909090909090909090909090909090909090909090909","version":"1"},"rootId":"88c521b1-f9f7-4bb0-8dc1-adca746a13a6","schemaVersion":1}"#;
+    const CREATE: &[u8] = br#"{"displayName":"Bridge","documentId":"cda496e1-165b-4ab0-9ddc-9ad749bf75a4","profile":{"id":"EDU-21 Core","manifestHash":"9febe00e579c161920610be4d2079621b6255217a623f29ee0f656fcd992ed9a","version":"1.0.0"},"rootId":"88c521b1-f9f7-4bb0-8dc1-adca746a13a6","schemaVersion":1}"#;
 
     #[test]
     fn create_query_and_open_use_the_real_kernel() {
@@ -409,5 +431,17 @@ mod tests {
         assert!(matches!(blocked, Err(BridgeError::PendingSaveExists)));
         bridge.abort_save().expect("abort");
         bridge.query().expect("query after abort");
+    }
+
+    #[test]
+    fn system_query_uses_the_active_canonical_project() {
+        let mut bridge = KernelBridge::default();
+        bridge.create(CREATE).expect("create");
+        let query = bridge.system_query().expect("system query");
+        let text = core::str::from_utf8(&query).expect("UTF-8 JSON");
+        assert!(text.contains(r#""sourceDocumentHash":"#));
+        assert!(text.contains(r#""sourceSemanticFingerprint":"#));
+        assert!(text.contains(r#""code":"EDU-SYS-1001""#));
+        assert!(text.contains(r#""canBuild":false"#));
     }
 }

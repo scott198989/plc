@@ -11,6 +11,14 @@ const IDS = {
   root: "30000000-0000-4000-8000-000000000001",
   createController: "31000000-0000-4000-8000-000000000001",
   controller: "32000000-0000-4000-8000-000000000001",
+  createNetwork: "32100000-0000-4000-8000-000000000001",
+  network: "32200000-0000-4000-8000-000000000001",
+  createRack: "32300000-0000-4000-8000-000000000001",
+  rack: "32400000-0000-4000-8000-000000000001",
+  createInput: "32500000-0000-4000-8000-000000000001",
+  input: "32600000-0000-4000-8000-000000000001",
+  createOutput: "32700000-0000-4000-8000-000000000001",
+  output: "32800000-0000-4000-8000-000000000001",
   createFolder: "33000000-0000-4000-8000-000000000001",
   folder: "34000000-0000-4000-8000-000000000001",
   copyFolder: "35000000-0000-4000-8000-000000000001",
@@ -65,6 +73,83 @@ describe("real engineering worker and WASM kernel", () => {
     }));
     expect(controllerCreated.outcome).toBe("committed");
     expect(controllerCreated.snapshot.objects[IDS.controller]?.kind).toBe("Controller");
+    expect(controllerCreated.snapshot.diagnostics.map((diagnostic) => diagnostic.code)).toEqual(
+      expect.arrayContaining(["EDU-SYS-1001", "EDU-SYS-1102"]),
+    );
+
+    for (const [requestId, operation] of [
+      [
+        IDS.createNetwork,
+        {
+          displayName: "Virtual network",
+          kind: "project.create-object",
+          objectId: IDS.network,
+          objectKind: "network",
+          parentId: IDS.root,
+          payloadSchema: "edu.virtual-network/1",
+          presentationPayload: {},
+          semanticPayload: { networkClass: "internal-virtual" },
+        },
+      ],
+      [
+        IDS.createRack,
+        {
+          displayName: "Local rack",
+          kind: "project.create-object",
+          objectId: IDS.rack,
+          objectKind: "rack",
+          parentId: IDS.controller,
+          payloadSchema: "edu.rack/1",
+          presentationPayload: {},
+          semanticPayload: { rackClass: "local" },
+        },
+      ],
+      [
+        IDS.createInput,
+        {
+          displayName: "Digital input 16",
+          kind: "project.create-object",
+          objectId: IDS.input,
+          objectKind: "module",
+          parentId: IDS.rack,
+          payloadSchema: "edu.module/1",
+          presentationPayload: {},
+          semanticPayload: {
+            addressIntent: "auto",
+            catalogId: "vdi16",
+            slot: { $type: "u64", value: "1" },
+          },
+        },
+      ],
+      [
+        IDS.createOutput,
+        {
+          displayName: "Digital output 16",
+          kind: "project.create-object",
+          objectId: IDS.output,
+          objectKind: "module",
+          parentId: IDS.rack,
+          payloadSchema: "edu.module/1",
+          presentationPayload: {},
+          semanticPayload: {
+            addressIntent: "auto",
+            catalogId: "vdo16",
+            slot: { $type: "u64", value: "2" },
+          },
+        },
+      ],
+    ] as const) {
+      const result = operationValue(await executeEngineeringRequest({
+        kind: "engineering.project.command",
+        operation,
+        requestId,
+      }));
+      expect(result.outcome).toBe("committed");
+      if (requestId === IDS.createOutput) {
+        expect(result.snapshot.diagnostics).toEqual([]);
+        expect(result.snapshot.buildState).toBe("not-built");
+      }
+    }
 
     const folderCreated = operationValue(await executeEngineeringRequest({
       kind: "engineering.project.command",
@@ -231,6 +316,8 @@ const successValue = (response: EngineeringResponse): unknown => {
 };
 
 const snapshot = (value: unknown): Readonly<Record<string, unknown>> & {
+  buildState: string;
+  diagnostics: readonly Readonly<{ code: string }>[];
   dirtyState: string;
   documentId: string;
   projectHash: string;

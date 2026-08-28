@@ -9,6 +9,7 @@ members = [
     "crates/plc-language-tools",
     "crates/plc-program",
     "crates/plc-runtime",
+    "crates/plc-system",
 ]
 resolver = "3"
 

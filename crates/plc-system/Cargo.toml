@@ -14,10 +14,6 @@ path = "src/lib.rs"
 plc-core = { path = "../plc-core" }
 plc-hardware = { path = "../plc-hardware" }
 
-# The facade remains isolated until each canonical projection advancement test
-# is green and the coordinator admits it to the root workspace.
-[workspace]
-
 [lints.rust]
 unsafe_code = "forbid"
 

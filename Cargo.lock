@@ -30,6 +30,7 @@ name = "plc-engineering-wasm"
 version = "0.0.0"
 dependencies = [
  "plc-core",
+ "plc-system",
 ]
 
 [[package]]
@@ -55,3 +56,11 @@ version = "0.1.0"
 [[package]]
 name = "plc-runtime"
 version = "0.1.0"
+
+[[package]]
+name = "plc-system"
+version = "0.1.0"
+dependencies = [
+ "plc-core",
+ "plc-hardware",
+]

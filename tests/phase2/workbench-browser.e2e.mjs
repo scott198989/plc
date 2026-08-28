@@ -76,17 +76,24 @@ try {
   await page.getByRole("button", { name: /^Create/u }).click();
   await page.getByRole("heading", { level: 1, name: "End-to-end cell" }).waitFor();
   await page.getByRole("status", { name: "Unsaved changes", exact: true }).waitFor();
-  await page.getByRole("status", {
-    name: "Canonical project state has no diagnostics.",
-    exact: true,
-  }).waitFor();
+  await page.getByText("EDU-SYS-1001", { exact: true }).waitFor();
 
+  await addObject(page, "Virtual network");
+  await page.getByRole("heading", { level: 1, name: "Virtual network" }).waitFor();
+  await treeItem(page, "End-to-end cell").click();
   await addObject(page, "Controller");
   await page.getByRole("heading", { level: 1, name: "Controller" }).waitFor();
   await addObject(page, "Rack");
   await page.getByRole("heading", { level: 1, name: "Local rack" }).waitFor();
   await addObject(page, "Digital input module");
   await page.getByRole("heading", { level: 1, name: "VDI16" }).waitFor();
+  await treeItem(page, "Local rack").click();
+  await addObject(page, "Digital output module");
+  await page.getByRole("heading", { level: 1, name: "VDO16" }).waitFor();
+  await page.getByRole("status", {
+    name: "Canonical project state has no diagnostics.",
+    exact: true,
+  }).waitFor();
 
   await treeItem(page, "Controller").click();
   await addObject(page, "Tag table");
@@ -184,7 +191,7 @@ try {
     browserPath,
     commands: [
       "create-project",
-      "create-controller-rack-module-tag-table-tag",
+      "create-network-controller-rack-io-tag-table-tag",
       "copy-with-new-identity",
       "delete",
       "undo",
