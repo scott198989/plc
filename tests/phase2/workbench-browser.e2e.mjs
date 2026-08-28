@@ -64,6 +64,7 @@ try {
     locale: "en-US",
     viewport: { height: 920, width: 1586 },
   });
+  await installMemoryFileAccess(context);
   const page = await context.newPage();
   const pageErrors = [];
   const remoteRequests = [];
@@ -77,6 +78,18 @@ try {
   await page.getByRole("heading", { level: 1, name: "End-to-end cell" }).waitFor();
   await page.getByRole("status", { name: "Unsaved changes", exact: true }).waitFor();
   await page.getByText("EDU-SYS-1001", { exact: true }).waitFor();
+
+  await page.getByRole("tab", { name: "Runtime & commissioning" }).click();
+  const unavailableDiagnostic = page
+    .locator(".runtime-unavailable__diagnostic")
+    .filter({ hasText: "EDU-SYS-1001" });
+  await unavailableDiagnostic.waitFor();
+  if (await unavailableDiagnostic.getAttribute("aria-disabled") !== "false") {
+    throw new Error("the unavailable-runtime diagnostic did not expose semantic navigation");
+  }
+  await unavailableDiagnostic.click();
+  await page.getByRole("heading", { level: 1, name: "End-to-end cell" }).waitFor();
+  await page.getByRole("tab", { name: "Runtime & commissioning" }).click();
 
   await addObject(page, "Virtual network");
   await page.getByRole("heading", { level: 1, name: "Virtual network" }).waitFor();
@@ -96,10 +109,6 @@ try {
   await treeItem(page, "Local rack").click();
   await addObject(page, "Analog output module");
   await page.getByRole("heading", { level: 1, name: "VAO4" }).waitFor();
-  await page.getByRole("status", {
-    name: "Canonical project state has no diagnostics.",
-    exact: true,
-  }).waitFor();
 
   await treeItem(page, "Controller").click();
   await addObject(page, "Reusable SCL function");
@@ -113,7 +122,7 @@ try {
 
   await treeItem(page, "Controller").click();
   await addObject(page, "FBD function");
-  await page.getByRole("heading", { level: 1, name: "FBD function" }).waitFor();
+  await page.getByRole("heading", { level: 1, name: "FbdFunction" }).waitFor();
   await page.getByRole("region", { name: "FBD network 1" }).waitFor();
   await page.getByText("NOT", { exact: true }).waitFor();
   const fbdScreenshot = path.join(evidenceDirectory, "workbench-fbd-editor.png");
@@ -121,7 +130,7 @@ try {
 
   await treeItem(page, "Controller").click();
   await addObject(page, "Ladder organization block");
-  await page.getByRole("heading", { level: 1, name: "Ladder cycle" }).waitFor();
+  await page.getByRole("heading", { level: 1, name: "MainCycle" }).waitFor();
   await page.getByRole("region", { name: "LAD network 1" }).waitFor();
   await page.getByText("CALL", { exact: true }).first().waitFor();
   if (await page.getByText("CALL", { exact: true }).count() !== 2) {
@@ -135,19 +144,19 @@ try {
 
   await treeItem(page, "Controller").click();
   await addObject(page, "State-owning SCL block");
-  await page.getByRole("heading", { level: 1, name: "Function block" }).waitFor();
+  await page.getByRole("heading", { level: 1, name: "StateBlock" }).waitFor();
   await page.getByLabel("SCL source").fill("Accumulator := InputValue;\nResult := Accumulator;");
   await page.getByRole("button", { name: "Apply SCL source" }).click();
 
   await treeItem(page, "Controller").click();
   await addObject(page, "Global data block");
-  await page.getByRole("heading", { level: 1, name: "Global data" }).waitFor();
+  await page.getByRole("heading", { level: 1, name: "GlobalData" }).waitFor();
   await treeItem(page, "Controller").click();
   await addObject(page, "Instance data block");
-  await page.getByRole("heading", { level: 1, name: "Instance data" }).waitFor();
+  await page.getByRole("heading", { level: 1, name: "InstanceData" }).waitFor();
   await treeItem(page, "Controller").click();
   await addObject(page, "Named user structure");
-  await page.getByRole("heading", { level: 1, name: "Process data" }).waitFor();
+  await page.getByRole("heading", { level: 1, name: "ProcessData" }).waitFor();
 
   await treeItem(page, "Controller").click();
   await addObject(page, "Tag table");
@@ -157,6 +166,13 @@ try {
   await treeItem(page, "PLC tags").click();
   await addObject(page, "Output tag");
   await page.getByRole("heading", { level: 1, name: "Output" }).waitFor();
+
+  await treeItem(page, "Controller").click();
+  await addObject(page, "Watch table");
+  await page.getByRole("heading", { level: 1, name: "Watch table" }).waitFor();
+  await treeItem(page, "Controller").click();
+  await addObject(page, "Trace configuration");
+  await page.getByRole("heading", { level: 1, name: "Trace" }).waitFor();
 
   await treeItem(page, "End-to-end cell").click();
   await addObject(page, "Folder");
@@ -180,16 +196,220 @@ try {
   await page.getByRole("button", { name: "Redo last reverted change" }).click();
   await page.getByRole("heading", { level: 1, name: "Renamed training cell" }).waitFor();
 
-  const workbenchScreenshot = path.join(evidenceDirectory, "workbench-real-kernel.png");
-  await page.screenshot({ fullPage: true, path: workbenchScreenshot });
+  await page.getByRole("tab", { name: "Diagnostics" }).click();
+  await page.getByRole("status", {
+    name: "Canonical project state has no diagnostics.",
+    exact: true,
+  }).waitFor();
+  await page.getByRole("tab", { name: "Runtime & commissioning" }).click();
+  await page.getByText("Runtime probes", { exact: true }).waitFor();
+
+  await page.getByRole("button", { name: "Build", exact: true }).click();
+  await waitForBuildCurrent(page);
+  await page.getByRole("button", { name: "Power on", exact: true }).click();
+  await waitForLocatorText(
+    page.locator(".runtime-toolbar__identity strong"),
+    (value) => value.trim() === "Stop",
+    "virtual controller did not reach STOP after power-on",
+  );
+
+  await page.getByRole("button", { name: "Preview load", exact: true }).click();
+  const loadPreview = page.getByRole("region", { name: "Virtual Download preview" });
+  await loadPreview.waitFor();
+  const candidateFingerprint = (await loadPreview.locator("small").innerText()).trim();
+  if (!/^[0-9a-f]{10}…[0-9a-f]{6}$/iu.test(candidateFingerprint)) {
+    throw new Error(`load preview did not expose a canonical candidate fingerprint: ${candidateFingerprint}`);
+  }
+  await loadPreview.getByText("0", { exact: true }).last().waitFor();
+  await page.getByRole("button", { name: "Commit load", exact: true }).click();
+  await loadPreview.waitFor({ state: "detached" });
+  await waitForEnabled(
+    page.getByRole("button", { name: "Go online", exact: true }),
+    true,
+    "committed load did not enable Go online",
+  );
+
+  await page.getByRole("button", { name: "Go online", exact: true }).click();
+  await page.getByText("Online session active", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Start monitoring", exact: true }).click();
+  await page.getByRole("button", { name: "RUN", exact: true }).click();
+  await waitForLocatorText(
+    page.locator(".runtime-toolbar__identity strong"),
+    (value) => value.trim() === "Run",
+    "virtual controller did not enter RUN",
+  );
+
+  const inputProbe = runtimeProbe(page, "Input");
+  const outputProbe = runtimeProbe(page, "Output");
+  await inputProbe.waitFor();
+  await outputProbe.waitFor();
+
+  await inputProbe.getByLabel("Value for Input", { exact: true }).selectOption("true");
+  await inputProbe.getByRole("button", { name: "Set raw", exact: true }).click();
+  await page.getByRole("button", { name: "Scan +1", exact: true }).click();
+  await waitForRuntimeCell(inputProbe, 1, "TRUE", "input natural value after first scan");
+  await waitForRuntimeCell(outputProbe, 1, "FALSE", "mixed-language output after TRUE input");
+  await waitForScanSequence(page, "1");
+
+  await inputProbe.getByLabel("Value for Input", { exact: true }).selectOption("false");
+  await inputProbe.getByRole("button", { name: "Set raw", exact: true }).click();
+  await page.getByRole("button", { name: "Scan +1", exact: true }).click();
+  await waitForRuntimeCell(inputProbe, 1, "FALSE", "input natural value after second scan");
+  await waitForRuntimeCell(outputProbe, 1, "TRUE", "mixed-language output after FALSE input");
+  await waitForScanSequence(page, "2");
+
+  await waitForWatchValues(page, ["FALSE", "TRUE"]);
+
+  await outputProbe.getByLabel("Value for Output", { exact: true }).selectOption("false");
+  await outputProbe.getByRole("button", { name: "Modify", exact: true }).click();
+  await waitForRuntimeCell(outputProbe, 2, "FALSE", "one-shot modified output");
+  await outputProbe.getByLabel("Value for Output", { exact: true }).selectOption("true");
+  await outputProbe.getByRole("button", { name: "Force", exact: true }).click();
+  await outputProbe.getByText("FORCED", { exact: true }).waitFor();
+  await waitForRuntimeCell(outputProbe, 2, "TRUE", "forced output");
+  await outputProbe.getByRole("button", { name: "Remove force", exact: true }).click();
+  await outputProbe.getByRole("button", { name: "Force", exact: true }).waitFor();
+  if (await outputProbe.getByText("FORCED", { exact: true }).count() !== 0) {
+    throw new Error("force provenance remained visible after removing the force");
+  }
+
+  const traceRow = page.locator(".trace-row").filter({ hasText: "Trace" });
+  await traceRow.getByRole("button", { name: "Arm", exact: true }).click();
+  await waitForLocatorText(
+    traceRow,
+    (value) => value.includes("ARMED"),
+    "trace did not enter ARMED",
+  );
+  await page.getByRole("button", { name: "Scan +1", exact: true }).click();
+  await waitForLocatorText(
+    traceRow,
+    (value) => value.includes("CAPTURING"),
+    "trace did not enter CAPTURING",
+  );
+  let traceCompleted = false;
+  for (let additionalScan = 0; additionalScan < 40; additionalScan += 1) {
+    const traceText = (await traceRow.innerText()).toLocaleUpperCase("en-US");
+    if (traceText.includes("COMPLETE") && traceText.includes("1 CAPTURES")) {
+      traceCompleted = true;
+      break;
+    }
+    await page.getByRole("button", { name: "Scan +1", exact: true }).click();
+  }
+  if (!traceCompleted) {
+    const finalTraceText = (await traceRow.innerText()).toLocaleUpperCase("en-US");
+    traceCompleted = finalTraceText.includes("COMPLETE") && finalTraceText.includes("1 CAPTURES");
+  }
+  if (!traceCompleted) {
+    throw new Error(`trace did not complete within its bounded post-sample window: ${await traceRow.innerText()}`);
+  }
+
+  await page.getByRole("button", { name: "STOP", exact: true }).click();
+  await waitForLocatorText(
+    page.locator(".runtime-toolbar__identity strong"),
+    (value) => value.trim() === "Stop",
+    "virtual controller did not stop for snapshot capture",
+  );
+  await page.getByRole("button", { name: "Capture snapshot", exact: true }).click();
+  await waitForEnabled(
+    page.getByRole("button", { name: "Restore snapshot", exact: true }),
+    true,
+    "captured aggregate snapshot was not made restorable",
+  );
+  const snapshotScanSequence = await readScanSequence(page);
+
+  await inputProbe.getByLabel("Value for Input", { exact: true }).selectOption("true");
+  await inputProbe.getByRole("button", { name: "Set raw", exact: true }).click();
+  await page.getByRole("button", { name: "RUN", exact: true }).click();
+  await page.getByRole("button", { name: "Scan +1", exact: true }).click();
+  await waitForRuntimeCell(inputProbe, 1, "TRUE", "mutated input before snapshot restore");
+  await waitForRuntimeCell(outputProbe, 1, "FALSE", "mutated output before snapshot restore");
+  const mutatedScanSequence = await readScanSequence(page);
+  if (mutatedScanSequence === snapshotScanSequence) {
+    throw new Error("snapshot mutation did not advance the controller scan sequence");
+  }
+  await page.getByRole("button", { name: "STOP", exact: true }).click();
+  await page.getByRole("button", { name: "Restore snapshot", exact: true }).click();
+  await waitForRuntimeCell(inputProbe, 1, "FALSE", "restored input value");
+  await waitForRuntimeCell(outputProbe, 1, "TRUE", "restored output value");
+  const restoredScanSequence = await readScanSequence(page);
+  await waitForLocatorText(
+    page.locator(".runtime-toolbar__identity strong"),
+    (value) => value.trim() === "Stop",
+    "snapshot restore did not recover the captured STOP state",
+  );
+
+  const runtimeScreenshot = path.join(evidenceDirectory, "workbench-runtime-commissioning.png");
+  await page.screenshot({ fullPage: true, path: runtimeScreenshot });
+
+  const receiptBeforeSave = (await page.locator(".runtime-toolbar__receipt").innerText()).trim();
+  await page.locator('button[title="Save as"]').click();
+  await page.getByRole("status", { name: "Saved", exact: true }).waitFor();
+  await page.getByText("Online session active", { exact: true }).waitFor();
+  const receiptAfterSave = (await page.locator(".runtime-toolbar__receipt").innerText()).trim();
+  if (receiptAfterSave !== receiptBeforeSave) {
+    throw new Error("Save As changed the loaded runtime epoch or scan sequence");
+  }
+  const memoryFile = await page.evaluate(() => window.__phase2MemoryFileSnapshot());
+  if (memoryFile.byteLength <= 0 || memoryFile.savePickerCalls !== 1 || memoryFile.writeCount !== 1) {
+    throw new Error(`memory-backed Save As was not durably verified: ${JSON.stringify(memoryFile)}`);
+  }
 
   await page.getByRole("button", { exact: true, name: "Close" }).click();
-  await page.getByRole("heading", { level: 2, name: "Save changes before closing?" }).waitFor();
-  await page.getByRole("button", { name: "Discard" }).click();
   await page.getByRole("heading", {
     level: 1,
     name: "Build logic. Test it safely. Understand every scan.",
   }).waitFor();
+  if (await page.getByRole("heading", { level: 2, name: "Save changes before closing?" }).count() !== 0) {
+    throw new Error("a verified clean save still produced the unsaved-close decision dialog");
+  }
+  await page.getByRole("button", { name: "Choose project file", exact: true }).click();
+  await page.getByRole("heading", { level: 1, name: "Renamed training cell" }).waitFor();
+  await page.getByRole("status", { name: "Saved", exact: true }).waitFor();
+  for (const persistedObject of [
+    "Controller",
+    "Local rack",
+    "VDI16",
+    "VDO16",
+    "VAI4",
+    "VAO4",
+    "Function",
+    "FbdFunction",
+    "MainCycle",
+    "StateBlock",
+    "GlobalData",
+    "InstanceData",
+    "ProcessData",
+    "Input",
+    "Output",
+    "Watch table",
+    "Trace",
+  ]) {
+    await treeItem(page, persistedObject).waitFor();
+  }
+  await waitForLocatorText(
+    page.locator(".runtime-toolbar__identity strong"),
+    (value) => value.trim() === "Powered off",
+    "reopened project did not start with a fresh powered-off runtime",
+  );
+  await waitForEnabled(
+    page.getByRole("button", { name: "Preview load", exact: true }),
+    false,
+    "reopened project incorrectly retained an in-memory build",
+  );
+  await waitForEnabled(
+    page.getByRole("button", { name: "Go online", exact: true }),
+    false,
+    "reopened project incorrectly retained a loaded runtime",
+  );
+  const reopenedFile = await page.evaluate(() => window.__phase2MemoryFileSnapshot());
+  if (reopenedFile.openPickerCalls !== 1) {
+    throw new Error("the saved project was not reopened through the granted production file boundary");
+  }
+  const reopenScreenshot = path.join(evidenceDirectory, "workbench-runtime-reopened.png");
+  await page.screenshot({ fullPage: true, path: reopenScreenshot });
+
+  const workbenchScreenshot = path.join(evidenceDirectory, "workbench-real-kernel.png");
+  await page.screenshot({ fullPage: true, path: workbenchScreenshot });
 
   if (remoteRequests.length > 0) {
     throw new Error(`remote request attempted: ${remoteRequests.join(", ")}`);
@@ -250,16 +470,31 @@ try {
       "create-project",
       "create-network-controller-rack-digital-analog-io",
       "author-lad-ob-fbd-fc-scl-fc-fb-db-types-and-bound-tags",
+      "bind-watch-and-trace-after-tags",
       "copy-with-new-identity",
       "delete",
       "undo",
       "redo",
       "rename",
-      "close-discard",
+      "build-power-preview-commit-online-run-scan",
+      "causal-io-monitor-modify-force-trace-snapshot",
+      "save-as-close-open-project-with-fresh-runtime",
     ],
     isolatedLoopbackArtifact: true,
     networkRequests: 0,
-    screenshotPaths: [ladderScreenshot, fbdScreenshot, workbenchScreenshot, mobileScreenshot],
+    snapshotSemantics: {
+      capturedScanSequence: snapshotScanSequence,
+      mutatedScanSequence,
+      restoredScanSequence,
+    },
+    screenshotPaths: [
+      ladderScreenshot,
+      fbdScreenshot,
+      runtimeScreenshot,
+      reopenScreenshot,
+      workbenchScreenshot,
+      mobileScreenshot,
+    ],
     viewports: ["1586x920", "426x823"],
     wasmCore: "plc-engineering-core@0.2.0",
   }));
@@ -288,6 +523,162 @@ async function addObject(page, menuItemName) {
 
 function treeItem(page, text) {
   return page.getByRole("treeitem", { exact: true, name: text });
+}
+
+function runtimeProbe(page, displayName) {
+  return page
+    .locator(".runtime-probe-row")
+    .filter({ has: page.getByText(displayName, { exact: true }) });
+}
+
+async function waitForRuntimeCell(row, cellIndex, expected, label) {
+  const cell = row.locator('[role="cell"]').nth(cellIndex);
+  await waitForLocatorText(
+    cell,
+    (value) => value.split(/\r?\n/u)[0]?.trim() === expected,
+    `${label} did not become ${expected}`,
+  );
+}
+
+async function waitForWatchValues(page, expected) {
+  const rows = page.locator(".watch-row");
+  await waitForCondition(async () => {
+    if (await rows.count() !== expected.length) {
+      return false;
+    }
+    const values = await rows.allTextContents();
+    return values.every((value, index) => value.includes(expected[index]));
+  }, `watch values did not publish ${expected.join(", ")}`);
+}
+
+async function readScanSequence(page) {
+  const row = page.locator(".runtime-summary dl > div").filter({ hasText: "Scan sequence" });
+  await row.waitFor();
+  const text = await row.locator("dd").innerText();
+  return text.trim();
+}
+
+async function waitForScanSequence(page, expected) {
+  await waitForCondition(
+    async () => await readScanSequence(page) === expected,
+    `scan sequence did not become ${expected}`,
+  );
+}
+
+async function waitForBuildCurrent(page) {
+  const current = page.getByText("Build current", { exact: true });
+  const alert = page.getByRole("alert");
+  await waitForCondition(async () => {
+    if (await current.count() > 0 && await current.isVisible()) {
+      return true;
+    }
+    if (await alert.count() > 0 && await alert.isVisible()) {
+      throw new Error(`runtime build failed in the production UI: ${await alert.innerText()}`);
+    }
+    return false;
+  }, "runtime build did not become current");
+}
+
+async function waitForEnabled(locator, expected, message) {
+  await waitForCondition(async () => await locator.isEnabled() === expected, message);
+}
+
+async function waitForLocatorText(locator, predicate, message) {
+  await waitForCondition(async () => predicate(await locator.innerText()), message);
+}
+
+async function waitForCondition(condition, message, timeoutMilliseconds = 30_000) {
+  const deadline = Date.now() + timeoutMilliseconds;
+  let lastError = null;
+  while (Date.now() < deadline) {
+    try {
+      if (await condition()) {
+        return;
+      }
+    } catch (error) {
+      lastError = error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new Error(`${message}${lastError instanceof Error ? `: ${lastError.message}` : ""}`);
+}
+
+async function installMemoryFileAccess(context) {
+  await context.addInitScript(() => {
+    const fileName = "renamed-training-cell.vlabproj";
+    const mimeType = "application/vnd.govs.virtual-plc-project";
+    let committedBytes = null;
+    let openPickerCalls = 0;
+    let savePickerCalls = 0;
+    let writeCount = 0;
+
+    const handle = {
+      async createWritable() {
+        let stagedBytes = null;
+        let finished = false;
+        return {
+          async abort() {
+            stagedBytes = null;
+            finished = true;
+          },
+          async close() {
+            if (finished || stagedBytes === null) {
+              throw new Error("No staged project bytes are available.");
+            }
+            committedBytes = stagedBytes.slice();
+            writeCount += 1;
+            finished = true;
+          },
+          async write(data) {
+            if (finished || !(data instanceof Uint8Array)) {
+              throw new TypeError("The fake project handle accepts one Uint8Array write.");
+            }
+            stagedBytes = data.slice();
+          },
+        };
+      },
+      async getFile() {
+        if (committedBytes === null) {
+          throw new Error("No project has been saved to the fake file handle.");
+        }
+        return new File([committedBytes], fileName, { type: mimeType });
+      },
+      kind: "file",
+      name: fileName,
+    };
+
+    Object.defineProperties(window, {
+      __phase2MemoryFileSnapshot: {
+        configurable: false,
+        value: () => ({
+          byteLength: committedBytes?.byteLength ?? 0,
+          openPickerCalls,
+          savePickerCalls,
+          writeCount,
+        }),
+        writable: false,
+      },
+      showOpenFilePicker: {
+        configurable: false,
+        value: async () => {
+          openPickerCalls += 1;
+          if (committedBytes === null) {
+            throw new DOMException("No saved project is available.", "NotFoundError");
+          }
+          return [handle];
+        },
+        writable: false,
+      },
+      showSaveFilePicker: {
+        configurable: false,
+        value: async () => {
+          savePickerCalls += 1;
+          return handle;
+        },
+        writable: false,
+      },
+    });
+  });
 }
 
 async function installNetworkBoundary(context, allowedOrigin, rejectedRequests) {

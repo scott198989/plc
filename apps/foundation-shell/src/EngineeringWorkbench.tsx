@@ -145,7 +145,12 @@ export const EngineeringWorkbench = ({
   const createObject = async (template: CreateObjectTemplate): Promise<void> => {
     const objectId = crypto.randomUUID();
     await onOperation({
-      displayName: nextObjectName(template.baseName, resolvedSelectedId, snapshot),
+      displayName: nextObjectName(
+        template.baseName,
+        resolvedSelectedId,
+        snapshot,
+        requiresPlcIdentifier(template),
+      ),
       kind: "project.create-object",
       objectId,
       objectKind: template.objectKind,
@@ -1155,7 +1160,7 @@ const creationOptions = (
           semanticPayload: {},
         },
         {
-          baseName: "Process data",
+          baseName: "ProcessData",
           description: "Named user structure",
           glyph: "UD",
           label: "Named structure",
@@ -1176,7 +1181,7 @@ const creationOptions = (
           ),
         },
         {
-          baseName: "Ladder cycle",
+          baseName: "MainCycle",
           description: "Editable semantic LAD organization block",
           glyph: "LD",
           label: "Ladder organization block",
@@ -1200,7 +1205,7 @@ const creationOptions = (
           ),
         },
         {
-          baseName: "FBD function",
+          baseName: "FbdFunction",
           description: "Typed function-block diagram",
           glyph: "FD",
           label: "FBD function",
@@ -1209,7 +1214,7 @@ const creationOptions = (
           semanticPayload: () => createFbdProgramPayload(nextEngineeringNumber(snapshot, "FC")),
         },
         {
-          baseName: "Function block",
+          baseName: "StateBlock",
           description: "State-owning SCL block",
           glyph: "FB",
           label: "Function block",
@@ -1221,7 +1226,7 @@ const creationOptions = (
           ),
         },
         {
-          baseName: "Global data",
+          baseName: "GlobalData",
           description: "Controller global data block",
           glyph: "DB",
           label: "Global data block",
@@ -1234,7 +1239,7 @@ const creationOptions = (
           ),
         },
         {
-          baseName: "Instance data",
+          baseName: "InstanceData",
           description: "Function-block instance data",
           glyph: "ID",
           label: "Instance data block",
@@ -1421,6 +1426,7 @@ const nextObjectName = (
   baseName: string,
   parentId: string,
   snapshot: WorkbenchSnapshot,
+  plcIdentifier: boolean,
 ): string => {
   const siblingNames = new Set(
     Object.values(snapshot.objects)
@@ -1431,13 +1437,19 @@ const nextObjectName = (
     return baseName;
   }
   for (let suffix = 2; suffix <= 9_999; suffix += 1) {
-    const candidate = `${baseName} ${suffix}`;
+    const candidate = `${baseName}${plcIdentifier ? "_" : " "}${suffix}`;
     if (!siblingNames.has(candidate.toLocaleLowerCase("en-US"))) {
       return candidate;
     }
   }
-  return `${baseName} ${crypto.randomUUID().slice(0, 8)}`;
+  return `${baseName}${plcIdentifier ? "_" : " "}${crypto.randomUUID().slice(0, 8)}`;
 };
+
+const requiresPlcIdentifier = (template: CreateObjectTemplate): boolean =>
+  template.payloadSchema === "edu.program-block/1" ||
+  template.payloadSchema === "edu.data-block/1" ||
+  template.payloadSchema === "edu.named-type/1" ||
+  template.payloadSchema === "edu.tag/1";
 
 const isDescendantOf = (
   object: WorkbenchObjectView,
