@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import reviewed_requirement_mapping as reviewed_mapping
 from verify_phase2 import (
     EXPECTED_REQUIREMENT_COUNT,
     EXPECTED_VERIFICATION_COUNT,
@@ -33,12 +34,16 @@ class Phase2GateTests(unittest.TestCase):
             {
                 "id": f"PES-TST-{index:04d}",
                 "area": "TST",
+                "exactText": f"PES-TST-{index:04d}",
+                "textSha256": hashlib.sha256(
+                    f"PES-TST-{index:04d}".encode("ascii")
+                ).hexdigest().upper(),
                 "truthState": "NOT_STARTED",
             }
             for index in range(1, EXPECTED_REQUIREMENT_COUNT + 1)
         ]
         registry = {
-            "directive": {"path": "directive.docx", "sha256": "D" * 64},
+            "directive": {"path": "directive.docx", "sha256": "1" * 64},
             "requirements": requirements,
         }
         catalog = {
@@ -48,12 +53,64 @@ class Phase2GateTests(unittest.TestCase):
             "requirementMappingSkeleton": [
                 {
                     "requirementId": requirement["id"],
-                    "candidateVerificationIds": [verification_ids[0]],
+                    "candidateVerificationIds": verification_ids[:2],
                 }
                 for requirement in requirements
             ],
         }
         return registry, catalog
+
+    def reviewed_mapping(self, registry: dict, catalog: dict) -> dict:
+        rows = [
+            {
+                "requirementId": requirement["id"],
+                "requirementTextSha256": requirement["textSha256"],
+                "selectedVerificationIds": [catalog["verificationRecords"][0]["verificationId"]],
+                "disposition": reviewed_mapping.DISPOSITION,
+                "reviewerRationale": (
+                    "Reviewed the exact synthetic requirement and selected its direct proof."
+                ),
+            }
+            for requirement in sorted(registry["requirements"], key=lambda item: item["id"])
+        ]
+        return {
+            "schemaVersion": 1,
+            "artifactKind": reviewed_mapping.ARTIFACT_KIND,
+            "reviewAuthority": {
+                "reviewerId": "phase2-gate-test-reviewer",
+                "reviewedOn": "2026-08-28",
+                "dispositionPolicy": reviewed_mapping.DISPOSITION_POLICY,
+                "rationaleMaxCharacters": reviewed_mapping.RATIONALE_MAX_CHARACTERS,
+            },
+            "binding": {
+                "directivePath": registry["directive"]["path"],
+                "directiveSha256": self.binding()["directiveSha256"],
+                "requirementRegistryPath": reviewed_mapping.REQUIREMENT_REGISTRY_PATH,
+                "requirementRegistrySha256": self.binding()["requirementRegistrySha256"],
+                "verificationCatalogPath": reviewed_mapping.VERIFICATION_CATALOG_PATH,
+                "verificationCatalogSha256": self.binding()["verificationCatalogSha256"],
+                "requirementCount": EXPECTED_REQUIREMENT_COUNT,
+                "verificationCount": EXPECTED_VERIFICATION_COUNT,
+                "requirementInventorySha256": reviewed_mapping.requirement_inventory_sha256(
+                    registry["requirements"]
+                ),
+                "verificationInventorySha256": reviewed_mapping.verification_inventory_sha256(
+                    catalog["verificationRecords"]
+                ),
+                "reviewedRowsSha256": reviewed_mapping.reviewed_rows_sha256(rows),
+            },
+            "mappingRows": rows,
+        }
+
+    def initial_ledger(self, registry: dict, catalog: dict) -> dict:
+        return initial_status_ledger(
+            registry,
+            catalog,
+            self.reviewed_mapping(registry, catalog),
+            requirement_registry_sha256=self.binding()["requirementRegistrySha256"],
+            verification_catalog_sha256=self.binding()["verificationCatalogSha256"],
+            directive_sha256=self.binding()["directiveSha256"],
+        )
 
     def binding(self) -> dict[str, str]:
         return {
@@ -66,6 +123,7 @@ class Phase2GateTests(unittest.TestCase):
             "requirementsSourceSha256": "E" * 64,
             "requirementRegistrySha256": "F" * 64,
             "verificationCatalogSha256": "0" * 64,
+            "reviewedRequirementMappingSha256": "9" * 64,
             "directiveSha256": "1" * 64,
         }
 
@@ -295,28 +353,61 @@ class Phase2GateTests(unittest.TestCase):
 
     def test_initial_ledger_enumerates_every_obligation_without_claiming_completion(self) -> None:
         registry, catalog = self.catalogs()
-        ledger = initial_status_ledger(registry, catalog)
+        ledger = self.initial_ledger(registry, catalog)
         self.assertEqual(len(ledger["requirements"]), 937)
         self.assertEqual(len(ledger["verifications"]), 44)
         self.assertEqual([entry["journeyId"] for entry in ledger["journeys"]], list(JOURNEY_IDS))
         self.assertEqual([entry["gateId"] for entry in ledger["gates"]], list(G2_IDS))
         self.assertTrue(all(entry["status"] == "NOT_STARTED" for entry in ledger["requirements"]))
+        self.assertTrue(all(entry["mappingStatus"] == "REVIEWED" for entry in ledger["requirements"]))
         self.assertTrue(all(entry["status"] == "NOT_STARTED" for entry in ledger["verifications"]))
 
     def test_default_ledger_fails_closed_as_incomplete(self) -> None:
         registry, catalog = self.catalogs()
-        ledger = initial_status_ledger(registry, catalog)
+        reviewed = self.reviewed_mapping(registry, catalog)
+        ledger = self.initial_ledger(registry, catalog)
         with tempfile.TemporaryDirectory() as temporary:
             _summary, failures = validate_status_claim(
                 ledger,
                 registry,
                 catalog,
+                reviewed,
                 self.binding(),
                 Path(temporary),
                 {"src/implemented.rs"},
             )
         codes = {failure.code for failure in failures}
         self.assertTrue({"P2-COMP-0001", "P2-COMP-0002", "P2-COMP-0003", "P2-COMP-0004"}.issubset(codes))
+
+    def test_catalog_candidates_cannot_be_synthesized_into_a_reviewed_mapping(self) -> None:
+        registry, catalog = self.catalogs()
+        reviewed = self.reviewed_mapping(registry, catalog)
+        ledger = self.initial_ledger(registry, catalog)
+        with tempfile.TemporaryDirectory() as temporary:
+            ledger["requirements"][0]["mappingStatus"] = "AREA_CANDIDATES_UNREVIEWED"
+            _summary, failures = validate_status_claim(
+                ledger,
+                registry,
+                catalog,
+                reviewed,
+                self.binding(),
+                Path(temporary),
+                set(),
+            )
+            self.assertIn("P2-MAP-0001", {failure.code for failure in failures})
+
+            ledger["requirements"][0]["mappingStatus"] = "REVIEWED"
+            ledger["requirements"][0]["verificationIds"] = ["VER-TST-0002"]
+            _summary, failures = validate_status_claim(
+                ledger,
+                registry,
+                catalog,
+                reviewed,
+                self.binding(),
+                Path(temporary),
+                set(),
+            )
+            self.assertIn("P2-MAP-0003", {failure.code for failure in failures})
 
     def test_stale_flaky_crashed_or_canned_evidence_never_receives_credit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -422,7 +513,8 @@ class Phase2GateTests(unittest.TestCase):
 
     def test_complete_synthetic_claim_has_a_reachable_pass_path(self) -> None:
         registry, catalog = self.catalogs()
-        ledger = initial_status_ledger(registry, catalog)
+        reviewed = self.reviewed_mapping(registry, catalog)
+        ledger = self.initial_ledger(registry, catalog)
         requirement_ids = [entry["requirementId"] for entry in ledger["requirements"]]
         verification_ids = [entry["verificationId"] for entry in ledger["verifications"]]
         with tempfile.TemporaryDirectory() as temporary:
@@ -482,6 +574,7 @@ class Phase2GateTests(unittest.TestCase):
                 ledger,
                 registry,
                 catalog,
+                reviewed,
                 self.binding(),
                 base,
                 {"src/implemented.rs"},

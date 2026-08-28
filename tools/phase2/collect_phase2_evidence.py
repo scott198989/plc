@@ -896,7 +896,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     try:
         root = args.root.resolve(strict=True)
-        commit, _requirements, catalog, binding, _candidate_paths = (
+        commit, _requirements, catalog, _reviewed_mapping, binding, _candidate_paths = (
             finalize_phase2_status.candidate_context(root, args.candidate_ref)
         )
         output = resolve_inside_verification_root(root, args.output_dir, commit)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sys
 import tempfile
@@ -24,6 +25,7 @@ from generate_phase2_coverage_audit import (  # noqa: E402
     render_json,
     render_report,
 )
+import reviewed_requirement_mapping  # noqa: E402
 
 
 class Phase2CoverageAuditTests(unittest.TestCase):
@@ -45,7 +47,39 @@ class Phase2CoverageAuditTests(unittest.TestCase):
         self.assertNotIn("VERIFIED", self.audit["summary"]["requirementTruthStateCounts"])
         self.assertEqual(
             {record["mappingStatus"] for record in self.audit["requirementCoverage"]},
-            {"AREA_CANDIDATES_UNREVIEWED"},
+            {"REVIEWED"},
+        )
+        self.assertEqual(
+            self.audit["summary"]["reviewedRequirementMappingCount"],
+            EXPECTED_REQUIREMENTS,
+        )
+        self.assertTrue(
+            all(
+                record["selectedVerificationIds"]
+                and set(record["selectedVerificationIds"]).issubset(
+                    record["candidateVerificationIds"]
+                )
+                and 20 <= len(record["mappingReviewerRationale"]) <= 240
+                for record in self.audit["requirementCoverage"]
+            )
+        )
+        self.assertFalse(
+            any(
+                "UNREVIEWED" in record["coverageSignal"]
+                for record in self.audit["requirementCoverage"]
+            )
+        )
+
+    def test_reviewed_mapping_binding_is_exact(self) -> None:
+        path = ROOT / reviewed_requirement_mapping.REVIEWED_MAPPING_PATH
+        expected = hashlib.sha256(path.read_bytes()).hexdigest().upper()
+        self.assertEqual(
+            self.audit["binding"]["reviewedRequirementMappingSha256"], expected
+        )
+        artifact = json.loads(path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            self.audit["binding"]["reviewedMappingRowsSha256"],
+            artifact["binding"]["reviewedRowsSha256"],
         )
 
     def test_classifications_are_conservative_and_gap_complete(self) -> None:
@@ -67,6 +101,7 @@ class Phase2CoverageAuditTests(unittest.TestCase):
                 self.assertTrue((ROOT / relative).is_file(), relative)
         for lane in self.audit["independentGapLanes"]:
             members = set(lane["verificationIds"])
+            self.assertTrue(members)
             self.assertFalse(lane_members & members)
             lane_members |= members
         incomplete = {

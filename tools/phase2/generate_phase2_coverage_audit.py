@@ -18,6 +18,8 @@ from collections import Counter, defaultdict
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping, Sequence
 
+import reviewed_requirement_mapping
+
 
 READY = "IMPLEMENTED_EVIDENCE_READY"
 PARTIAL = "PARTIAL"
@@ -386,14 +388,25 @@ ASSESSMENTS: dict[str, dict[str, Any]] = {
         ["tools/phase2/test_extract_phase2_requirements.py", "tools/phase2/test_governance_audit.py", "tools/phase2/test_verify_phase2_gate.py"],
     ),
     "VER-ACC-0001": assessment(
-        PARTIAL,
-        "The production browser workflow edits one canonical project, builds, previews/commits virtual load, goes online/RUN, monitors, modifies, forces, traces, injects and navigates a causal work-budget diagnostic, snapshots, saves, closes, and reopens.",
-        ["crates/plc-system/src/session.rs", "crates/plc-engineering-wasm/src/system_bridge.rs", "apps/foundation-shell/src/EngineeringWorkbench.tsx", "apps/foundation-shell/src/RuntimeWorkbench.tsx"],
-        ["tests/phase2/workbench-browser.e2e.mjs", "crates/plc-system/tests/system_journeys.rs", "crates/plc-engineering-wasm/src/kernel_bridge.rs"],
+        READY,
+        "The production browser workflow edits one canonical project; builds and commits Virtual Download; goes online/RUN; monitors, modifies, forces, traces, diagnoses, and navigates; captures/restores the aggregate snapshot; exports and executes a non-empty canonical closed replay package through the production Rust/WASM/worker path with one reproduced state boundary and a content-bound receipt; then saves, closes, and reopens through the typed broker with a fresh runtime.",
         [
-            "Save/reopen is exercised, but deterministic replay from a saved replay package is absent.",
+            "crates/plc-system/src/replay_executor.rs",
+            "crates/plc-engineering-wasm/src/system_bridge.rs",
+            "crates/plc-engineering-wasm/src/kernel_bridge.rs",
+            "apps/foundation-shell/src/engineering-worker-handler.ts",
+            "apps/foundation-shell/src/wasm-kernel.ts",
+            "apps/foundation-shell/src/App.tsx",
+            "apps/foundation-shell/src/EngineeringWorkbench.tsx",
+            "apps/foundation-shell/src/RuntimeWorkbench.tsx",
         ],
-        "LANE-GOVERNANCE-ENDTOEND",
+        [
+            "tests/phase2/workbench-browser.e2e.mjs",
+            "crates/plc-engineering-wasm/src/kernel_bridge.rs",
+            "apps/foundation-shell/test/engineering-worker-handler.test.ts",
+            "apps/foundation-shell/test/runtime-workbench.test.ts",
+            "crates/plc-system/tests/system_journeys.rs",
+        ],
     ),
 }
 
@@ -529,25 +542,27 @@ def validate_assessments(root: Path, verification_ids: set[str]) -> None:
                     raise AuditError(f"{verification_id} cites missing path {relative}")
         if lane is not None:
             lane_members[lane].add(verification_id)
-    if set(lane_members) != set(LANES):
-        raise AuditError("every declared gap lane must own at least one incomplete verification")
+    if not set(lane_members).issubset(LANES):
+        raise AuditError("an incomplete verification names an undeclared gap lane")
 
 
 def requirement_signal(classifications: Sequence[str]) -> str:
     if not classifications:
-        return "NO_CANDIDATE_VERIFICATION"
+        return "NO_REVIEWED_VERIFICATION"
     if all(value == READY for value in classifications):
-        return "ALL_AREA_CANDIDATES_EVIDENCE_READY_UNREVIEWED"
+        return "ALL_REVIEWED_MAPPINGS_EVIDENCE_READY"
     if any(value in {READY, PARTIAL} for value in classifications):
-        return "SOME_STATIC_SUPPORT_MAPPING_UNREVIEWED"
-    return "NO_IMPLEMENTED_CANDIDATE_PROOF"
+        return "SOME_STATIC_SUPPORT_IN_REVIEWED_MAPPING"
+    return "NO_IMPLEMENTED_REVIEWED_PROOF"
 
 
 def build_audit(root: Path) -> dict[str, Any]:
     requirement_path = root / "requirements" / "phase2-requirements.json"
     catalog_path = root / "requirements" / "phase2-verification-catalog.json"
+    reviewed_mapping_path = root / reviewed_requirement_mapping.REVIEWED_MAPPING_PATH
     requirements = load_json(requirement_path)
     catalog = load_json(catalog_path)
+    reviewed_mapping = load_json(reviewed_mapping_path)
     requirement_records = requirements.get("requirements")
     verification_records = catalog.get("verificationRecords")
     mapping_records = catalog.get("requirementMappingSkeleton")
@@ -557,6 +572,24 @@ def build_audit(root: Path) -> dict[str, Any]:
         raise AuditError(f"expected exactly {EXPECTED_VERIFICATIONS} Appendix H records")
     if not isinstance(mapping_records, list) or len(mapping_records) != EXPECTED_REQUIREMENTS:
         raise AuditError("requirement mapping skeleton must enumerate all requirements")
+
+    directive_path_value = requirements.get("directive", {}).get("path")
+    if not isinstance(directive_path_value, str):
+        raise AuditError("requirement registry has no directive path")
+    directive_path = root / PurePosixPath(directive_path_value.replace("\\", "/"))
+    try:
+        reviewed_by_requirement = reviewed_requirement_mapping.validate_reviewed_mapping(
+            reviewed_mapping,
+            requirements,
+            catalog,
+            requirement_registry_sha256=sha256_file(requirement_path),
+            verification_catalog_sha256=sha256_file(catalog_path),
+            directive_sha256=sha256_file(directive_path),
+            expected_requirement_count=EXPECTED_REQUIREMENTS,
+            expected_verification_count=EXPECTED_VERIFICATIONS,
+        )
+    except reviewed_requirement_mapping.ReviewedMappingError as exc:
+        raise AuditError(str(exc)) from exc
 
     verification_by_id = {
         record.get("verificationId"): record for record in verification_records if isinstance(record, dict)
@@ -615,7 +648,9 @@ def build_audit(root: Path) -> dict[str, Any]:
         if not isinstance(candidate_ids, list) or any(value not in verification_ids for value in candidate_ids):
             raise AuditError(f"invalid candidate mapping for {requirement_id}")
         candidate_ids = sorted(set(candidate_ids))
-        classifications = [ASSESSMENTS[value]["classification"] for value in candidate_ids]
+        reviewed_row = reviewed_by_requirement[requirement_id]
+        selected_ids = list(reviewed_row["selectedVerificationIds"])
+        classifications = [ASSESSMENTS[value]["classification"] for value in selected_ids]
         signal = requirement_signal(classifications)
         area_counts[record["area"]][signal] += 1
         truth_counts[str(record["truthState"])] += 1
@@ -626,10 +661,16 @@ def build_audit(root: Path) -> dict[str, Any]:
                 "truthState": record["truthState"],
                 "requirementTextSha256": record["textSha256"],
                 "candidateVerificationIds": candidate_ids,
+                "selectedVerificationIds": selected_ids,
                 "candidateClassifications": {
                     value: ASSESSMENTS[value]["classification"] for value in candidate_ids
                 },
-                "mappingStatus": mapping.get("mappingStatus"),
+                "selectedClassifications": {
+                    value: ASSESSMENTS[value]["classification"] for value in selected_ids
+                },
+                "mappingStatus": "REVIEWED",
+                "mappingDisposition": reviewed_row["disposition"],
+                "mappingReviewerRationale": reviewed_row["reviewerRationale"],
                 "coverageSignal": signal,
                 "executionEvidenceIds": [],
                 "verificationCredit": "NONE",
@@ -643,6 +684,8 @@ def build_audit(root: Path) -> dict[str, Any]:
     lanes = []
     for lane_id, definition in sorted(LANES.items(), key=lambda item: item[1]["priority"]):
         members = sorted(lane_members[lane_id])
+        if not members:
+            continue
         lanes.append(
             {
                 "laneId": lane_id,
@@ -672,12 +715,16 @@ def build_audit(root: Path) -> dict[str, Any]:
             "readyMeaning": "Production and directly applicable executable test paths exist for every stated minimum-proof clause; current-candidate execution evidence is still required.",
             "partialMeaning": "Some production/test support exists, but the named minimum-proof clauses remain uncovered.",
             "missingMeaning": "No directly applicable implementation/evidence harness exists for the minimum proof.",
-            "requirementMappingsRemainUnreviewed": True,
+            "requirementMappingsRemainUnreviewed": False,
+            "reviewedMappingDoesNotGrantVerificationCredit": True,
         },
         "binding": {
             "basis": "WORKTREE_BYTES_EXCLUDING_GENERATED_EVIDENCE_OUTPUTS",
+            "directiveSha256": sha256_file(directive_path),
             "requirementRegistrySha256": sha256_file(requirement_path),
             "verificationCatalogSha256": sha256_file(catalog_path),
+            "reviewedRequirementMappingSha256": sha256_file(reviewed_mapping_path),
+            "reviewedMappingRowsSha256": reviewed_mapping["binding"]["reviewedRowsSha256"],
             "evidenceSurfaceSha256": surface_hash,
             "evidenceSurfaceFileCount": len(surface_paths),
         },
@@ -694,6 +741,7 @@ def build_audit(root: Path) -> dict[str, Any]:
                 len(record["uncoveredProofClauses"]) for record in output_verifications
             ),
             "verificationCreditGranted": 0,
+            "reviewedRequirementMappingCount": len(reviewed_by_requirement),
         },
         "verificationAssessments": output_verifications,
         "requirementCoverage": output_requirements,
@@ -754,7 +802,7 @@ def render_report(audit: Mapping[str, Any]) -> str:
         [
             "## Requirement inventory posture",
             "",
-            "Every requirement record remains at its extracted truth state and its Appendix H area mapping remains explicitly unreviewed. The machine-readable audit lists all requirement IDs, candidate proof IDs, static signals, empty execution-evidence IDs, and zero verification credit.",
+            "Every requirement record remains at its extracted truth state. Its explicit reviewed Appendix H selection is source-bound to the exact directive, registry, catalog, requirement text hash, and reviewed-row inventory. The machine-readable audit lists all requirement IDs, candidate and selected proof IDs, bounded review rationale, static signals, empty execution-evidence IDs, and zero verification credit.",
             "",
             f"Evidence-surface binding: `{audit['binding']['evidenceSurfaceSha256']}` across {audit['binding']['evidenceSurfaceFileCount']} production/test/governance files. Exact candidate commit/tree binding remains the responsibility of the Phase 2 exit gate.",
         ]

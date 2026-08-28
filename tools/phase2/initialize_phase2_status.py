@@ -5,9 +5,10 @@ from __future__ import annotations
 
 import argparse
 import json
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from verify_phase2 import initial_status_ledger, load_json
+import reviewed_requirement_mapping
+from verify_phase2 import initial_status_ledger, load_json, sha256_file
 
 
 def parse_args() -> argparse.Namespace:
@@ -24,10 +25,30 @@ def main() -> int:
     args = parse_args()
     root = args.root.resolve(strict=True)
     output = args.output if args.output.is_absolute() else root / args.output
-    registry = load_json(root / "requirements" / "phase2-requirements.json")
-    catalog = load_json(root / "requirements" / "phase2-verification-catalog.json")
+    registry_path = root / "requirements" / "phase2-requirements.json"
+    catalog_path = root / "requirements" / "phase2-verification-catalog.json"
+    reviewed_mapping_path = root / reviewed_requirement_mapping.REVIEWED_MAPPING_PATH
+    registry = load_json(registry_path)
+    catalog = load_json(catalog_path)
+    reviewed_mapping = load_json(reviewed_mapping_path)
+    directive = registry.get("directive", {}).get("path")
+    if not isinstance(directive, str):
+        raise ValueError("Phase 2 requirement registry has no directive path")
+    directive_path = root / PurePosixPath(directive.replace("\\", "/"))
     payload = (
-        json.dumps(initial_status_ledger(registry, catalog), indent=2, ensure_ascii=False) + "\n"
+        json.dumps(
+            initial_status_ledger(
+                registry,
+                catalog,
+                reviewed_mapping,
+                requirement_registry_sha256=sha256_file(registry_path),
+                verification_catalog_sha256=sha256_file(catalog_path),
+                directive_sha256=sha256_file(directive_path),
+            ),
+            indent=2,
+            ensure_ascii=False,
+        )
+        + "\n"
     ).encode("utf-8")
     if args.check:
         if not output.is_file() or output.read_bytes() != payload:

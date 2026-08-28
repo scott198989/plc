@@ -21,6 +21,7 @@ import sys
 from pathlib import Path, PurePosixPath
 from typing import Any, Mapping, Sequence
 
+import reviewed_requirement_mapping
 import verify_phase2
 
 
@@ -54,10 +55,12 @@ def candidate_context(
     dict[str, Any],
     dict[str, Any],
     dict[str, Any],
+    dict[str, Any],
     set[str],
 ]:
     requirement_path = "requirements/phase2-requirements.json"
     catalog_path = "requirements/phase2-verification-catalog.json"
+    reviewed_mapping_path = reviewed_requirement_mapping.REVIEWED_MAPPING_PATH
     entry_gate_path = "evidence/phase2/P2-00_ENTRY_GATE.json"
     commit = verify_phase2.resolve_commit(root, candidate_ref)
     tree = verify_phase2.resolve_tree(root, commit)
@@ -65,10 +68,13 @@ def candidate_context(
     blobs = verify_phase2.git_blob_sources(
         root,
         commit,
-        [requirement_path, catalog_path, entry_gate_path],
+        [requirement_path, catalog_path, reviewed_mapping_path, entry_gate_path],
     )
     requirements = verify_phase2.load_json_bytes(blobs[requirement_path], requirement_path)
     catalog = verify_phase2.load_json_bytes(blobs[catalog_path], catalog_path)
+    reviewed_mapping = verify_phase2.load_json_bytes(
+        blobs[reviewed_mapping_path], reviewed_mapping_path
+    )
     entry_gate = verify_phase2.load_json_bytes(blobs[entry_gate_path], entry_gate_path)
     directive = requirements.get("directive", {}).get("path")
     if not isinstance(directive, str):
@@ -88,6 +94,7 @@ def candidate_context(
         entries,
         requirement_path,
         catalog_path,
+        reviewed_mapping_path,
         directive,
     )
     if not policy.passed:
@@ -96,13 +103,27 @@ def candidate_context(
             for finding in policy.findings
         )
         raise FinalizationError(f"candidate source policy failed: {detail}")
-    return commit, requirements, catalog, binding, set(entries)
+    try:
+        reviewed_requirement_mapping.validate_reviewed_mapping(
+            reviewed_mapping,
+            requirements,
+            catalog,
+            requirement_registry_sha256=binding["requirementRegistrySha256"],
+            verification_catalog_sha256=binding["verificationCatalogSha256"],
+            directive_sha256=binding["directiveSha256"],
+            expected_requirement_count=verify_phase2.EXPECTED_REQUIREMENT_COUNT,
+            expected_verification_count=verify_phase2.EXPECTED_VERIFICATION_COUNT,
+        )
+    except reviewed_requirement_mapping.ReviewedMappingError as exc:
+        raise FinalizationError(f"reviewed requirement mapping is invalid: {exc}") from exc
+    return commit, requirements, catalog, reviewed_mapping, binding, set(entries)
 
 
 def require_gapless_static_audit(
     audit: Mapping[str, Any],
     requirements: Mapping[str, Any],
     catalog: Mapping[str, Any],
+    reviewed_mapping: Mapping[str, Any],
     candidate_binding: Mapping[str, Any],
 ) -> None:
     summary = audit.get("summary")
@@ -144,6 +165,16 @@ def require_gapless_static_audit(
             "verificationCatalogSha256"
         ):
             failures.append("static audit verification-catalog binding is stale")
+        if binding.get("directiveSha256") != candidate_binding.get("directiveSha256"):
+            failures.append("static audit directive binding is stale")
+        if binding.get("reviewedRequirementMappingSha256") != candidate_binding.get(
+            "reviewedRequirementMappingSha256"
+        ):
+            failures.append("static audit reviewed-mapping binding is stale")
+        if binding.get("reviewedMappingRowsSha256") != reviewed_mapping.get(
+            "binding", {}
+        ).get("reviewedRowsSha256"):
+            failures.append("static audit reviewed-row inventory binding is stale")
     if failures:
         raise FinalizationError("; ".join(failures))
 
@@ -178,13 +209,16 @@ def build_ledger(
     candidate_tag: str,
     requirements: Mapping[str, Any],
     catalog: Mapping[str, Any],
+    reviewed_mapping: Mapping[str, Any],
     binding: Mapping[str, Any],
     audit: Mapping[str, Any],
     execution_index: Mapping[str, Any],
     evidence_base: Path,
     candidate_paths: set[str],
 ) -> dict[str, Any]:
-    require_gapless_static_audit(audit, requirements, catalog, binding)
+    require_gapless_static_audit(
+        audit, requirements, catalog, reviewed_mapping, binding
+    )
     if execution_index.get("schemaVersion") != 1:
         raise FinalizationError("execution index schemaVersion must be 1")
     if execution_index.get("candidateBinding") != binding:
@@ -223,13 +257,19 @@ def build_ledger(
         for record in verification_records
         if isinstance(record, dict) and isinstance(record.get("verificationId"), str)
     }
-    mapping = {
-        str(record["requirementId"]): {
-            str(value) for value in record.get("candidateVerificationIds", [])
-        }
-        for record in catalog.get("requirementMappingSkeleton", [])
-        if isinstance(record, dict) and isinstance(record.get("requirementId"), str)
-    }
+    try:
+        reviewed_by_requirement = reviewed_requirement_mapping.validate_reviewed_mapping(
+            reviewed_mapping,
+            requirements,
+            catalog,
+            requirement_registry_sha256=str(binding.get("requirementRegistrySha256", "")),
+            verification_catalog_sha256=str(binding.get("verificationCatalogSha256", "")),
+            directive_sha256=str(binding.get("directiveSha256", "")),
+            expected_requirement_count=len(requirements.get("requirements", [])),
+            expected_verification_count=len(verification_records),
+        )
+    except reviewed_requirement_mapping.ReviewedMappingError as exc:
+        raise FinalizationError(f"reviewed requirement mapping is invalid: {exc}") from exc
     evidence_for: dict[str, dict[str, list[str]]] = {
         family: {} for family in ("verifications", "journeys", "gates")
     }
@@ -262,8 +302,13 @@ def build_ledger(
         if not isinstance(requirement, dict) or not isinstance(requirement.get("id"), str):
             raise FinalizationError("candidate requirement inventory contains an invalid record")
         requirement_id = requirement["id"]
-        candidate_verifications = mapping.get(requirement_id, set())
-        covered_verifications = sorted(candidate_verifications & set(evidence_for["verifications"]))
+        reviewed_row = reviewed_by_requirement.get(requirement_id)
+        if reviewed_row is None:
+            raise FinalizationError(f"requirement {requirement_id} has no reviewed mapping")
+        candidate_verifications = set(reviewed_row["selectedVerificationIds"])
+        covered_verifications = sorted(
+            candidate_verifications & set(evidence_for["verifications"])
+        )
         if not covered_verifications:
             raise FinalizationError(f"requirement {requirement_id} has no executable Appendix H mapping")
         linked_ids = {
@@ -291,6 +336,8 @@ def build_ledger(
                 "status": "VERIFIED",
                 "verificationIds": covered_verifications,
                 "mappingStatus": "REVIEWED",
+                "mappingDisposition": reviewed_row["disposition"],
+                "mappingReviewerRationale": reviewed_row["reviewerRationale"],
                 "implementationPaths": [],
                 "evidenceIds": sorted(linked_ids),
             }
@@ -309,6 +356,7 @@ def build_ledger(
             "default": "NOT_STARTED",
             "verifiedRequiresCurrentExecutableEvidence": True,
             "passNeverInferredFromBuildOrTestName": True,
+            "reviewedMappingDoesNotGrantVerificationCredit": True,
             "nonCreditResults": sorted(verify_phase2.REJECTED_RESULTS),
         },
         "candidate": {"commit": commit, "tag": candidate_tag},
@@ -344,6 +392,7 @@ def build_ledger(
         ledger,
         requirements,
         catalog,
+        reviewed_mapping,
         binding,
         evidence_base,
         candidate_paths,
@@ -401,9 +450,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             raise FinalizationError(
                 "execution index and output ledger must share one evidence directory"
             )
-        commit, requirements, catalog, binding, candidate_paths = candidate_context(
-            root, args.candidate_ref
-        )
+        (
+            commit,
+            requirements,
+            catalog,
+            reviewed_mapping,
+            binding,
+            candidate_paths,
+        ) = candidate_context(root, args.candidate_ref)
         if tag_target(root, args.candidate_tag) != commit:
             raise FinalizationError("candidate tag does not point to the exact candidate commit")
         ledger = build_ledger(
@@ -411,6 +465,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             candidate_tag=args.candidate_tag,
             requirements=requirements,
             catalog=catalog,
+            reviewed_mapping=reviewed_mapping,
             binding=binding,
             audit=load_object(audit_path),
             execution_index=load_object(execution_path),

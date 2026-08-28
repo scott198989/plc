@@ -28,6 +28,7 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping, Sequence
 
+import reviewed_requirement_mapping
 import source_policy
 
 
@@ -68,6 +69,7 @@ REQUIRED_BINDING_FIELDS = (
     "requirementsSourceSha256",
     "requirementRegistrySha256",
     "verificationCatalogSha256",
+    "reviewedRequirementMappingSha256",
     "directiveSha256",
 )
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
@@ -341,6 +343,7 @@ def candidate_binding(
     entries: Mapping[str, tuple[str, str]],
     requirement_registry_path: str,
     verification_catalog_path: str,
+    reviewed_mapping_path: str,
     directive_path: str,
 ) -> tuple[dict[str, Any], source_policy.SourcePolicyResult]:
     candidate_fixed = git_blob_sources(
@@ -351,6 +354,7 @@ def candidate_binding(
             ISOLATION_APPROVAL_PATH,
             requirement_registry_path,
             verification_catalog_path,
+            reviewed_mapping_path,
             directive_path,
         ],
     )
@@ -389,6 +393,9 @@ def candidate_binding(
         "requirementsSourceSha256": manifest_digest(entries, requirement_paths),
         "requirementRegistrySha256": sha256_bytes(candidate_fixed[requirement_registry_path]),
         "verificationCatalogSha256": sha256_bytes(candidate_fixed[verification_catalog_path]),
+        "reviewedRequirementMappingSha256": sha256_bytes(
+            candidate_fixed[reviewed_mapping_path]
+        ),
         "directiveSha256": sha256_bytes(candidate_fixed[directive_path]),
         "productionSourceFileCount": len(production),
         "testSourceFileCount": len(test_paths),
@@ -921,6 +928,7 @@ def validate_status_claim(
     ledger: Mapping[str, Any],
     requirement_registry: Mapping[str, Any],
     verification_catalog: Mapping[str, Any],
+    reviewed_mapping: Mapping[str, Any],
     binding: Mapping[str, Any],
     evidence_base: Path,
     candidate_paths: set[str],
@@ -947,11 +955,20 @@ def validate_status_claim(
     requirement_by_id = {
         str(item["id"]): item for item in requirement_source if isinstance(item, dict) and isinstance(item.get("id"), str)
     }
-    mapping_by_requirement = {
-        str(item.get("requirementId")): set(item.get("candidateVerificationIds", []))
-        for item in verification_catalog.get("requirementMappingSkeleton", [])
-        if isinstance(item, dict) and isinstance(item.get("requirementId"), str)
-    }
+    try:
+        reviewed_by_requirement = reviewed_requirement_mapping.validate_reviewed_mapping(
+            reviewed_mapping,
+            requirement_registry,
+            verification_catalog,
+            requirement_registry_sha256=str(binding.get("requirementRegistrySha256", "")),
+            verification_catalog_sha256=str(binding.get("verificationCatalogSha256", "")),
+            directive_sha256=str(binding.get("directiveSha256", "")),
+            expected_requirement_count=EXPECTED_REQUIREMENT_COUNT,
+            expected_verification_count=EXPECTED_VERIFICATION_COUNT,
+        )
+    except reviewed_requirement_mapping.ReviewedMappingError as exc:
+        failures.append(Failure("P2-MAP-0004", "reviewed-mapping", str(exc)))
+        reviewed_by_requirement = {}
 
     requirements, inventory_failures = _inventory(
         ledger.get("requirements"), "requirementId", requirement_ids, "requirements"
@@ -1038,6 +1055,29 @@ def validate_status_claim(
                         failures.append(
                             Failure("P2-STATUS-0012", requirement_id, f"implementation path is absent from candidate: {normalized}")
                         )
+        reviewed_row = reviewed_by_requirement.get(requirement_id)
+        mapped = entry.get("verificationIds")
+        if entry.get("mappingStatus") != "REVIEWED":
+            failures.append(
+                Failure("P2-MAP-0001", requirement_id, "Appendix H mapping remains unreviewed")
+            )
+        if (
+            not isinstance(mapped, list)
+            or not mapped
+            or any(not isinstance(item, str) or not item for item in mapped)
+            or len(mapped) != len(set(mapped))
+        ):
+            failures.append(
+                Failure("P2-MAP-0002", requirement_id, "no exact Appendix H mapping is declared")
+            )
+        elif reviewed_row is None or mapped != reviewed_row.get("selectedVerificationIds"):
+            failures.append(
+                Failure(
+                    "P2-MAP-0003",
+                    requirement_id,
+                    "declared Appendix H mapping does not exactly match the reviewed artifact",
+                )
+            )
         if state == "VERIFIED":
             if not records:
                 failures.append(Failure("P2-STATUS-0013", requirement_id, "VERIFIED requirement lacks evidence"))
@@ -1059,17 +1099,6 @@ def validate_status_claim(
             area = str(requirement_by_id.get(requirement_id, {}).get("area", ""))
             if area in ISOLATION_AREAS and "ISOLATION" not in observed_case_kinds:
                 failures.append(Failure("P2-STATUS-0015", requirement_id, "applicable isolation evidence is missing"))
-            mapped = entry.get("verificationIds")
-            mapped_set = {str(item) for item in mapped} if isinstance(mapped, list) else set()
-            allowed = mapping_by_requirement.get(requirement_id, set())
-            if entry.get("mappingStatus") != "REVIEWED":
-                failures.append(
-                    Failure("P2-MAP-0001", requirement_id, "Appendix H mapping remains unreviewed")
-                )
-            if not mapped_set:
-                failures.append(Failure("P2-MAP-0002", requirement_id, "no Appendix H mapping is declared"))
-            elif not mapped_set.issubset(allowed):
-                failures.append(Failure("P2-MAP-0003", requirement_id, "declared Appendix H mapping is not a catalog candidate"))
 
     for verification_id, entry in verifications.items():
         state = str(entry.get("status", "MISSING"))
@@ -1196,15 +1225,26 @@ def validate_status_claim(
 
 
 def initial_status_ledger(
-    requirement_registry: Mapping[str, Any], verification_catalog: Mapping[str, Any]
+    requirement_registry: Mapping[str, Any],
+    verification_catalog: Mapping[str, Any],
+    reviewed_mapping: Mapping[str, Any],
+    *,
+    requirement_registry_sha256: str,
+    verification_catalog_sha256: str,
+    directive_sha256: str,
 ) -> dict[str, Any]:
     requirements = requirement_registry.get("requirements", [])
     verifications = verification_catalog.get("verificationRecords", [])
-    mapping = {
-        str(item.get("requirementId")): list(item.get("candidateVerificationIds", []))
-        for item in verification_catalog.get("requirementMappingSkeleton", [])
-        if isinstance(item, dict)
-    }
+    mapping = reviewed_requirement_mapping.validate_reviewed_mapping(
+        reviewed_mapping,
+        requirement_registry,
+        verification_catalog,
+        requirement_registry_sha256=requirement_registry_sha256,
+        verification_catalog_sha256=verification_catalog_sha256,
+        directive_sha256=directive_sha256,
+        expected_requirement_count=EXPECTED_REQUIREMENT_COUNT,
+        expected_verification_count=EXPECTED_VERIFICATION_COUNT,
+    )
     return {
         "schemaVersion": 1,
         "ledgerKind": "PHASE_2_IMPLEMENTATION_EVIDENCE_STATUS",
@@ -1213,6 +1253,7 @@ def initial_status_ledger(
             "default": "NOT_STARTED",
             "verifiedRequiresCurrentExecutableEvidence": True,
             "passNeverInferredFromBuildOrTestName": True,
+            "reviewedMappingDoesNotGrantVerificationCredit": True,
             "nonCreditResults": sorted(REJECTED_RESULTS),
         },
         "candidate": {"commit": None, "tag": None},
@@ -1220,8 +1261,8 @@ def initial_status_ledger(
             {
                 "requirementId": item["id"],
                 "status": "NOT_STARTED",
-                "verificationIds": mapping.get(item["id"], []),
-                "mappingStatus": "UNREVIEWED",
+                "verificationIds": mapping[item["id"]]["selectedVerificationIds"],
+                "mappingStatus": "REVIEWED",
                 "implementationPaths": [],
                 "evidenceIds": [],
             }
@@ -1271,6 +1312,7 @@ def main(argv: list[str] | None = None) -> int:
         root = args.root.resolve(strict=True)
         requirement_registry_relative = "requirements/phase2-requirements.json"
         verification_catalog_relative = "requirements/phase2-verification-catalog.json"
+        reviewed_mapping_relative = reviewed_requirement_mapping.REVIEWED_MAPPING_PATH
         entry_gate_relative = "evidence/phase2/P2-00_ENTRY_GATE.json"
         commit = resolve_commit(root, args.candidate_ref)
         tree = resolve_tree(root, commit)
@@ -1281,6 +1323,7 @@ def main(argv: list[str] | None = None) -> int:
             [
                 requirement_registry_relative,
                 verification_catalog_relative,
+                reviewed_mapping_relative,
                 entry_gate_relative,
             ],
         )
@@ -1289,6 +1332,9 @@ def main(argv: list[str] | None = None) -> int:
         )
         verification_catalog = load_json_bytes(
             candidate_catalog_bytes[verification_catalog_relative], verification_catalog_relative
+        )
+        reviewed_mapping = load_json_bytes(
+            candidate_catalog_bytes[reviewed_mapping_relative], reviewed_mapping_relative
         )
         entry_gate = load_json_bytes(candidate_catalog_bytes[entry_gate_relative], entry_gate_relative)
         directive_relative = requirement_registry.get("directive", {}).get("path")
@@ -1305,6 +1351,7 @@ def main(argv: list[str] | None = None) -> int:
             entries,
             requirement_registry_relative,
             verification_catalog_relative,
+            reviewed_mapping_relative,
             directive_relative,
         )
         extraction_current, extraction_transcript = verify_extraction_current(root)
@@ -1336,6 +1383,19 @@ def main(argv: list[str] | None = None) -> int:
             )
         if not extraction_current:
             failures.append(Failure("P2-CAT-0003", "requirements", "extracted Phase 2 registries are stale"))
+        try:
+            reviewed_requirement_mapping.validate_reviewed_mapping(
+                reviewed_mapping,
+                requirement_registry,
+                verification_catalog,
+                requirement_registry_sha256=binding["requirementRegistrySha256"],
+                verification_catalog_sha256=binding["verificationCatalogSha256"],
+                directive_sha256=binding["directiveSha256"],
+                expected_requirement_count=EXPECTED_REQUIREMENT_COUNT,
+                expected_verification_count=EXPECTED_VERIFICATION_COUNT,
+            )
+        except reviewed_requirement_mapping.ReviewedMappingError as exc:
+            failures.append(Failure("P2-MAP-0004", "reviewed-mapping", str(exc)))
 
         base_report: dict[str, Any] = {
             "schemaVersion": 1,
@@ -1349,6 +1409,13 @@ def main(argv: list[str] | None = None) -> int:
             "requirementExtraction": {
                 "current": extraction_current,
                 "transcript": extraction_transcript,
+            },
+            "reviewedRequirementMapping": {
+                "path": reviewed_mapping_relative,
+                "sha256": binding["reviewedRequirementMappingSha256"],
+                "rowsSha256": reviewed_mapping.get("binding", {}).get(
+                    "reviewedRowsSha256"
+                ),
             },
             "sourcePolicy": policy_result.as_json(),
         }
@@ -1374,6 +1441,7 @@ def main(argv: list[str] | None = None) -> int:
             ledger,
             requirement_registry,
             verification_catalog,
+            reviewed_mapping,
             binding,
             status_path.parent,
             set(entries),

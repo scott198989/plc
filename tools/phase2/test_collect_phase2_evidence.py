@@ -69,6 +69,7 @@ class Phase2EvidenceCollectorTests(unittest.TestCase):
             "requirementsSourceSha256": "C" * 64,
             "requirementRegistrySha256": "D" * 64,
             "verificationCatalogSha256": "E" * 64,
+            "reviewedRequirementMappingSha256": "8" * 64,
             "directiveSha256": "F" * 64,
             "productionSourceFileCount": 1,
             "testSourceFileCount": 1,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import tempfile
 import unittest
 from pathlib import Path
@@ -20,6 +21,7 @@ class FinalizePhase2StatusTests(unittest.TestCase):
             "requirementsSourceSha256": "C" * 64,
             "requirementRegistrySha256": "D" * 64,
             "verificationCatalogSha256": "E" * 64,
+            "reviewedRequirementMappingSha256": "8" * 64,
             "directiveSha256": "F" * 64,
             "productionSourceFileCount": 1,
             "testSourceFileCount": 1,
@@ -30,8 +32,13 @@ class FinalizePhase2StatusTests(unittest.TestCase):
     def audit(self, count: int = 2) -> dict[str, object]:
         return {
             "binding": {
+                "directiveSha256": "F" * 64,
                 "requirementRegistrySha256": "D" * 64,
                 "verificationCatalogSha256": "E" * 64,
+                "reviewedRequirementMappingSha256": "8" * 64,
+                "reviewedMappingRowsSha256": self.reviewed_mapping()["binding"][
+                    "reviewedRowsSha256"
+                ],
             },
             "summary": {
                 "requirementsEnumerated": 2,
@@ -53,12 +60,90 @@ class FinalizePhase2StatusTests(unittest.TestCase):
         }
 
     def requirements(self) -> dict[str, object]:
+        iso_text = "[PES-ISO-TEST] MUST remain exact."
+        typ_text = "[PES-TYP-TEST] MUST remain exact."
         return {
             "directive": {"path": "directive.docx", "sha256": "F" * 64},
             "requirements": [
-                {"id": "PES-ISO-TEST", "area": "ISO"},
-                {"id": "PES-TYP-TEST", "area": "TYP"},
+                {
+                    "id": "PES-ISO-TEST",
+                    "area": "ISO",
+                    "exactText": iso_text,
+                    "textSha256": hashlib.sha256(iso_text.encode("utf-8"))
+                    .hexdigest()
+                    .upper(),
+                },
+                {
+                    "id": "PES-TYP-TEST",
+                    "area": "TYP",
+                    "exactText": typ_text,
+                    "textSha256": hashlib.sha256(typ_text.encode("utf-8"))
+                    .hexdigest()
+                    .upper(),
+                },
             ],
+        }
+
+    def reviewed_mapping(self) -> dict[str, object]:
+        requirements = self.requirements()
+        catalog = self.catalog()
+        rows = [
+            {
+                "requirementId": "PES-ISO-TEST",
+                "requirementTextSha256": requirements["requirements"][0]["textSha256"],
+                "selectedVerificationIds": ["VER-ISO-TEST"],
+                "disposition": finalizer.reviewed_requirement_mapping.DISPOSITION,
+                "reviewerRationale": "Reviewed exact ISO requirement and selected its direct proof.",
+            },
+            {
+                "requirementId": "PES-TYP-TEST",
+                "requirementTextSha256": requirements["requirements"][1]["textSha256"],
+                "selectedVerificationIds": ["VER-TYP-TEST"],
+                "disposition": finalizer.reviewed_requirement_mapping.DISPOSITION,
+                "reviewerRationale": "Reviewed exact TYP requirement and selected its direct proof.",
+            },
+        ]
+        return {
+            "schemaVersion": 1,
+            "artifactKind": finalizer.reviewed_requirement_mapping.ARTIFACT_KIND,
+            "reviewAuthority": {
+                "reviewerId": "phase2-finalizer-test",
+                "reviewedOn": "2026-08-28",
+                "dispositionPolicy": (
+                    finalizer.reviewed_requirement_mapping.DISPOSITION_POLICY
+                ),
+                "rationaleMaxCharacters": (
+                    finalizer.reviewed_requirement_mapping.RATIONALE_MAX_CHARACTERS
+                ),
+            },
+            "binding": {
+                "directivePath": "directive.docx",
+                "directiveSha256": "F" * 64,
+                "requirementRegistryPath": (
+                    finalizer.reviewed_requirement_mapping.REQUIREMENT_REGISTRY_PATH
+                ),
+                "requirementRegistrySha256": "D" * 64,
+                "verificationCatalogPath": (
+                    finalizer.reviewed_requirement_mapping.VERIFICATION_CATALOG_PATH
+                ),
+                "verificationCatalogSha256": "E" * 64,
+                "requirementCount": 2,
+                "verificationCount": 2,
+                "requirementInventorySha256": (
+                    finalizer.reviewed_requirement_mapping.requirement_inventory_sha256(
+                        requirements["requirements"]
+                    )
+                ),
+                "verificationInventorySha256": (
+                    finalizer.reviewed_requirement_mapping.verification_inventory_sha256(
+                        catalog["verificationRecords"]
+                    )
+                ),
+                "reviewedRowsSha256": (
+                    finalizer.reviewed_requirement_mapping.reviewed_rows_sha256(rows)
+                ),
+            },
+            "mappingRows": rows,
         }
 
     def catalog(self) -> dict[str, object]:
@@ -120,6 +205,7 @@ class FinalizePhase2StatusTests(unittest.TestCase):
                 audit,
                 self.requirements(),
                 self.catalog(),
+                self.reviewed_mapping(),
                 self.binding(),
             )
 
@@ -166,6 +252,7 @@ class FinalizePhase2StatusTests(unittest.TestCase):
                     candidate_tag="phase2-test",
                     requirements=self.requirements(),
                     catalog=self.catalog(),
+                    reviewed_mapping=self.reviewed_mapping(),
                     binding=self.binding(),
                     audit=self.audit(),
                     execution_index=execution_index,

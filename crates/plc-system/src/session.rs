@@ -3100,9 +3100,25 @@ fn hash_restore_preview(preview: &RestorePreview) -> Hash32 {
     hash32(sha256(&bytes))
 }
 
+fn identity_from_hash(hash: Hash32) -> u128 {
+    let mut identity = [0_u8; 16];
+    identity.copy_from_slice(&hash.as_bytes()[..16]);
+    u128::from_be_bytes(identity)
+}
+
+const fn identity_seed(identity: u128) -> u64 {
+    let bytes = identity.to_be_bytes();
+    u64::from_be_bytes([
+        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+    ])
+}
+
 #[cfg(test)]
 mod snapshot_restore_delta_contract_tests {
-    use super::{ForceRestoreClassification, force_restore_deltas, hash_force_restore_deltas};
+    use super::{
+        ForceRestoreClassification, ForceRestoreDelta, force_restore_deltas,
+        hash_force_restore_deltas,
+    };
     use plc_commissioning::VirtualOnlineSessionId;
     use plc_observability::{
         AccessCapabilities, BitRange, ForceCommand, ForceCommandKind, ForceId, ForceRegistry,
@@ -3120,11 +3136,11 @@ mod snapshot_restore_delta_contract_tests {
 
     fn context(universe_epoch: u64, controller_epoch: u64) -> ObservationContext {
         ObservationContext {
-            universe_id: UniverseId(0xD311_A),
+            universe_id: UniverseId(0x000D_311A),
             universe_epoch,
-            controller_id: VirtualControllerId(0xD311_B),
+            controller_id: VirtualControllerId(0x000D_311B),
             controller_epoch,
-            session_id: VirtualOnlineSessionId(0xD311_C),
+            session_id: VirtualOnlineSessionId(0x000D_311C),
             session_epoch: controller_epoch.saturating_add(2),
             package_fingerprint: hash("delta-package"),
             artifact_fingerprint: hash("delta-artifact"),
@@ -3190,7 +3206,7 @@ mod snapshot_restore_delta_contract_tests {
                 target: TargetReference::Stable(StableTargetId(target_id)),
                 value: CanonicalValue::Bool(value),
                 natural_at_application: CanonicalValue::Bool(false),
-                actor_identity: 0xD311_D,
+                actor_identity: 0x000D_311D,
                 reason: format!("delta-force-{force_id}"),
             },
         };
@@ -3199,16 +3215,23 @@ mod snapshot_restore_delta_contract_tests {
             .expect("force fixture must be admitted");
     }
 
-    #[test]
-    fn complete_force_restore_delta_matrix_binds_classifications_ordinals_records_and_hash() {
+    struct DeltaFixture {
+        current: ForceRegistry,
+        planned: ForceRegistry,
+        snapshot_hash: Hash32,
+    }
+
+    type ExpectedDelta = (
+        ForceId,
+        Vec<ForceRestoreClassification>,
+        Option<u64>,
+        Option<u64>,
+    );
+
+    fn delta_fixture() -> DeltaFixture {
         let catalog = catalog();
         let captured_context = context(1, 3);
         let rebound_context = context(2, 4);
-
-        // Current state: force 5 will be removed by restore; force 20 is
-        // retained but moves from ordinal 2 to 1; force 30 is replaced; force
-        // 40 is retained without moving. All retained snapshot entries rebind
-        // to the new validity epochs.
         let mut current = ForceRegistry::new();
         for (force_id, target_id, value) in
             [(5, 1, true), (20, 2, true), (30, 3, false), (40, 4, true)]
@@ -3222,9 +3245,6 @@ mod snapshot_restore_delta_contract_tests {
                 value,
             );
         }
-
-        // Captured state: force 25 is added by restore, while all other
-        // surviving identities use the same complete provenance as current.
         let mut captured = ForceRegistry::new();
         for (force_id, target_id, value) in
             [(20, 2, true), (25, 5, true), (30, 3, true), (40, 4, true)]
@@ -3242,23 +3262,15 @@ mod snapshot_restore_delta_contract_tests {
         let (planned, _) =
             ForceRegistry::rebind_snapshot(&captured_snapshot, rebound_context, &catalog)
                 .expect("captured registry must rebind through production validation");
+        DeltaFixture {
+            current,
+            planned,
+            snapshot_hash: captured_snapshot.registry_hash,
+        }
+    }
 
-        let deltas = force_restore_deltas(&current, &planned);
-        assert_eq!(
-            deltas
-                .iter()
-                .map(|delta| delta.force_id)
-                .collect::<Vec<_>>(),
-            [
-                ForceId(5),
-                ForceId(20),
-                ForceId(25),
-                ForceId(30),
-                ForceId(40)
-            ]
-        );
-
-        let expected = [
+    fn expected_matrix() -> [ExpectedDelta; 5] {
+        [
             (
                 ForceId(5),
                 vec![ForceRestoreClassification::Removed],
@@ -3299,7 +3311,22 @@ mod snapshot_restore_delta_contract_tests {
                 Some(4),
                 Some(4),
             ),
-        ];
+        ]
+    }
+
+    fn assert_delta_matrix(fixture: &DeltaFixture) -> Vec<ForceRestoreDelta> {
+        let deltas = force_restore_deltas(&fixture.current, &fixture.planned);
+        let expected = expected_matrix();
+        assert_eq!(
+            deltas
+                .iter()
+                .map(|delta| delta.force_id)
+                .collect::<Vec<_>>(),
+            expected
+                .iter()
+                .map(|(force_id, ..)| *force_id)
+                .collect::<Vec<_>>()
+        );
         for (delta, (force_id, classifications, before_ordinal, after_ordinal)) in
             deltas.iter().zip(expected)
         {
@@ -3307,30 +3334,37 @@ mod snapshot_restore_delta_contract_tests {
             assert_eq!(delta.classifications, classifications);
             assert_eq!(delta.before_ordinal, before_ordinal);
             assert_eq!(delta.after_ordinal, after_ordinal);
-            assert_eq!(delta.before.as_ref(), current.entry(force_id));
-            assert_eq!(delta.after.as_ref(), planned.entry(force_id));
+            assert_eq!(delta.before.as_ref(), fixture.current.entry(force_id));
+            assert_eq!(delta.after.as_ref(), fixture.planned.entry(force_id));
         }
+        deltas
+    }
 
-        let current_hash = current.registry_hash();
-        let snapshot_hash = captured_snapshot.registry_hash;
-        let planned_hash = planned.registry_hash();
+    fn assert_delta_hash_binding(fixture: &DeltaFixture, deltas: &[ForceRestoreDelta]) {
+        let current_hash = fixture.current.registry_hash();
+        let planned_hash = fixture.planned.registry_hash();
         let delta_hash =
-            hash_force_restore_deltas(current_hash, snapshot_hash, planned_hash, &deltas);
+            hash_force_restore_deltas(current_hash, fixture.snapshot_hash, planned_hash, deltas);
         assert_eq!(
             delta_hash,
-            hash_force_restore_deltas(current_hash, snapshot_hash, planned_hash, &deltas),
+            hash_force_restore_deltas(current_hash, fixture.snapshot_hash, planned_hash, deltas,),
             "canonical delta hashing must be deterministic"
         );
         assert_ne!(delta_hash, Hash32::ZERO);
 
-        let mut reordered = deltas.clone();
+        let mut reordered = deltas.to_vec();
         reordered.swap(0, 1);
         assert_ne!(
             delta_hash,
-            hash_force_restore_deltas(current_hash, snapshot_hash, planned_hash, &reordered),
+            hash_force_restore_deltas(
+                current_hash,
+                fixture.snapshot_hash,
+                planned_hash,
+                &reordered,
+            ),
             "canonical delta hashing must bind record order"
         );
-        let mut provenance_changed = deltas.clone();
+        let mut provenance_changed = deltas.to_vec();
         provenance_changed[1]
             .after
             .as_mut()
@@ -3345,24 +3379,18 @@ mod snapshot_restore_delta_contract_tests {
             delta_hash,
             hash_force_restore_deltas(
                 current_hash,
-                snapshot_hash,
+                fixture.snapshot_hash,
                 planned_hash,
                 &provenance_changed,
             ),
             "canonical delta hashing must bind the complete before/after record hash"
         );
     }
-}
 
-fn identity_from_hash(hash: Hash32) -> u128 {
-    let mut identity = [0_u8; 16];
-    identity.copy_from_slice(&hash.as_bytes()[..16]);
-    u128::from_be_bytes(identity)
-}
-
-const fn identity_seed(identity: u128) -> u64 {
-    let bytes = identity.to_be_bytes();
-    u64::from_be_bytes([
-        bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-    ])
+    #[test]
+    fn complete_force_restore_delta_matrix_binds_classifications_ordinals_records_and_hash() {
+        let fixture = delta_fixture();
+        let deltas = assert_delta_matrix(&fixture);
+        assert_delta_hash_binding(&fixture, &deltas);
+    }
 }

@@ -4,7 +4,7 @@ This report is a static implementation/test readiness assessment. It grants no v
 
 ## Result
 
-All 937 extracted requirements and all 44 Appendix H minimum proofs are enumerated. Classifications: 35 `IMPLEMENTED_EVIDENCE_READY`, 9 `PARTIAL`, and 0 `MISSING`. There are 15 explicitly recorded uncovered proof clauses.
+All 937 extracted requirements and all 44 Appendix H minimum proofs are enumerated. Classifications: 36 `IMPLEMENTED_EVIDENCE_READY`, 8 `PARTIAL`, and 0 `MISSING`. There are 14 explicitly recorded uncovered proof clauses.
 
 `IMPLEMENTED_EVIDENCE_READY` means only that production and directly applicable tests exist for the full static clause. Candidate-bound execution, logs, negative/integration/isolation evidence, review, and Scott's acceptance remain outstanding.
 
@@ -14,7 +14,7 @@ Exact implementation and test paths for every row are recorded in `PHASE2_COVERA
 
 | Verification | Classification | Uncovered proof |
 |---|---|---|
-| `VER-ACC-0001` | `PARTIAL` | Save/reopen is exercised, but deterministic replay from a saved replay package is absent. |
+| `VER-ACC-0001` | `IMPLEMENTED_EVIDENCE_READY` | None found in this static pass; executable evidence remains required. |
 | `VER-BLD-0001` | `IMPLEMENTED_EVIDENCE_READY` | None found in this static pass; executable evidence remains required. |
 | `VER-CMP-0001` | `IMPLEMENTED_EVIDENCE_READY` | None found in this static pass; executable evidence remains required. |
 | `VER-COM-0001` | `IMPLEMENTED_EVIDENCE_READY` | None found in this static pass; executable evidence remains required. |
@@ -85,14 +85,8 @@ Scope: `VER-ISO-0003`, `VER-ISO-0004`, `VER-ISO-0005`
 
 Deliverable: Capture application/child/OS attempts, fuzz every typed boundary, scan the packaged candidate, and emit multi-platform exact-candidate isolation evidence.
 
-### 7. Governance completeness and causal end-to-end replay
-
-Scope: `VER-ACC-0001`
-
-Deliverable: Complete vocabulary/clarification/reservation audits and extend the real UI journey through causal diagnosis and deterministic replay.
-
 ## Requirement inventory posture
 
-Every requirement record remains at its extracted truth state and its Appendix H area mapping remains explicitly unreviewed. The machine-readable audit lists all requirement IDs, candidate proof IDs, static signals, empty execution-evidence IDs, and zero verification credit.
+Every requirement record remains at its extracted truth state. Its explicit reviewed Appendix H selection is source-bound to the exact directive, registry, catalog, requirement text hash, and reviewed-row inventory. The machine-readable audit lists all requirement IDs, candidate and selected proof IDs, bounded review rationale, static signals, empty execution-evidence IDs, and zero verification credit.
 
-Evidence-surface binding: `02DCFB3F922AC6F91E1886526CBD77EF11A37857A18AA9DF15DD240368F8DE28` across 246 production/test/governance files. Exact candidate commit/tree binding remains the responsibility of the Phase 2 exit gate.
+Evidence-surface binding: `96644E96F7559F25C3B26B4DF82196C9620B9A22ECA9772CCB739E8325C95D1F` across 253 production/test/governance files. Exact candidate commit/tree binding remains the responsibility of the Phase 2 exit gate.
