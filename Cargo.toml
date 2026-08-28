@@ -2,6 +2,7 @@
 members = [
     "crates/foundation-wasm",
     "crates/plc-commissioning",
+    "crates/plc-compiler",
     "crates/plc-core",
     "crates/plc-engineering-wasm",
     "crates/plc-hardware",

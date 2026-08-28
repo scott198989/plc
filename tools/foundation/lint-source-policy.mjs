@@ -10,6 +10,7 @@ const sourceRoots = [
 const rustRoots = [
   resolveInProject("crates", "foundation-wasm", "src"),
   resolveInProject("crates", "plc-commissioning", "src"),
+  resolveInProject("crates", "plc-compiler", "src"),
   resolveInProject("crates", "plc-core", "src"),
   resolveInProject("crates", "plc-engineering-wasm", "src"),
   resolveInProject("crates", "plc-hardware", "src"),
