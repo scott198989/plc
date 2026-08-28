@@ -29,7 +29,7 @@ import type {
 } from "./workbench-types";
 
 const PROFILE_MANIFEST_HASH =
-  "0909090909090909090909090909090909090909090909090909090909090909";
+  "9febe00e579c161920610be4d2079621b6255217a623f29ee0f656fcd992ed9a";
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_PROJECT_OBJECTS = 16_384;
 const ZERO_HASH = "0".repeat(64);
@@ -266,9 +266,9 @@ class EngineeringWorkerEngine {
           displayName: request.displayName,
           documentId: request.documentId,
           profile: {
-            id: "edu-21",
+            id: "EDU-21 Core",
             manifestHash: PROFILE_MANIFEST_HASH,
-            version: "1",
+            version: "1.0.0",
           },
           rootId: request.projectRootId,
           schemaVersion: 1,

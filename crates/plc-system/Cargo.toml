@@ -1,0 +1,26 @@
+[package]
+name = "plc-system"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+publish = false
+license = "UNLICENSED"
+description = "Canonical project projection and integrated Phase 2 PLC engineering facade"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+plc-core = { path = "../plc-core" }
+plc-hardware = { path = "../plc-hardware" }
+
+# The facade remains isolated until each canonical projection advancement test
+# is green and the coordinator admits it to the root workspace.
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }

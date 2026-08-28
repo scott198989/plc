@@ -634,8 +634,8 @@ const creationOptions = (
           payloadSchema: "edu.controller/1",
           semanticPayload: {
             catalogId: "vctrl-c1",
-            profileId: "edu-21",
-            profileVersion: "1",
+            profileId: "EDU-21 Core",
+            profileVersion: "1.0.0",
           },
         },
         {
