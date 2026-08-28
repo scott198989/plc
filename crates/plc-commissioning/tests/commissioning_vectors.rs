@@ -1,7 +1,7 @@
 use plc_commissioning::*;
 use plc_runtime::{
     ArtifactSpec, BlockId, ChannelDefinition, Instruction, MemoryDefinition, Operand, Operation,
-    ProgramBlock, ProgramImage, RestartKind, Sha256, StateDefinition,
+    ProgramBlock, ProgramImage, RestartKind, Sha256, StateDefinition, VirtualController,
 };
 
 const UNIVERSE: UniverseId = UniverseId(0x1000);
@@ -277,6 +277,144 @@ fn open_session(universe: &mut VirtualUniverse) {
         SessionState::Opening
     );
     universe.complete_go_online(SESSION).unwrap();
+}
+
+#[test]
+fn universe_power_off_uses_authoritative_runtime_and_audits_the_cpu_boundary() {
+    let base = package(
+        1,
+        &base_members(),
+        "source-map-power-off",
+        "semantic-power-off",
+        "hardware-power-off",
+        "build-power-off",
+    );
+    let mut universe = universe_for(&base);
+    assert_eq!(
+        universe
+            .controller(CONTROLLER)
+            .unwrap()
+            .runtime()
+            .cpu_state(),
+        CpuState::Stop
+    );
+    universe.power_off(CONTROLLER).unwrap();
+    assert_eq!(
+        universe
+            .controller(CONTROLLER)
+            .unwrap()
+            .runtime()
+            .cpu_state(),
+        CpuState::PoweredOff
+    );
+    let audit = universe.audit().last().expect("power-off audit event");
+    assert_eq!(audit.kind, CommissioningAuditKind::CpuCommand);
+    assert_eq!(audit.controller_id, Some(CONTROLLER));
+    assert!(audit.success);
+    assert!(audit.post_state_hash.is_some());
+}
+
+#[test]
+fn controller_snapshot_restore_is_atomic_epoch_advancing_and_invalidates_the_session() {
+    let base = package(
+        1,
+        &base_members(),
+        "source-map-snapshot",
+        "semantic-snapshot",
+        "hardware-snapshot",
+        "build-snapshot",
+    );
+    let mut universe = universe_for(&base);
+    commit(&mut universe, &base, PostLoadMode::Stop);
+    open_session(&mut universe);
+    let snapshot = universe
+        .controller(CONTROLLER)
+        .unwrap()
+        .runtime()
+        .capture_snapshot()
+        .unwrap();
+    let old_epoch = universe
+        .controller(CONTROLLER)
+        .unwrap()
+        .runtime()
+        .controller_epoch();
+    let old_universe_epoch = universe.universe_epoch();
+    let binding = universe.session_command_binding(SESSION).unwrap();
+    let restored = universe
+        .restore_controller_snapshot(binding, &snapshot)
+        .unwrap();
+    let controller = universe.controller(CONTROLLER).unwrap();
+    assert_eq!(controller.runtime().controller_epoch(), old_epoch + 1);
+    assert_eq!(controller.runtime().last_state_hash(), restored);
+    assert_eq!(universe.universe_epoch(), old_universe_epoch + 1);
+    assert_eq!(
+        universe.session(SESSION).unwrap().state(),
+        SessionState::VirtualLinkLost
+    );
+    assert!(matches!(
+        universe.request_stop(binding),
+        Err(CommissioningError::Session(SessionError::NotOnline(
+            SessionState::VirtualLinkLost
+        )))
+    ));
+    let audit = universe.audit().last().expect("snapshot restore audit");
+    assert_eq!(
+        audit.kind,
+        CommissioningAuditKind::ControllerSnapshotRestored
+    );
+    assert!(audit.success);
+    assert_ne!(audit.pre_state_hash, audit.post_state_hash);
+}
+
+#[test]
+fn mismatched_controller_snapshot_is_rejected_without_mutating_the_target() {
+    let base = package(
+        1,
+        &base_members(),
+        "source-map-snapshot-mismatch",
+        "semantic-snapshot-mismatch",
+        "hardware-snapshot-mismatch",
+        "build-snapshot-mismatch",
+    );
+    let mut universe = universe_for(&base);
+    commit(&mut universe, &base, PostLoadMode::Stop);
+    open_session(&mut universe);
+    let binding = universe.session_command_binding(SESSION).unwrap();
+    let universe_epoch_before = universe.universe_epoch();
+    let before = universe
+        .controller(CONTROLLER)
+        .unwrap()
+        .semantic_state_hash();
+
+    let mut other = VirtualController::new(UniverseId(0xdead), VirtualControllerId(0xbeef), 0x55);
+    other.power_on().unwrap();
+    other
+        .install_verified_artifact(base.runtime_artifact())
+        .unwrap();
+    let wrong_snapshot = other.capture_snapshot().unwrap();
+    assert_eq!(
+        universe.restore_controller_snapshot(binding, &wrong_snapshot),
+        Err(CommissioningError::Snapshot(SnapshotError::WrongController))
+    );
+    assert_eq!(
+        universe
+            .controller(CONTROLLER)
+            .unwrap()
+            .semantic_state_hash(),
+        before
+    );
+    assert_eq!(universe.universe_epoch(), universe_epoch_before);
+    assert_eq!(
+        universe.session(SESSION).unwrap().state(),
+        SessionState::Online
+    );
+    let audit = universe.audit().last().expect("failed restore audit");
+    assert_eq!(
+        audit.kind,
+        CommissioningAuditKind::ControllerSnapshotRestored
+    );
+    assert!(!audit.success);
+    assert_eq!(audit.pre_state_hash, audit.post_state_hash);
 }
 
 #[test]

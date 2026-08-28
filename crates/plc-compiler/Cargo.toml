@@ -14,6 +14,10 @@ path = "src/lib.rs"
 plc-program = { path = "../plc-program" }
 plc-runtime = { path = "../plc-runtime" }
 
+[dev-dependencies]
+plc-lad = { path = "../plc-lad" }
+plc-language-tools = { path = "../plc-language-tools" }
+
 [lints.rust]
 unsafe_code = "forbid"
 

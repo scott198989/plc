@@ -2,12 +2,12 @@ use alloc::{collections::BTreeMap, vec::Vec};
 use core::{error::Error, fmt};
 
 use plc_runtime::{
-    AtomicInstallError, CommandError as RuntimeCommandError, CpuState, Hash32, InputCommand,
-    InputReceipt, MemoryId, RestartKind, RunOutcome, RuntimeBoundaryCommand, RuntimeBoundaryError,
-    RuntimeBoundaryReceipt, RuntimeCloneReport, RuntimeForceResetApproval,
+    AtomicInstallError, CommandError as RuntimeCommandError, ControllerSnapshot, CpuState, Hash32,
+    InputCommand, InputReceipt, MemoryId, RestartKind, RunOutcome, RuntimeBoundaryCommand,
+    RuntimeBoundaryError, RuntimeBoundaryReceipt, RuntimeCloneReport, RuntimeForceResetApproval,
     RuntimeInstallDisposition, RuntimeLifecycleError, RuntimeReplacementReport, RuntimeScanCommand,
-    RuntimeScanReceipt, RuntimeStateTransferPlan, StateId, UniverseId, VirtualController,
-    VirtualControllerId,
+    RuntimeScanReceipt, RuntimeStateTransferPlan, SnapshotError, StateId, UniverseId,
+    VirtualController, VirtualControllerId,
 };
 
 use crate::{
@@ -422,6 +422,7 @@ pub enum CommissioningAuditKind {
     ActualHardwareStateChanged = 10,
     ObservationCommand = 11,
     VirtualInputChanged = 12,
+    ControllerSnapshotRestored = 13,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -448,6 +449,7 @@ pub enum CommissioningError {
     AtomicRuntime(AtomicInstallError),
     RuntimeLifecycle(RuntimeLifecycleError),
     RuntimeBoundary(RuntimeBoundaryError),
+    Snapshot(SnapshotError),
     ForceProjectionNotCanonical,
     ForceRegistryStateChanged {
         expected: Hash32,
@@ -518,6 +520,12 @@ impl From<RuntimeLifecycleError> for CommissioningError {
 impl From<RuntimeBoundaryError> for CommissioningError {
     fn from(value: RuntimeBoundaryError) -> Self {
         Self::RuntimeBoundary(value)
+    }
+}
+
+impl From<SnapshotError> for CommissioningError {
+    fn from(value: SnapshotError) -> Self {
+        Self::Snapshot(value)
     }
 }
 
@@ -830,6 +838,17 @@ impl VirtualUniverse {
             .get_mut(&id)
             .ok_or(CommissioningError::UnknownController(id))?;
         instance.runtime.power_on()?;
+        Ok(())
+    }
+
+    pub fn power_off(&mut self, id: VirtualControllerId) -> Result<(), CommissioningError> {
+        let instance = self
+            .controllers
+            .get_mut(&id)
+            .ok_or(CommissioningError::UnknownController(id))?;
+        instance.runtime.power_off()?;
+        self.refresh_sessions_for_target(id);
+        self.audit_cpu_command(id);
         Ok(())
     }
 
@@ -1945,6 +1964,42 @@ impl VirtualUniverse {
         Ok(())
     }
 
+    pub fn restore_controller_snapshot(
+        &mut self,
+        binding: SessionCommandBinding,
+        snapshot: &ControllerSnapshot,
+    ) -> Result<Hash32, CommissioningError> {
+        let target = self.validate_session_binding(binding)?;
+        let instance = self
+            .controllers
+            .get(&target)
+            .ok_or(SessionError::TargetUnavailable)?;
+        let pre_state_hash = instance.semantic_state_hash();
+        let old_universe_epoch = self.universe_epoch;
+        let mut staged = instance.clone();
+        let approval = match staged.runtime.prepare_restore(snapshot) {
+            Ok(approval) => approval,
+            Err(error) => {
+                self.audit_snapshot_restore(target, false, pre_state_hash, pre_state_hash);
+                return Err(error.into());
+            }
+        };
+        let restored_runtime_hash = match staged.runtime.restore_snapshot(snapshot, approval) {
+            Ok(hash) => hash,
+            Err(error) => {
+                self.audit_snapshot_restore(target, false, pre_state_hash, pre_state_hash);
+                return Err(error.into());
+            }
+        };
+        let post_state_hash = staged.semantic_state_hash();
+        self.controllers.insert(target, staged);
+        self.universe_epoch = self.universe_epoch.saturating_add(1);
+        self.mark_sessions_lost_for_universe_epoch_change(old_universe_epoch);
+        self.refresh_sessions_for_target(target);
+        self.audit_snapshot_restore(target, true, pre_state_hash, post_state_hash);
+        Ok(restored_runtime_hash)
+    }
+
     pub fn run_scan(
         &mut self,
         binding: SessionCommandBinding,
@@ -2203,6 +2258,18 @@ impl VirtualUniverse {
         }
     }
 
+    fn mark_sessions_lost_for_universe_epoch_change(&mut self, old_universe_epoch: u64) {
+        for session in self.sessions.values_mut() {
+            if session.state == SessionState::Online && session.universe_epoch == old_universe_epoch
+            {
+                session.state = SessionState::VirtualLinkLost;
+                session.session_epoch = session.session_epoch.saturating_add(1);
+                session.comparison.availability = AvailabilityComparison::Lost;
+                session.comparison.monitoring = MonitoringComparison::Stale;
+            }
+        }
+    }
+
     fn refresh_sessions_for_target(&mut self, target: VirtualControllerId) {
         let ids = self
             .sessions
@@ -2344,6 +2411,26 @@ impl VirtualUniverse {
             controller_id: Some(target),
             preview_id: None,
             success: true,
+            pre_state_hash: Some(pre_state_hash),
+            post_state_hash: Some(post_state_hash),
+            internal_failure_point: InternalFailurePoint::None,
+        });
+    }
+
+    fn audit_snapshot_restore(
+        &mut self,
+        target: VirtualControllerId,
+        success: bool,
+        pre_state_hash: Hash32,
+        post_state_hash: Hash32,
+    ) {
+        let sequence = self.next_event();
+        self.audit.push(CommissioningAuditEvent {
+            event_sequence: sequence,
+            kind: CommissioningAuditKind::ControllerSnapshotRestored,
+            controller_id: Some(target),
+            preview_id: None,
+            success,
             pre_state_hash: Some(pre_state_hash),
             post_state_hash: Some(post_state_hash),
             internal_failure_point: InternalFailurePoint::None,

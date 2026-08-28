@@ -1,18 +1,32 @@
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{
+    collections::{BTreeMap, BTreeSet},
+    vec::Vec,
+};
 
 use plc_program::{
-    BlockId as ProgramBlockId, CanonicalValue as ProgramValue, ControllerProgram, DataType,
-    InterfaceMember, InterfaceMemberId, ObDeclaration, ProgramUnitKind, RetainPolicy,
+    ADD, BOOL_AND, BOOL_NOT, BOOL_OR, BOOL_XOR, BREAKPOINT_MARKER, BlockId as ProgramBlockId,
+    CALL_FB, CALL_FC, COMPARE_EQ, COMPARE_GE, COMPARE_GT, COMPARE_LE, COMPARE_LT, COMPARE_NE,
+    COUNTER_DOWN, COUNTER_UP, COUNTER_UP_DOWN, CanonicalValue as ProgramValue, ControllerProgram,
+    DIVIDE, DataType, DisabledExecutionBehavior, FALLING_EDGE, InterfaceMember, InterfaceMemberId,
+    InterfaceRole, MODULO, MOVE, MULTIPLY, NO_OP, ObDeclaration, PROBE, ProgramUnitKind,
+    RISING_EDGE, RetainPolicy, SUBTRACT, StateKind, TIMER_OFF_DELAY, TIMER_ON_DELAY, TIMER_PULSE,
+    TRACE_SAMPLE,
 };
 use plc_runtime::{
     ArtifactError, ArtifactPackage, ArtifactSpec, BlockId as RuntimeBlockId,
     CanonicalValue as RuntimeValue, Instruction as RuntimeInstruction, MemoryDefinition, MemoryId,
     Operand as RuntimeOperand, Operation as RuntimeOperation, ProgramBlock as RuntimeProgramBlock,
-    ProgramImage, TaskId, TimedTask, ValueType,
+    ProgramImage, RuntimeActivation, RuntimeBinaryOperator, RuntimeBlockCall, RuntimeBoundInput,
+    RuntimeCallKind, RuntimeDeclaredOutput, RuntimeDisabledBehavior, RuntimeFormalRef,
+    RuntimeFrameMember, RuntimeFrameMemberRole, RuntimeFunctionBlockInstance,
+    RuntimeInstructionCode, RuntimeInstructionInstance, RuntimeInstructionInvocation,
+    RuntimeInstructionStateKind, RuntimeUnaryOperator, TaskId, TimedTask, ValueType,
+    runtime_block_signature_fingerprint,
 };
 
 use crate::{
-    BinaryOperator, IrBasicBlockId, IrOperation, IrOperationId, IrOperationKind, IrTerminator,
+    BinaryOperator, IrActivation, IrBasicBlockId, IrBoundInput, IrDeclaredOutput, IrFormalRef,
+    IrInstanceIdentity, IrOperation, IrOperationId, IrOperationKind, IrTerminator,
     IrTerminatorKind, IrType, IrValueId, ProbeId, ProbeKind, ProbeTable, RuntimeOperationId,
     SourceAnchor, SourceMapId, SourceMapSite, SourceMapTable, TypedIrProgram, UnaryOperator,
     VerifiedIr,
@@ -116,6 +130,8 @@ impl RuntimeArtifactProjection {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RuntimeAdapterError {
     MissingOrganizationBlock(ProgramBlockId),
+    MissingCallableBody(ProgramBlockId),
+    RecursiveCall(ProgramBlockId),
     MissingCyclicMain,
     MultipleCyclicMain,
     MultipleStartup,
@@ -181,7 +197,8 @@ pub fn project_verified_ir_to_runtime(
 ) -> Result<RuntimeArtifactProjection, RuntimeAdapterError> {
     let ir = verified_ir.program();
     let organization_blocks = collect_organization_blocks(ir, program)?;
-    let block_bindings = allocate_block_bindings(&organization_blocks)?;
+    let reachable_blocks = collect_reachable_blocks(ir, program, &organization_blocks)?;
+    let block_bindings = allocate_block_bindings(&reachable_blocks)?;
     let block_ids: BTreeMap<_, _> = block_bindings
         .iter()
         .map(|binding| (binding.owner, binding.block))
@@ -191,10 +208,10 @@ pub fn project_verified_ir_to_runtime(
     let mut memory = Vec::new();
     let mut memory_bindings = Vec::new();
     let mut member_memory = BTreeMap::new();
-    for &owner in &organization_blocks {
+    for &owner in &reachable_blocks {
         let block = program
             .block(owner)
-            .ok_or(RuntimeAdapterError::MissingOrganizationBlock(owner))?;
+            .ok_or(RuntimeAdapterError::MissingCallableBody(owner))?;
         for member in block.interface.members.values() {
             let memory_id = allocate_memory_id(&mut next_memory)?;
             let value_type = member_value_type(owner, member)?;
@@ -215,25 +232,46 @@ pub fn project_verified_ir_to_runtime(
         }
     }
 
-    let mut source_bindings = Vec::new();
-    let mut lowered_blocks = BTreeMap::new();
-    for &owner in &organization_blocks {
+    let mut value_memory = BTreeMap::new();
+    for &owner in &reachable_blocks {
         let function = ir
             .functions()
             .get(&owner)
-            .ok_or(RuntimeAdapterError::MissingOrganizationBlock(owner))?;
-        let runtime_block = block_ids[&owner];
-        let lowered = lower_function(
-            function,
-            runtime_block,
+            .ok_or(RuntimeAdapterError::MissingCallableBody(owner))?;
+        for block in function.blocks.values() {
+            for operation in &block.operations {
+                if let Some(result) = &operation.result {
+                    let id = allocate_memory_id(&mut next_memory)?;
+                    let value_type = ir_value_type(owner, operation.id, &result.data_type)?;
+                    memory.push(MemoryDefinition {
+                        id,
+                        value_type,
+                        loaded_start: value_type.canonical_default(),
+                        retentive: false,
+                    });
+                    value_memory.insert((owner, result.id), id);
+                }
+            }
+        }
+    }
+
+    let mut source_bindings = Vec::new();
+    let mut lowered_blocks = BTreeMap::new();
+    let mut visiting = BTreeSet::new();
+    for &owner in &organization_blocks {
+        lower_function_recursive(
+            owner,
+            ir,
+            program,
+            &block_ids,
             &member_memory,
-            &mut next_memory,
-            &mut memory,
+            &value_memory,
             source_maps,
             probes,
             &mut source_bindings,
+            &mut lowered_blocks,
+            &mut visiting,
         )?;
-        lowered_blocks.insert(owner, lowered);
     }
 
     let program_image = build_program_image(&organization_blocks, program, &mut lowered_blocks)?;
@@ -250,6 +288,54 @@ pub fn project_verified_ir_to_runtime(
         block_bindings,
         source_bindings,
     })
+}
+
+fn collect_reachable_blocks(
+    ir: &TypedIrProgram,
+    program: &ControllerProgram,
+    roots: &[ProgramBlockId],
+) -> Result<Vec<ProgramBlockId>, RuntimeAdapterError> {
+    fn visit(
+        owner: ProgramBlockId,
+        ir: &TypedIrProgram,
+        program: &ControllerProgram,
+        visited: &mut BTreeSet<ProgramBlockId>,
+        visiting: &mut BTreeSet<ProgramBlockId>,
+    ) -> Result<(), RuntimeAdapterError> {
+        if visited.contains(&owner) {
+            return Ok(());
+        }
+        if !visiting.insert(owner) {
+            return Err(RuntimeAdapterError::RecursiveCall(owner));
+        }
+        let function = ir
+            .functions()
+            .get(&owner)
+            .ok_or(RuntimeAdapterError::MissingCallableBody(owner))?;
+        let source = program
+            .block(owner)
+            .ok_or(RuntimeAdapterError::MissingCallableBody(owner))?;
+        if !source.kind.is_executable() {
+            return Err(RuntimeAdapterError::MissingCallableBody(owner));
+        }
+        for block in function.blocks.values() {
+            for operation in &block.operations {
+                if let IrOperationKind::CallBlock { target, .. } = operation.kind {
+                    visit(target, ir, program, visited, visiting)?;
+                }
+            }
+        }
+        visiting.remove(&owner);
+        visited.insert(owner);
+        Ok(())
+    }
+
+    let mut visited = BTreeSet::new();
+    let mut visiting = BTreeSet::new();
+    for root in roots {
+        visit(*root, ir, program, &mut visited, &mut visiting)?;
+    }
+    Ok(visited.into_iter().collect())
 }
 
 fn build_program_image(
@@ -343,16 +429,29 @@ fn allocate_block_bindings(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn lower_function(
-    function: &crate::IrFunction,
-    runtime_block: RuntimeBlockId,
+fn lower_function_recursive(
+    owner: ProgramBlockId,
+    ir: &TypedIrProgram,
+    program: &ControllerProgram,
+    runtime_blocks: &BTreeMap<ProgramBlockId, RuntimeBlockId>,
     member_memory: &BTreeMap<(ProgramBlockId, InterfaceMemberId), MemoryId>,
-    next_memory: &mut u32,
-    memory: &mut Vec<MemoryDefinition>,
+    value_memory: &BTreeMap<(ProgramBlockId, IrValueId), MemoryId>,
     source_maps: &SourceMapTable,
     probes: &ProbeTable,
     source_bindings: &mut Vec<RuntimeSourceBinding>,
-) -> Result<RuntimeProgramBlock, RuntimeAdapterError> {
+    lowered_blocks: &mut BTreeMap<ProgramBlockId, RuntimeProgramBlock>,
+    visiting: &mut BTreeSet<ProgramBlockId>,
+) -> Result<(), RuntimeAdapterError> {
+    if lowered_blocks.contains_key(&owner) {
+        return Ok(());
+    }
+    if !visiting.insert(owner) {
+        return Err(RuntimeAdapterError::RecursiveCall(owner));
+    }
+    let function = ir
+        .functions()
+        .get(&owner)
+        .ok_or(RuntimeAdapterError::MissingCallableBody(owner))?;
     if function.blocks.len() != 1 || function.entry != *function.blocks.keys().next().unwrap() {
         return Err(RuntimeAdapterError::UnsupportedControlFlow {
             owner: function.owner,
@@ -372,30 +471,41 @@ fn lower_function(
         });
     }
 
+    for operation in &block.operations {
+        if let IrOperationKind::CallBlock { target, .. } = operation.kind {
+            lower_function_recursive(
+                target,
+                ir,
+                program,
+                runtime_blocks,
+                member_memory,
+                value_memory,
+                source_maps,
+                probes,
+                source_bindings,
+                lowered_blocks,
+                visiting,
+            )?;
+        }
+    }
+
     let mut values = BTreeMap::new();
     let mut instructions = Vec::with_capacity(block.operations.len());
+    let runtime_block = runtime_blocks[&owner];
     for operation in &block.operations {
-        let result_memory = match &operation.result {
-            Some(result) => {
-                let id = allocate_memory_id(next_memory)?;
-                let value_type = ir_value_type(function.owner, operation.id, &result.data_type)?;
-                memory.push(MemoryDefinition {
-                    id,
-                    value_type,
-                    loaded_start: value_type.canonical_default(),
-                    retentive: false,
-                });
-                values.insert(result.id, id);
-                Some(id)
-            }
-            None => None,
-        };
+        let result_memory = operation
+            .result
+            .as_ref()
+            .map(|result| value_memory[&(owner, result.id)]);
         let lowered = lower_operation(
-            function.owner,
+            owner,
             operation,
             result_memory,
             &values,
             member_memory,
+            program,
+            lowered_blocks,
+            source_maps,
         )?;
         let source_identity = pack_source_identity(runtime_block, operation);
         let binding = operation_source_binding(
@@ -413,6 +523,9 @@ fn lower_function(
             source_identity,
             lowered,
         ));
+        if let Some(result) = &operation.result {
+            values.insert(result.id, value_memory[&(owner, result.id)]);
+        }
     }
     source_bindings.push(terminator_source_binding(
         function.owner,
@@ -422,18 +535,27 @@ fn lower_function(
         source_maps,
         probes,
     )?);
-    Ok(RuntimeProgramBlock {
-        id: runtime_block,
-        instructions,
-    })
+    lowered_blocks.insert(
+        owner,
+        RuntimeProgramBlock {
+            id: runtime_block,
+            instructions,
+        },
+    );
+    visiting.remove(&owner);
+    Ok(())
 }
 
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn lower_operation(
     owner: ProgramBlockId,
     operation: &IrOperation,
     result_memory: Option<MemoryId>,
     values: &BTreeMap<IrValueId, MemoryId>,
     members: &BTreeMap<(ProgramBlockId, InterfaceMemberId), MemoryId>,
+    program: &ControllerProgram,
+    lowered_blocks: &BTreeMap<ProgramBlockId, RuntimeProgramBlock>,
+    source_maps: &SourceMapTable,
 ) -> Result<RuntimeOperation, RuntimeAdapterError> {
     let result = || {
         result_memory.ok_or(RuntimeAdapterError::UnsupportedOperation {
@@ -477,29 +599,19 @@ fn lower_operation(
                     member: *target,
                 })?,
         }),
-        IrOperationKind::Unary {
-            operator: UnaryOperator::Plus,
-            operand,
-        } => Ok(RuntimeOperation::Copy {
-            source: value(*operand)?,
+        IrOperationKind::Unary { operator, operand } => Ok(RuntimeOperation::Unary {
+            operator: runtime_unary(*operator),
+            operand: value(*operand)?,
             target: result()?,
         }),
         IrOperationKind::Binary {
-            operator: BinaryOperator::Add,
+            operator,
             left,
             right,
-        } => Ok(RuntimeOperation::AddI32 {
+        } => Ok(RuntimeOperation::Binary {
+            operator: runtime_binary(*operator),
             left: value(*left)?,
             right: value(*right)?,
-            target: result()?,
-        }),
-        IrOperationKind::Binary {
-            operator: BinaryOperator::Divide,
-            left,
-            right,
-        } => Ok(RuntimeOperation::DivideI32 {
-            numerator: value(*left)?,
-            denominator: value(*right)?,
             target: result()?,
         }),
         IrOperationKind::Convert {
@@ -509,19 +621,356 @@ fn lower_operation(
             source: value(*source)?,
             target: result()?,
         }),
-        IrOperationKind::Unary { .. }
-        | IrOperationKind::Binary { .. }
-        | IrOperationKind::Convert { .. }
-        | IrOperationKind::InvokeInstruction { .. }
-        | IrOperationKind::CallBlock { .. }
-        | IrOperationKind::InvocationOutput { .. } => {
-            Err(RuntimeAdapterError::UnsupportedOperation {
-                owner,
-                operation: operation.id,
-                semantic_operation: operation.kind.runtime_operation(),
+        IrOperationKind::InvokeInstruction {
+            instruction,
+            inputs,
+            outputs,
+            instance,
+            activation,
+        } => Ok(RuntimeOperation::InvokeInstruction(
+            RuntimeInstructionInvocation {
+                instruction: runtime_instruction(*instruction).ok_or(
+                    RuntimeAdapterError::UnsupportedOperation {
+                        owner,
+                        operation: operation.id,
+                        semantic_operation: operation.kind.runtime_operation(),
+                    },
+                )?,
+                inputs: runtime_inputs(owner, operation, inputs, &value)?,
+                outputs: runtime_outputs(owner, operation, outputs)?,
+                instance: runtime_instruction_instance(instance.as_ref()),
+                activation: runtime_activation(owner, operation, activation.as_ref(), &value)?,
+            },
+        )),
+        IrOperationKind::CallBlock {
+            call_instruction,
+            target,
+            inputs,
+            outputs,
+            instance,
+            activation,
+        } => {
+            let target_block = program
+                .block(*target)
+                .ok_or(RuntimeAdapterError::MissingCallableBody(*target))?;
+            let frame_members = runtime_frame_members(*target, target_block, members)?;
+            let kind = if *call_instruction == CALL_FC {
+                RuntimeCallKind::Function
+            } else if *call_instruction == CALL_FB {
+                RuntimeCallKind::FunctionBlock
+            } else {
+                return Err(RuntimeAdapterError::UnsupportedOperation {
+                    owner,
+                    operation: operation.id,
+                    semantic_operation: operation.kind.runtime_operation(),
+                });
+            };
+            Ok(RuntimeOperation::CallBlock(RuntimeBlockCall {
+                kind,
+                target_identity: target.get(),
+                signature_fingerprint: runtime_block_signature_fingerprint(
+                    target.get(),
+                    &frame_members,
+                ),
+                call_site_identity: runtime_call_site_identity(
+                    owner,
+                    operation,
+                    *target,
+                    source_maps,
+                )?,
+                inputs: runtime_inputs(owner, operation, inputs, &value)?,
+                outputs: runtime_outputs(owner, operation, outputs)?,
+                instance: runtime_function_block_instance(instance.as_ref()),
+                activation: runtime_activation(owner, operation, activation.as_ref(), &value)?,
+                frame_members,
+                callee: lowered_blocks
+                    .get(target)
+                    .cloned()
+                    .ok_or(RuntimeAdapterError::MissingCallableBody(*target))?,
+            }))
+        }
+        IrOperationKind::InvocationOutput { invocation, formal } => {
+            Ok(RuntimeOperation::InvocationOutput {
+                invocation_id: invocation.get(),
+                formal: runtime_formal(*formal),
+                target: result()?,
             })
         }
+        IrOperationKind::Convert { .. } => Err(RuntimeAdapterError::UnsupportedOperation {
+            owner,
+            operation: operation.id,
+            semantic_operation: operation.kind.runtime_operation(),
+        }),
     }
+}
+
+const fn runtime_unary(operator: UnaryOperator) -> RuntimeUnaryOperator {
+    match operator {
+        UnaryOperator::Plus => RuntimeUnaryOperator::Plus,
+        UnaryOperator::Negate => RuntimeUnaryOperator::Negate,
+        UnaryOperator::Not => RuntimeUnaryOperator::Not,
+    }
+}
+
+const fn runtime_binary(operator: BinaryOperator) -> RuntimeBinaryOperator {
+    match operator {
+        BinaryOperator::Multiply => RuntimeBinaryOperator::Multiply,
+        BinaryOperator::Divide => RuntimeBinaryOperator::Divide,
+        BinaryOperator::Modulo => RuntimeBinaryOperator::Modulo,
+        BinaryOperator::Add => RuntimeBinaryOperator::Add,
+        BinaryOperator::Subtract => RuntimeBinaryOperator::Subtract,
+        BinaryOperator::Equal => RuntimeBinaryOperator::Equal,
+        BinaryOperator::NotEqual => RuntimeBinaryOperator::NotEqual,
+        BinaryOperator::Less => RuntimeBinaryOperator::Less,
+        BinaryOperator::LessEqual => RuntimeBinaryOperator::LessEqual,
+        BinaryOperator::Greater => RuntimeBinaryOperator::Greater,
+        BinaryOperator::GreaterEqual => RuntimeBinaryOperator::GreaterEqual,
+        BinaryOperator::And => RuntimeBinaryOperator::And,
+        BinaryOperator::Xor => RuntimeBinaryOperator::Xor,
+        BinaryOperator::Or => RuntimeBinaryOperator::Or,
+    }
+}
+
+fn runtime_instruction(code: plc_program::InstructionCode) -> Option<RuntimeInstructionCode> {
+    Some(if code == NO_OP {
+        RuntimeInstructionCode::NoOp
+    } else if code == MOVE {
+        RuntimeInstructionCode::Move
+    } else if code == BOOL_NOT {
+        RuntimeInstructionCode::BoolNot
+    } else if code == BOOL_AND {
+        RuntimeInstructionCode::BoolAnd
+    } else if code == BOOL_OR {
+        RuntimeInstructionCode::BoolOr
+    } else if code == BOOL_XOR {
+        RuntimeInstructionCode::BoolXor
+    } else if code == COMPARE_EQ {
+        RuntimeInstructionCode::CompareEqual
+    } else if code == COMPARE_NE {
+        RuntimeInstructionCode::CompareNotEqual
+    } else if code == COMPARE_LT {
+        RuntimeInstructionCode::CompareLess
+    } else if code == COMPARE_LE {
+        RuntimeInstructionCode::CompareLessEqual
+    } else if code == COMPARE_GT {
+        RuntimeInstructionCode::CompareGreater
+    } else if code == COMPARE_GE {
+        RuntimeInstructionCode::CompareGreaterEqual
+    } else if code == ADD {
+        RuntimeInstructionCode::Add
+    } else if code == SUBTRACT {
+        RuntimeInstructionCode::Subtract
+    } else if code == MULTIPLY {
+        RuntimeInstructionCode::Multiply
+    } else if code == DIVIDE {
+        RuntimeInstructionCode::Divide
+    } else if code == MODULO {
+        RuntimeInstructionCode::Modulo
+    } else if code == RISING_EDGE {
+        RuntimeInstructionCode::RisingEdge
+    } else if code == FALLING_EDGE {
+        RuntimeInstructionCode::FallingEdge
+    } else if code == TIMER_ON_DELAY {
+        RuntimeInstructionCode::TimerOnDelay
+    } else if code == TIMER_OFF_DELAY {
+        RuntimeInstructionCode::TimerOffDelay
+    } else if code == TIMER_PULSE {
+        RuntimeInstructionCode::TimerPulse
+    } else if code == COUNTER_UP {
+        RuntimeInstructionCode::CounterUp
+    } else if code == COUNTER_DOWN {
+        RuntimeInstructionCode::CounterDown
+    } else if code == COUNTER_UP_DOWN {
+        RuntimeInstructionCode::CounterUpDown
+    } else if code == PROBE {
+        RuntimeInstructionCode::Probe
+    } else if code == TRACE_SAMPLE {
+        RuntimeInstructionCode::TraceSample
+    } else if code == BREAKPOINT_MARKER {
+        RuntimeInstructionCode::BreakpointMarker
+    } else {
+        return None;
+    })
+}
+
+fn runtime_inputs(
+    owner: ProgramBlockId,
+    operation: &IrOperation,
+    inputs: &[IrBoundInput],
+    value: &impl Fn(IrValueId) -> Result<RuntimeOperand, RuntimeAdapterError>,
+) -> Result<Vec<RuntimeBoundInput>, RuntimeAdapterError> {
+    inputs
+        .iter()
+        .map(|input| {
+            Ok(RuntimeBoundInput {
+                formal: runtime_formal(input.formal),
+                source: value(input.value).map_err(|_| RuntimeAdapterError::UnknownValue {
+                    owner,
+                    operation: operation.id,
+                    value: input.value,
+                })?,
+            })
+        })
+        .collect()
+}
+
+fn runtime_outputs(
+    owner: ProgramBlockId,
+    operation: &IrOperation,
+    outputs: &[IrDeclaredOutput],
+) -> Result<Vec<RuntimeDeclaredOutput>, RuntimeAdapterError> {
+    outputs
+        .iter()
+        .map(|output| {
+            Ok(RuntimeDeclaredOutput {
+                formal: runtime_formal(output.formal),
+                value_type: ir_value_type(owner, operation.id, &output.data_type)?,
+            })
+        })
+        .collect()
+}
+
+const fn runtime_formal(formal: IrFormalRef) -> RuntimeFormalRef {
+    match formal {
+        IrFormalRef::Instruction(id) => RuntimeFormalRef::Instruction(id.0),
+        IrFormalRef::BlockMember(id) => RuntimeFormalRef::BlockMember(id.get()),
+    }
+}
+
+fn runtime_activation(
+    owner: ProgramBlockId,
+    operation: &IrOperation,
+    activation: Option<&IrActivation>,
+    value: &impl Fn(IrValueId) -> Result<RuntimeOperand, RuntimeAdapterError>,
+) -> Result<Option<RuntimeActivation>, RuntimeAdapterError> {
+    activation
+        .map(|activation| {
+            Ok(RuntimeActivation {
+                enable: value(activation.enable).map_err(|_| {
+                    RuntimeAdapterError::UnknownValue {
+                        owner,
+                        operation: operation.id,
+                        value: activation.enable,
+                    }
+                })?,
+                enable_formal: activation.enable_formal.0,
+                status_formal: activation.status_formal.0,
+                status_when_disabled: activation.status_when_disabled,
+                when_disabled: match activation.when_disabled {
+                    DisabledExecutionBehavior::DefaultOutputsNoStateChange => {
+                        RuntimeDisabledBehavior::DefaultOutputsNoStateChange
+                    }
+                    DisabledExecutionBehavior::PreserveOutputsNoStateChange => {
+                        RuntimeDisabledBehavior::PreserveOutputsNoStateChange
+                    }
+                    DisabledExecutionBehavior::SuppressEffects => {
+                        RuntimeDisabledBehavior::SuppressEffects
+                    }
+                },
+            })
+        })
+        .transpose()
+}
+
+fn runtime_instruction_instance(
+    instance: Option<&IrInstanceIdentity>,
+) -> Option<RuntimeInstructionInstance> {
+    let Some(IrInstanceIdentity::Instruction { stable_id, kind }) = instance else {
+        return None;
+    };
+    Some(RuntimeInstructionInstance {
+        stable_id: *stable_id,
+        kind: match kind {
+            StateKind::Edge => RuntimeInstructionStateKind::Edge,
+            StateKind::Timer => RuntimeInstructionStateKind::Timer,
+            StateKind::Counter => RuntimeInstructionStateKind::Counter,
+        },
+        retentive: false,
+    })
+}
+
+fn runtime_function_block_instance(
+    instance: Option<&IrInstanceIdentity>,
+) -> Option<RuntimeFunctionBlockInstance> {
+    let Some(IrInstanceIdentity::FunctionBlock(path)) = instance else {
+        return None;
+    };
+    Some(RuntimeFunctionBlockInstance {
+        root_instance: path.root_instance_db.get(),
+        multi_instance_slots: path
+            .multi_instance_slots
+            .iter()
+            .map(|slot| slot.get())
+            .collect(),
+    })
+}
+
+fn runtime_frame_members(
+    owner: ProgramBlockId,
+    block: &plc_program::ProgramBlock,
+    members: &BTreeMap<(ProgramBlockId, InterfaceMemberId), MemoryId>,
+) -> Result<Vec<RuntimeFrameMember>, RuntimeAdapterError> {
+    block
+        .interface
+        .ordered_member_ids
+        .iter()
+        .map(|id| {
+            let member = block
+                .interface
+                .member(*id)
+                .ok_or(RuntimeAdapterError::UnknownMember { owner, member: *id })?;
+            let value_type = member_value_type(owner, member)?;
+            Ok(RuntimeFrameMember {
+                formal: id.get(),
+                memory: *members
+                    .get(&(owner, *id))
+                    .ok_or(RuntimeAdapterError::UnknownMember { owner, member: *id })?,
+                value_type,
+                role: match member.role {
+                    InterfaceRole::Input => RuntimeFrameMemberRole::Input,
+                    InterfaceRole::Output => RuntimeFrameMemberRole::Output,
+                    InterfaceRole::InOut => RuntimeFrameMemberRole::InOut,
+                    InterfaceRole::Static => RuntimeFrameMemberRole::Static,
+                    InterfaceRole::Temp => RuntimeFrameMemberRole::Temp,
+                    InterfaceRole::Constant => RuntimeFrameMemberRole::Constant,
+                    InterfaceRole::Return => RuntimeFrameMemberRole::Return,
+                },
+                declared_order: member.declared_order,
+                initial_value: member_loaded_start(owner, member, value_type)?,
+                retentive: member.retain_policy == Some(RetainPolicy::Retentive),
+            })
+        })
+        .collect()
+}
+
+fn runtime_call_site_identity(
+    owner: ProgramBlockId,
+    operation: &IrOperation,
+    target: ProgramBlockId,
+    source_maps: &SourceMapTable,
+) -> Result<u128, RuntimeAdapterError> {
+    let source_map = source_maps
+        .get(operation.source_map)
+        .ok_or(RuntimeAdapterError::MissingSourceMap(operation.source_map))?;
+    let mut authored = source_map
+        .anchors
+        .iter()
+        .filter_map(|anchor| anchor.call_site_id)
+        .collect::<BTreeSet<_>>();
+    if authored.len() > 1 {
+        return Err(RuntimeAdapterError::MappingMismatch(operation.source_map));
+    }
+    if let Some(identity) = authored.pop_first() {
+        return Ok(identity);
+    }
+    let mut hasher = crate::hash::CanonicalHasher::new("PES-RUNTIME-CALL-SITE-1");
+    hasher.u128(owner.get());
+    hasher.u32(operation.id.get());
+    hasher.u128(target.get());
+    let bytes = hasher.finish().0;
+    Ok(u128::from_be_bytes(
+        bytes[..16].try_into().expect("16-byte call-site identity"),
+    ))
 }
 
 fn operation_source_binding(

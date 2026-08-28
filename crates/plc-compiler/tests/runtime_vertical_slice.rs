@@ -188,3 +188,135 @@ fn runtime_projection_rejects_compiler_ir_it_cannot_execute_without_approximatio
         })
     );
 }
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn verified_scl_fc_executes_with_copy_in_copy_out_and_two_call_outputs() {
+    let function = BlockId::new(0x202);
+    let formal_x = InterfaceMemberId::new(0x2_001);
+    let formal_sum = InterfaceMemberId::new(0x2_002);
+    let formal_product = InterfaceMemberId::new(0x2_003);
+    let mut sum =
+        InterfaceMember::plain(formal_sum, "Sum", InterfaceRole::Output, DataType::DInt, 0);
+    sum.required_output_binding = true;
+    let mut product = InterfaceMember::plain(
+        formal_product,
+        "Product",
+        InterfaceRole::Output,
+        DataType::DInt,
+        1,
+    );
+    product.required_output_binding = true;
+    let main = ProgramBlock::new(
+        MAIN,
+        "Main",
+        number(1),
+        ProgramUnitKind::OrganizationBlock(ObDeclaration::CyclicMain),
+        BlockInterface::from_members([
+            member(FIRST, "Arg", DataType::DInt, 0),
+            member(SECOND, "Sum", DataType::DInt, 1),
+            member(RESULT, "Product", DataType::DInt, 2),
+        ]),
+    );
+    let function_block = ProgramBlock::new(
+        function,
+        "Calculate",
+        number(2),
+        ProgramUnitKind::Function,
+        BlockInterface::from_members([
+            InterfaceMember::plain(formal_x, "X", InterfaceRole::Input, DataType::DInt, 0),
+            sum,
+            product,
+        ]),
+    );
+    let mut program = ControllerProgram::new(ControllerId::new(0x56));
+    program.insert_block(main).unwrap();
+    program.insert_block(function_block).unwrap();
+    assert!(validate_program(&program).is_valid());
+
+    let sources = BTreeMap::from([
+        (
+            MAIN,
+            SclSource::new(
+                MAIN,
+                "Arg := DINT#4; Calculate(X := Arg, Sum => Sum, Product => Product);",
+            ),
+        ),
+        (
+            function,
+            SclSource::new(function, "Sum := X + DINT#3; Product := X * DINT#2;"),
+        ),
+    ]);
+    let snapshot = BuildSnapshot::capture(&program, &sources, CompilerProfile::edu21_core())
+        .expect("two-block SCL snapshot");
+    let current = snapshot.snapshot_hash();
+    let completion = Compiler::new(ResourceLimits::default()).unwrap().compile(
+        &BuildAttempt::new(
+            BuildAttemptId::new(0x44),
+            snapshot,
+            BuildScope::RebuildAllSoftware,
+        ),
+        current,
+        None,
+    );
+    assert_eq!(completion.report().outcome(), BuildOutcome::ArtifactCreated);
+    let projection = completion
+        .artifact()
+        .unwrap()
+        .runtime_projection()
+        .expect("verified FC is runnable");
+    let function_runtime_block = projection.block_for(function).expect("callable binding");
+    let function_output_memory = projection
+        .memory_for(function, formal_sum)
+        .expect("callee frame binding");
+
+    let mut controller =
+        VirtualController::new(UniverseId(0xCAFE), VirtualControllerId(0xBEF0), 0x44);
+    controller.power_on().unwrap();
+    controller
+        .install_verified_artifact(projection.package())
+        .unwrap();
+    controller.request_run(RestartKind::Resume).unwrap();
+    let report = match controller.run_scan().unwrap() {
+        RunOutcome::Completed(report) => report,
+        RunOutcome::Faulted(event) => panic!("FC execution faulted: {event:?}"),
+    };
+    assert_eq!(
+        controller.actual_memory(projection.memory_for(MAIN, SECOND).unwrap()),
+        Some(CanonicalValue::I32(7))
+    );
+    assert_eq!(
+        controller.actual_memory(projection.memory_for(MAIN, RESULT).unwrap()),
+        Some(CanonicalValue::I32(8))
+    );
+    assert_eq!(
+        controller.actual_memory(function_output_memory),
+        Some(CanonicalValue::I32(0)),
+        "FC frame storage must not leak into global runtime memory"
+    );
+    assert_eq!(
+        controller.invocation_ordinal(function_runtime_block),
+        Some(1)
+    );
+    assert_eq!(report.call_boundaries.len(), 2);
+    assert_eq!(
+        report.call_boundaries[0].callee_block,
+        function_runtime_block
+    );
+    assert_eq!(
+        report.call_boundaries[0].source_identity,
+        report.call_boundaries[1].source_identity
+    );
+    let call_source = projection
+        .source_for(report.call_boundaries[0].source_identity)
+        .expect("call boundary retains its verified source/probe binding");
+    assert!(matches!(
+        call_source.runtime_site,
+        RuntimeMappedSite::Instruction {
+            block,
+            operation_id: _,
+            source_identity: _
+        } if block == projection.block_for(MAIN).unwrap()
+    ));
+    assert!(!call_source.anchors.is_empty());
+}

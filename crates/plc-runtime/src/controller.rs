@@ -1,11 +1,18 @@
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{
+    collections::{BTreeMap, BTreeSet},
+    vec::Vec,
+};
 use core::{error::Error, fmt};
 
 use crate::{
     ArtifactError, ArtifactPackage, BlockId, CanonicalValue, ChannelDirection, ChannelId,
     DeliveryReason, Hash32, InputCommand, InputReceipt, MAX_WORK_UNITS_PER_SCAN, MemoryId, Operand,
-    Operation, ProgramBlock, RUNTIME_SEMANTICS_VERSION, SCAN_QUANTUM_MS, SCHEDULER_VERSION,
-    StateId, StateStart, ValueType, VerifiedArtifact, WORK_COST_VERSION,
+    Operation, ProgramBlock, RUNTIME_SEMANTICS_VERSION, RuntimeActivation, RuntimeBinaryOperator,
+    RuntimeBlockCall, RuntimeCallKind, RuntimeDisabledBehavior, RuntimeFormalRef,
+    RuntimeFunctionBlockInstance, RuntimeInstructionCode, RuntimeInstructionInstance,
+    RuntimeInstructionInvocation, RuntimeInstructionStateKind, RuntimeUnaryOperator,
+    SCAN_QUANTUM_MS, SCHEDULER_VERSION, StateId, StateStart, ValueType, VerifiedArtifact,
+    WORK_COST_VERSION,
     boundary::{CommandId, UniverseId, VirtualControllerId, VirtualIoBoundary},
     hash::SemanticHasher,
 };
@@ -529,8 +536,27 @@ pub struct ScanReport {
     pub completed_time_ms: u64,
     pub work_units: u32,
     pub executed_blocks: Vec<BlockId>,
+    pub call_boundaries: Vec<CallBoundaryEvent>,
     pub output_event_sequence: u64,
     pub state_hash: Hash32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CallBoundaryKind {
+    Enter,
+    Return,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallBoundaryEvent {
+    pub kind: CallBoundaryKind,
+    pub caller_block: BlockId,
+    pub callee_block: BlockId,
+    pub call_operation_id: u32,
+    pub source_identity: u128,
+    pub call_site_identity: u128,
+    pub dynamic_depth: u8,
+    pub instance: Option<RuntimeFunctionBlockInstance>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -651,6 +677,99 @@ impl RuntimeStateCell {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct InvocationStateKey {
+    scope: Vec<u128>,
+    stable_id: u128,
+    kind: RuntimeInstructionStateKind,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InvocationStateCell {
+    Edge {
+        previous: bool,
+    },
+    Timer {
+        elapsed_ms: u64,
+        output: bool,
+        previous_input: bool,
+    },
+    Counter {
+        count: i32,
+        previous_up: bool,
+        previous_down: bool,
+        output_up: bool,
+        output_down: bool,
+    },
+}
+
+impl InvocationStateCell {
+    const fn initial(kind: RuntimeInstructionStateKind) -> Self {
+        match kind {
+            RuntimeInstructionStateKind::Edge => Self::Edge { previous: false },
+            RuntimeInstructionStateKind::Timer => Self::Timer {
+                elapsed_ms: 0,
+                output: false,
+                previous_input: false,
+            },
+            RuntimeInstructionStateKind::Counter => Self::Counter {
+                count: 0,
+                previous_up: false,
+                previous_down: false,
+                output_up: false,
+                output_down: true,
+            },
+        }
+    }
+
+    fn encode(self, hasher: &mut SemanticHasher) {
+        match self {
+            Self::Edge { previous } => {
+                hasher.u8(1);
+                hasher.bool(previous);
+            }
+            Self::Timer {
+                elapsed_ms,
+                output,
+                previous_input,
+            } => {
+                hasher.u8(2);
+                hasher.u64(elapsed_ms);
+                hasher.bool(output);
+                hasher.bool(previous_input);
+            }
+            Self::Counter {
+                count,
+                previous_up,
+                previous_down,
+                output_up,
+                output_down,
+            } => {
+                hasher.u8(3);
+                hasher.i32(count);
+                hasher.bool(previous_up);
+                hasher.bool(previous_down);
+                hasher.bool(output_up);
+                hasher.bool(output_down);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum InvocationResult {
+    Value(CanonicalValue),
+    Suppressed,
+}
+
+#[derive(Clone, Debug, Default)]
+struct BlockExecution {
+    frame_memory: Option<BTreeMap<MemoryId, CanonicalValue>>,
+    suppressed_memory: BTreeSet<MemoryId>,
+    invocation_results: BTreeMap<(u32, RuntimeFormalRef), InvocationResult>,
+    state_scope: Vec<u128>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct RuntimeImage {
     actual_memory: BTreeMap<MemoryId, CanonicalValue>,
@@ -662,6 +781,12 @@ struct RuntimeImage {
     force_overlays: BTreeMap<RuntimeValueTarget, CanonicalValue>,
     state_cells: BTreeMap<StateId, RuntimeStateCell>,
     retain_state_cells: BTreeMap<StateId, RuntimeStateCell>,
+    invocation_state_cells: BTreeMap<InvocationStateKey, InvocationStateCell>,
+    retain_invocation_state_cells: BTreeMap<InvocationStateKey, InvocationStateCell>,
+    function_block_instances:
+        BTreeMap<RuntimeFunctionBlockInstance, BTreeMap<MemoryId, CanonicalValue>>,
+    retain_function_block_instances:
+        BTreeMap<RuntimeFunctionBlockInstance, BTreeMap<MemoryId, CanonicalValue>>,
     invocation_ordinals: BTreeMap<BlockId, u64>,
 }
 
@@ -677,6 +802,10 @@ impl RuntimeImage {
             force_overlays: BTreeMap::new(),
             state_cells: BTreeMap::new(),
             retain_state_cells: BTreeMap::new(),
+            invocation_state_cells: BTreeMap::new(),
+            retain_invocation_state_cells: BTreeMap::new(),
+            function_block_instances: BTreeMap::new(),
+            retain_function_block_instances: BTreeMap::new(),
             invocation_ordinals: BTreeMap::new(),
         }
     }
@@ -722,12 +851,12 @@ impl RuntimeImage {
             }
         }
         if let Some(block) = &spec.program.startup {
-            image.invocation_ordinals.insert(block.id, 0);
+            collect_invocation_ordinals(block, &mut image.invocation_ordinals);
         }
         for task in &spec.program.timed {
-            image.invocation_ordinals.insert(task.block.id, 0);
+            collect_invocation_ordinals(&task.block, &mut image.invocation_ordinals);
         }
-        image.invocation_ordinals.insert(spec.program.cyclic.id, 0);
+        collect_invocation_ordinals(&spec.program.cyclic, &mut image.invocation_ordinals);
         image
     }
 
@@ -748,11 +877,66 @@ impl RuntimeImage {
         }
         encode_state_map(&self.state_cells, hasher);
         encode_state_map(&self.retain_state_cells, hasher);
+        if !self.invocation_state_cells.is_empty()
+            || !self.retain_invocation_state_cells.is_empty()
+            || !self.function_block_instances.is_empty()
+            || !self.retain_function_block_instances.is_empty()
+        {
+            hasher.string("PES-RUNTIME-CALL-STATE-1");
+            encode_invocation_state_map(&self.invocation_state_cells, hasher);
+            encode_invocation_state_map(&self.retain_invocation_state_cells, hasher);
+            encode_function_block_instances(&self.function_block_instances, hasher);
+            encode_function_block_instances(&self.retain_function_block_instances, hasher);
+        }
         hasher.u64(self.invocation_ordinals.len() as u64);
         for (id, ordinal) in &self.invocation_ordinals {
             hasher.u32(id.0);
             hasher.u64(*ordinal);
         }
+    }
+}
+
+fn collect_invocation_ordinals(block: &ProgramBlock, ordinals: &mut BTreeMap<BlockId, u64>) {
+    ordinals.entry(block.id).or_insert(0);
+    for instruction in &block.instructions {
+        if let Operation::CallBlock(call) = instruction.operation() {
+            collect_invocation_ordinals(&call.callee, ordinals);
+        }
+    }
+}
+
+fn encode_invocation_state_map(
+    map: &BTreeMap<InvocationStateKey, InvocationStateCell>,
+    hasher: &mut SemanticHasher,
+) {
+    hasher.u64(map.len() as u64);
+    for (key, value) in map {
+        hasher.u64(key.scope.len() as u64);
+        for item in &key.scope {
+            hasher.u128(*item);
+        }
+        hasher.u128(key.stable_id);
+        hasher.u8(match key.kind {
+            RuntimeInstructionStateKind::Edge => 1,
+            RuntimeInstructionStateKind::Timer => 2,
+            RuntimeInstructionStateKind::Counter => 3,
+        });
+        value.encode(hasher);
+    }
+}
+
+fn encode_function_block_instances(
+    map: &BTreeMap<RuntimeFunctionBlockInstance, BTreeMap<MemoryId, CanonicalValue>>,
+    hasher: &mut SemanticHasher,
+) {
+    hasher.u64(map.len() as u64);
+    for (instance, values) in map {
+        hasher.u128(instance.root_instance);
+        hasher.u64(instance.multi_instance_slots.len() as u64);
+        for slot in &instance.multi_instance_slots {
+            hasher.u128(*slot);
+        }
+        encode_value_map(values, hasher);
     }
 }
 
@@ -894,6 +1078,22 @@ enum ExecutionFault {
     WorkUnitBudgetExceeded,
     RuntimeInvariant,
 }
+
+const FORMAL_INPUT: u16 = 0x0010;
+const FORMAL_OUTPUT: u16 = 0x0011;
+const FORMAL_LEFT: u16 = 0x0020;
+const FORMAL_RIGHT: u16 = 0x0021;
+const FORMAL_CLOCK: u16 = 0x0030;
+const FORMAL_PRESET_TIME: u16 = 0x0031;
+const FORMAL_ELAPSED_TIME: u16 = 0x0032;
+const FORMAL_COUNT_UP: u16 = 0x0040;
+const FORMAL_COUNT_DOWN: u16 = 0x0041;
+const FORMAL_RESET: u16 = 0x0042;
+const FORMAL_LOAD: u16 = 0x0043;
+const FORMAL_PRESET_VALUE: u16 = 0x0044;
+const FORMAL_CURRENT_VALUE: u16 = 0x0045;
+const FORMAL_QU: u16 = 0x0046;
+const FORMAL_QD: u16 = 0x0047;
 
 impl VirtualController {
     pub fn new(
@@ -1644,10 +1844,17 @@ impl VirtualController {
 
         if let Some(startup) = artifact.spec().program.startup.clone() {
             let mut work_units = 0;
+            let mut executed_blocks = Vec::new();
+            let mut call_boundaries = Vec::new();
             self.increment_invocation(startup.id);
-            if let Err((fault, context)) =
-                self.execute_block(&startup, self.scan_sequence, &mut work_units)
-            {
+            executed_blocks.push(startup.id);
+            if let Err((fault, context)) = self.execute_block(
+                &startup,
+                self.scan_sequence,
+                &mut work_units,
+                &mut executed_blocks,
+                &mut call_boundaries,
+            ) {
                 self.enter_fatal_fault(fault, context);
                 return Ok(());
             }
@@ -2109,6 +2316,7 @@ impl VirtualController {
 
         let mut work_units = 0_u32;
         let mut executed_blocks = Vec::new();
+        let mut call_boundaries = Vec::new();
         let mut due_tasks: Vec<_> = artifact
             .spec()
             .program
@@ -2125,9 +2333,13 @@ impl VirtualController {
         for task in due_tasks {
             self.increment_invocation(task.block.id);
             executed_blocks.push(task.block.id);
-            if let Err((fault, context)) =
-                self.execute_block(&task.block, active_scan_sequence, &mut work_units)
-            {
+            if let Err((fault, context)) = self.execute_block(
+                &task.block,
+                active_scan_sequence,
+                &mut work_units,
+                &mut executed_blocks,
+                &mut call_boundaries,
+            ) {
                 let event = self.enter_fatal_fault(fault, context);
                 if let Some(index) = observation_replay_index {
                     self.replay_events[index].result_hash = self.last_state_hash;
@@ -2143,9 +2355,13 @@ impl VirtualController {
         let cyclic = artifact.spec().program.cyclic.clone();
         self.increment_invocation(cyclic.id);
         executed_blocks.push(cyclic.id);
-        if let Err((fault, context)) =
-            self.execute_block(&cyclic, active_scan_sequence, &mut work_units)
-        {
+        if let Err((fault, context)) = self.execute_block(
+            &cyclic,
+            active_scan_sequence,
+            &mut work_units,
+            &mut executed_blocks,
+            &mut call_boundaries,
+        ) {
             let event = self.enter_fatal_fault(fault, context);
             if let Some(index) = observation_replay_index {
                 self.replay_events[index].result_hash = self.last_state_hash;
@@ -2206,6 +2422,33 @@ impl VirtualController {
         for block in &executed_blocks {
             payload.u32(block.0);
         }
+        if !call_boundaries.is_empty() {
+            payload.string("PES-SCAN-CALL-BOUNDARIES-1");
+            payload.u64(call_boundaries.len() as u64);
+            for boundary in &call_boundaries {
+                payload.u8(match boundary.kind {
+                    CallBoundaryKind::Enter => 1,
+                    CallBoundaryKind::Return => 2,
+                });
+                payload.u32(boundary.caller_block.0);
+                payload.u32(boundary.callee_block.0);
+                payload.u32(boundary.call_operation_id);
+                payload.u128(boundary.source_identity);
+                payload.u128(boundary.call_site_identity);
+                payload.u8(boundary.dynamic_depth);
+                match &boundary.instance {
+                    Some(instance) => {
+                        payload.bool(true);
+                        payload.u128(instance.root_instance);
+                        payload.u64(instance.multi_instance_slots.len() as u64);
+                        for slot in &instance.multi_instance_slots {
+                            payload.u128(*slot);
+                        }
+                    }
+                    None => payload.bool(false),
+                }
+            }
+        }
         self.append_replay(
             ReplayEventKind::ScanCompleted,
             output_event_sequence,
@@ -2223,6 +2466,7 @@ impl VirtualController {
                 completed_time_ms: self.virtual_time_ms,
                 work_units,
                 executed_blocks,
+                call_boundaries,
                 output_event_sequence,
                 state_hash: self.last_state_hash,
             }),
@@ -2500,7 +2744,32 @@ impl VirtualController {
         block: &ProgramBlock,
         scan_sequence: u64,
         work_units: &mut u32,
+        executed_blocks: &mut Vec<BlockId>,
+        call_boundaries: &mut Vec<CallBoundaryEvent>,
     ) -> Result<(), (ExecutionFault, FaultContext)> {
+        self.execute_block_inner(
+            block,
+            scan_sequence,
+            work_units,
+            0,
+            BlockExecution::default(),
+            executed_blocks,
+            call_boundaries,
+        )
+        .map(|_| ())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn execute_block_inner(
+        &mut self,
+        block: &ProgramBlock,
+        scan_sequence: u64,
+        work_units: &mut u32,
+        dynamic_depth: u8,
+        mut execution: BlockExecution,
+        executed_blocks: &mut Vec<BlockId>,
+        call_boundaries: &mut Vec<CallBoundaryEvent>,
+    ) -> Result<BlockExecution, (ExecutionFault, FaultContext)> {
         let fingerprint = self.loaded_fingerprint().unwrap_or(Hash32::ZERO);
         for instruction in &block.instructions {
             let context = FaultContext {
@@ -2513,105 +2782,149 @@ impl VirtualController {
                 virtual_timestamp_ms: self.virtual_time_ms,
                 work_units_before_operation: *work_units,
             };
-            let Some(charged) = work_units.checked_add(instruction.work_units()) else {
-                return Err((ExecutionFault::WorkUnitBudgetExceeded, context));
-            };
-            if charged > MAX_WORK_UNITS_PER_SCAN {
-                return Err((ExecutionFault::WorkUnitBudgetExceeded, context));
-            }
-            *work_units = charged;
-            if let Err(fault) = self.execute_operation(instruction.operation()) {
-                return Err((fault, context));
-            }
+            self.charge_work(work_units, instruction.work_units(), &context)?;
+            self.execute_operation(
+                block.id,
+                instruction.operation_id,
+                instruction.source_identity,
+                instruction.operation(),
+                scan_sequence,
+                work_units,
+                dynamic_depth,
+                &mut execution,
+                executed_blocks,
+                call_boundaries,
+                &context,
+            )?;
         }
+        Ok(execution)
+    }
+
+    fn charge_work(
+        &self,
+        work_units: &mut u32,
+        charge: u32,
+        context: &FaultContext,
+    ) -> Result<(), (ExecutionFault, FaultContext)> {
+        let Some(charged) = work_units.checked_add(charge) else {
+            return Err((ExecutionFault::WorkUnitBudgetExceeded, context.clone()));
+        };
+        if charged > MAX_WORK_UNITS_PER_SCAN {
+            return Err((ExecutionFault::WorkUnitBudgetExceeded, context.clone()));
+        }
+        *work_units = charged;
         Ok(())
     }
 
-    fn execute_operation(&mut self, operation: &Operation) -> Result<(), ExecutionFault> {
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    fn execute_operation(
+        &mut self,
+        caller_block: BlockId,
+        operation_id: u32,
+        source_identity: u128,
+        operation: &Operation,
+        scan_sequence: u64,
+        work_units: &mut u32,
+        dynamic_depth: u8,
+        execution: &mut BlockExecution,
+        executed_blocks: &mut Vec<BlockId>,
+        call_boundaries: &mut Vec<CallBoundaryEvent>,
+        context: &FaultContext,
+    ) -> Result<(), (ExecutionFault, FaultContext)> {
+        let local = |fault| (fault, context.clone());
         match operation {
             Operation::Noop => Ok(()),
             Operation::SetMemory { target, value } => {
-                self.write_memory(*target, *value);
+                self.write_execution_memory(execution, *target, *value);
                 Ok(())
             }
             Operation::Copy { source, target } => {
-                let value = self.read_operand(*source)?;
-                self.write_memory(*target, value);
+                match self
+                    .read_execution_operand(execution, *source)
+                    .map_err(local)?
+                {
+                    Some(value) => self.write_execution_memory(execution, *target, value),
+                    None => Self::suppress_execution_memory(execution, *target),
+                }
                 Ok(())
             }
             Operation::AddI32 {
                 left,
                 right,
                 target,
-            } => {
-                let left = self.read_i32(*left)?;
-                let right = self.read_i32(*right)?;
-                let value = left
-                    .checked_add(right)
-                    .ok_or(ExecutionFault::ArithmeticOverflow)?;
-                self.write_memory(*target, CanonicalValue::I32(value));
-                Ok(())
-            }
+            } => self
+                .execute_binary(
+                    execution,
+                    RuntimeBinaryOperator::Add,
+                    *left,
+                    *right,
+                    *target,
+                )
+                .map_err(local),
             Operation::DivideI32 {
                 numerator,
                 denominator,
                 target,
-            } => {
-                let numerator = self.read_i32(*numerator)?;
-                let denominator = self.read_i32(*denominator)?;
-                if denominator == 0 {
-                    return Err(ExecutionFault::DivideByZero);
-                }
-                let value = numerator
-                    .checked_div(denominator)
-                    .ok_or(ExecutionFault::ArithmeticOverflow)?;
-                self.write_memory(*target, CanonicalValue::I32(value));
-                Ok(())
-            }
+            } => self
+                .execute_binary(
+                    execution,
+                    RuntimeBinaryOperator::Divide,
+                    *numerator,
+                    *denominator,
+                    *target,
+                )
+                .map_err(local),
             Operation::LoadInput { channel, target } => {
                 let value = *self
                     .image
                     .effective_inputs
                     .get(channel)
-                    .ok_or(ExecutionFault::RuntimeInvariant)?;
-                self.write_memory(*target, value);
+                    .ok_or_else(|| local(ExecutionFault::RuntimeInvariant))?;
+                self.write_execution_memory(execution, *target, value);
                 Ok(())
             }
             Operation::StoreOutput { source, channel } => {
-                let value = self.read_operand(*source)?;
-                let output = self
-                    .image
-                    .natural_outputs
-                    .get_mut(channel)
-                    .ok_or(ExecutionFault::RuntimeInvariant)?;
-                *output = value;
+                if let Some(value) = self
+                    .read_execution_operand(execution, *source)
+                    .map_err(local)?
+                {
+                    let output = self
+                        .image
+                        .natural_outputs
+                        .get_mut(channel)
+                        .ok_or_else(|| local(ExecutionFault::RuntimeInvariant))?;
+                    *output = value;
+                }
                 Ok(())
             }
             Operation::RisingEdge {
                 source,
                 state,
                 target,
-            } => {
-                let current = self.read_bool(*source)?;
-                let previous = match self.image.state_cells.get(state).copied() {
-                    Some(RuntimeStateCell::Edge { previous }) => previous,
-                    _ => return Err(ExecutionFault::RuntimeInvariant),
-                };
-                self.write_memory(*target, CanonicalValue::Bool(current && !previous));
-                self.write_state(*state, RuntimeStateCell::Edge { previous: current });
-                Ok(())
             }
-            Operation::FallingEdge {
+            | Operation::FallingEdge {
                 source,
                 state,
                 target,
             } => {
-                let current = self.read_bool(*source)?;
+                let Some(current) = self
+                    .read_execution_bool(execution, *source)
+                    .map_err(local)?
+                else {
+                    Self::suppress_execution_memory(execution, *target);
+                    return Ok(());
+                };
                 let previous = match self.image.state_cells.get(state).copied() {
                     Some(RuntimeStateCell::Edge { previous }) => previous,
-                    _ => return Err(ExecutionFault::RuntimeInvariant),
+                    _ => return Err(local(ExecutionFault::RuntimeInvariant)),
                 };
-                self.write_memory(*target, CanonicalValue::Bool(!current && previous));
+                let rising = matches!(operation, Operation::RisingEdge { .. });
+                let value = if rising {
+                    current && !previous
+                } else {
+                    !current && previous
+                };
+                self.write_execution_memory(execution, *target, CanonicalValue::Bool(value));
                 self.write_state(*state, RuntimeStateCell::Edge { previous: current });
                 Ok(())
             }
@@ -2622,15 +2935,20 @@ impl VirtualController {
                 output,
                 elapsed,
             } => {
-                let input = self.read_bool(*input)?;
-                let (prior_elapsed, _) = match self.image.state_cells.get(state).copied() {
-                    Some(RuntimeStateCell::Timer { elapsed_ms, output }) => (elapsed_ms, output),
-                    _ => return Err(ExecutionFault::RuntimeInvariant),
+                let Some(input) = self.read_execution_bool(execution, *input).map_err(local)?
+                else {
+                    Self::suppress_execution_memory(execution, *output);
+                    Self::suppress_execution_memory(execution, *elapsed);
+                    return Ok(());
+                };
+                let prior_elapsed = match self.image.state_cells.get(state).copied() {
+                    Some(RuntimeStateCell::Timer { elapsed_ms, .. }) => elapsed_ms,
+                    _ => return Err(local(ExecutionFault::RuntimeInvariant)),
                 };
                 let next_elapsed = if input {
                     prior_elapsed
                         .checked_add(SCAN_QUANTUM_MS)
-                        .ok_or(ExecutionFault::TimerOverflow)?
+                        .ok_or_else(|| local(ExecutionFault::TimerOverflow))?
                         .min(*preset_ms)
                 } else {
                     0
@@ -2643,8 +2961,12 @@ impl VirtualController {
                         output: next_output,
                     },
                 );
-                self.write_memory(*output, CanonicalValue::Bool(next_output));
-                self.write_memory(*elapsed, CanonicalValue::TimeMs(next_elapsed));
+                self.write_execution_memory(execution, *output, CanonicalValue::Bool(next_output));
+                self.write_execution_memory(
+                    execution,
+                    *elapsed,
+                    CanonicalValue::TimeMs(next_elapsed),
+                );
                 Ok(())
             }
             Operation::CounterUp {
@@ -2655,14 +2977,20 @@ impl VirtualController {
                 output,
                 current,
             } => {
-                let input = self.read_bool(*input)?;
-                let reset = self.read_bool(*reset)?;
+                let (Some(input), Some(reset)) = (
+                    self.read_execution_bool(execution, *input).map_err(local)?,
+                    self.read_execution_bool(execution, *reset).map_err(local)?,
+                ) else {
+                    Self::suppress_execution_memory(execution, *output);
+                    Self::suppress_execution_memory(execution, *current);
+                    return Ok(());
+                };
                 let (prior_count, prior_input) = match self.image.state_cells.get(state).copied() {
                     Some(RuntimeStateCell::Counter {
                         count,
                         previous_input,
                     }) => (count, previous_input),
-                    _ => return Err(ExecutionFault::RuntimeInvariant),
+                    _ => return Err(local(ExecutionFault::RuntimeInvariant)),
                 };
                 let count = if reset {
                     0
@@ -2678,48 +3006,829 @@ impl VirtualController {
                         previous_input: input,
                     },
                 );
-                self.write_memory(*current, CanonicalValue::I32(count));
-                self.write_memory(*output, CanonicalValue::Bool(count >= *preset));
+                self.write_execution_memory(execution, *current, CanonicalValue::I32(count));
+                self.write_execution_memory(
+                    execution,
+                    *output,
+                    CanonicalValue::Bool(count >= *preset),
+                );
+                Ok(())
+            }
+            Operation::Unary {
+                operator,
+                operand,
+                target,
+            } => self
+                .execute_unary(execution, *operator, *operand, *target)
+                .map_err(local),
+            Operation::Binary {
+                operator,
+                left,
+                right,
+                target,
+            } => self
+                .execute_binary(execution, *operator, *left, *right, *target)
+                .map_err(local),
+            Operation::InvokeInstruction(invocation) => self
+                .execute_instruction_invocation(operation_id, invocation, execution)
+                .map_err(local),
+            Operation::CallBlock(call) => self.execute_block_call(
+                caller_block,
+                operation_id,
+                source_identity,
+                call,
+                scan_sequence,
+                work_units,
+                dynamic_depth,
+                execution,
+                executed_blocks,
+                call_boundaries,
+                context,
+            ),
+            Operation::InvocationOutput {
+                invocation_id,
+                formal,
+                target,
+            } => {
+                match execution
+                    .invocation_results
+                    .get(&(*invocation_id, *formal))
+                    .copied()
+                    .ok_or_else(|| local(ExecutionFault::RuntimeInvariant))?
+                {
+                    InvocationResult::Value(value) => {
+                        self.write_execution_memory(execution, *target, value);
+                    }
+                    InvocationResult::Suppressed => {
+                        Self::suppress_execution_memory(execution, *target);
+                    }
+                }
                 Ok(())
             }
         }
     }
 
-    fn read_operand(&self, operand: Operand) -> Result<CanonicalValue, ExecutionFault> {
+    fn execute_unary(
+        &mut self,
+        execution: &mut BlockExecution,
+        operator: RuntimeUnaryOperator,
+        operand: Operand,
+        target: MemoryId,
+    ) -> Result<(), ExecutionFault> {
+        let Some(value) = self.read_execution_operand(execution, operand)? else {
+            Self::suppress_execution_memory(execution, target);
+            return Ok(());
+        };
+        let value = match (operator, value) {
+            (RuntimeUnaryOperator::Plus, CanonicalValue::I32(value)) => CanonicalValue::I32(value),
+            (RuntimeUnaryOperator::Negate, CanonicalValue::I32(value)) => CanonicalValue::I32(
+                value
+                    .checked_neg()
+                    .ok_or(ExecutionFault::ArithmeticOverflow)?,
+            ),
+            (RuntimeUnaryOperator::Not, CanonicalValue::Bool(value)) => {
+                CanonicalValue::Bool(!value)
+            }
+            _ => return Err(ExecutionFault::RuntimeInvariant),
+        };
+        self.write_execution_memory(execution, target, value);
+        Ok(())
+    }
+
+    fn execute_binary(
+        &mut self,
+        execution: &mut BlockExecution,
+        operator: RuntimeBinaryOperator,
+        left: Operand,
+        right: Operand,
+        target: MemoryId,
+    ) -> Result<(), ExecutionFault> {
+        let (Some(left), Some(right)) = (
+            self.read_execution_operand(execution, left)?,
+            self.read_execution_operand(execution, right)?,
+        ) else {
+            Self::suppress_execution_memory(execution, target);
+            return Ok(());
+        };
+        let value = evaluate_binary(operator, left, right)?;
+        self.write_execution_memory(execution, target, value);
+        Ok(())
+    }
+
+    fn read_execution_operand(
+        &self,
+        execution: &BlockExecution,
+        operand: Operand,
+    ) -> Result<Option<CanonicalValue>, ExecutionFault> {
         match operand {
-            Operand::Constant(value) => Ok(value),
-            Operand::Memory(id) => self
-                .image
-                .force_overlays
-                .get(&RuntimeValueTarget::Memory(id))
-                .or_else(|| self.image.actual_memory.get(&id))
-                .copied()
-                .ok_or(ExecutionFault::RuntimeInvariant),
+            Operand::Constant(value) => Ok(Some(value)),
+            Operand::Memory(id) => {
+                if execution.suppressed_memory.contains(&id) {
+                    return Ok(None);
+                }
+                if let Some(frame) = &execution.frame_memory
+                    && let Some(value) = frame.get(&id)
+                {
+                    return Ok(Some(*value));
+                }
+                self.image
+                    .force_overlays
+                    .get(&RuntimeValueTarget::Memory(id))
+                    .or_else(|| self.image.actual_memory.get(&id))
+                    .copied()
+                    .map(Some)
+                    .ok_or(ExecutionFault::RuntimeInvariant)
+            }
             Operand::Input(id) => self
                 .image
                 .effective_inputs
                 .get(&id)
                 .copied()
+                .map(Some)
                 .ok_or(ExecutionFault::RuntimeInvariant),
             Operand::Output(id) => self
                 .image
                 .natural_outputs
                 .get(&id)
                 .copied()
+                .map(Some)
                 .ok_or(ExecutionFault::RuntimeInvariant),
         }
     }
 
-    fn read_bool(&self, operand: Operand) -> Result<bool, ExecutionFault> {
-        self.read_operand(operand)?
-            .as_bool()
-            .ok_or(ExecutionFault::RuntimeInvariant)
+    fn read_execution_bool(
+        &self,
+        execution: &BlockExecution,
+        operand: Operand,
+    ) -> Result<Option<bool>, ExecutionFault> {
+        self.read_execution_operand(execution, operand)?
+            .map(|value| value.as_bool().ok_or(ExecutionFault::RuntimeInvariant))
+            .transpose()
     }
 
-    fn read_i32(&self, operand: Operand) -> Result<i32, ExecutionFault> {
-        self.read_operand(operand)?
-            .as_i32()
-            .ok_or(ExecutionFault::RuntimeInvariant)
+    fn write_execution_memory(
+        &mut self,
+        execution: &mut BlockExecution,
+        id: MemoryId,
+        value: CanonicalValue,
+    ) {
+        execution.suppressed_memory.remove(&id);
+        if let Some(frame) = &mut execution.frame_memory
+            && frame.contains_key(&id)
+        {
+            frame.insert(id, value);
+            return;
+        }
+        self.write_memory(id, value);
+    }
+
+    fn suppress_execution_memory(execution: &mut BlockExecution, id: MemoryId) {
+        execution.suppressed_memory.insert(id);
+    }
+
+    fn execute_instruction_invocation(
+        &mut self,
+        operation_id: u32,
+        invocation: &RuntimeInstructionInvocation,
+        execution: &mut BlockExecution,
+    ) -> Result<(), ExecutionFault> {
+        let enabled = match invocation.activation {
+            Some(activation) => self
+                .read_execution_bool(execution, activation.enable)?
+                .unwrap_or(false),
+            None => true,
+        };
+        if !enabled {
+            self.publish_disabled_instruction(operation_id, invocation, execution)?;
+            return Ok(());
+        }
+
+        let mut inputs = BTreeMap::new();
+        for input in &invocation.inputs {
+            let RuntimeFormalRef::Instruction(formal) = input.formal else {
+                return Err(ExecutionFault::RuntimeInvariant);
+            };
+            let Some(value) = self.read_execution_operand(execution, input.source)? else {
+                self.suppress_invocation_outputs(operation_id, &invocation.outputs, execution);
+                self.publish_status(operation_id, invocation.activation, false, execution);
+                return Ok(());
+            };
+            inputs.insert(formal, value);
+        }
+
+        match self.compute_instruction_outputs(invocation, &inputs, execution) {
+            Ok(outputs) => {
+                for (formal, value) in outputs {
+                    execution.invocation_results.insert(
+                        (operation_id, RuntimeFormalRef::Instruction(formal)),
+                        InvocationResult::Value(value),
+                    );
+                }
+                self.publish_status(operation_id, invocation.activation, true, execution);
+                Ok(())
+            }
+            Err(fault) => {
+                self.publish_status(operation_id, invocation.activation, false, execution);
+                Err(fault)
+            }
+        }
+    }
+
+    fn publish_disabled_instruction(
+        &self,
+        operation_id: u32,
+        invocation: &RuntimeInstructionInvocation,
+        execution: &mut BlockExecution,
+    ) -> Result<(), ExecutionFault> {
+        let behavior = invocation
+            .activation
+            .map(|activation| activation.when_disabled)
+            .ok_or(ExecutionFault::RuntimeInvariant)?;
+        match behavior {
+            RuntimeDisabledBehavior::DefaultOutputsNoStateChange => {
+                for output in &invocation.outputs {
+                    if output.formal
+                        != RuntimeFormalRef::Instruction(
+                            invocation
+                                .activation
+                                .expect("disabled invocation has activation")
+                                .status_formal,
+                        )
+                    {
+                        execution.invocation_results.insert(
+                            (operation_id, output.formal),
+                            InvocationResult::Value(output.value_type.canonical_default()),
+                        );
+                    }
+                }
+            }
+            RuntimeDisabledBehavior::PreserveOutputsNoStateChange => {
+                let instance = invocation
+                    .instance
+                    .ok_or(ExecutionFault::RuntimeInvariant)?;
+                let key = invocation_state_key(execution, instance);
+                let state = self
+                    .image
+                    .invocation_state_cells
+                    .get(&key)
+                    .copied()
+                    .unwrap_or_else(|| InvocationStateCell::initial(instance.kind));
+                let preserved = preserved_instruction_outputs(invocation.instruction, state)?;
+                for output in &invocation.outputs {
+                    if let RuntimeFormalRef::Instruction(formal) = output.formal
+                        && let Some(value) = preserved.get(&formal)
+                    {
+                        execution.invocation_results.insert(
+                            (operation_id, output.formal),
+                            InvocationResult::Value(*value),
+                        );
+                    }
+                }
+            }
+            RuntimeDisabledBehavior::SuppressEffects => {
+                self.suppress_invocation_outputs(operation_id, &invocation.outputs, execution);
+            }
+        }
+        self.publish_status(operation_id, invocation.activation, false, execution);
+        Ok(())
+    }
+
+    fn suppress_invocation_outputs(
+        &self,
+        operation_id: u32,
+        outputs: &[crate::RuntimeDeclaredOutput],
+        execution: &mut BlockExecution,
+    ) {
+        for output in outputs {
+            execution
+                .invocation_results
+                .insert((operation_id, output.formal), InvocationResult::Suppressed);
+        }
+    }
+
+    fn publish_status(
+        &self,
+        operation_id: u32,
+        activation: Option<RuntimeActivation>,
+        status: bool,
+        execution: &mut BlockExecution,
+    ) {
+        if let Some(activation) = activation {
+            execution.invocation_results.insert(
+                (
+                    operation_id,
+                    RuntimeFormalRef::Instruction(activation.status_formal),
+                ),
+                InvocationResult::Value(CanonicalValue::Bool(status)),
+            );
+        }
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn compute_instruction_outputs(
+        &mut self,
+        invocation: &RuntimeInstructionInvocation,
+        inputs: &BTreeMap<u16, CanonicalValue>,
+        execution: &BlockExecution,
+    ) -> Result<BTreeMap<u16, CanonicalValue>, ExecutionFault> {
+        let mut outputs = BTreeMap::new();
+        match invocation.instruction {
+            RuntimeInstructionCode::NoOp
+            | RuntimeInstructionCode::Probe
+            | RuntimeInstructionCode::TraceSample
+            | RuntimeInstructionCode::BreakpointMarker => {}
+            RuntimeInstructionCode::Move => {
+                outputs.insert(FORMAL_OUTPUT, instruction_input(inputs, FORMAL_INPUT)?);
+            }
+            RuntimeInstructionCode::BoolNot => {
+                outputs.insert(
+                    FORMAL_OUTPUT,
+                    CanonicalValue::Bool(!instruction_bool(inputs, FORMAL_INPUT)?),
+                );
+            }
+            RuntimeInstructionCode::BoolAnd
+            | RuntimeInstructionCode::BoolOr
+            | RuntimeInstructionCode::BoolXor => {
+                let left = instruction_bool(inputs, FORMAL_LEFT)?;
+                let right = instruction_bool(inputs, FORMAL_RIGHT)?;
+                let value = match invocation.instruction {
+                    RuntimeInstructionCode::BoolAnd => left && right,
+                    RuntimeInstructionCode::BoolOr => left || right,
+                    RuntimeInstructionCode::BoolXor => left ^ right,
+                    _ => unreachable!(),
+                };
+                outputs.insert(FORMAL_OUTPUT, CanonicalValue::Bool(value));
+            }
+            RuntimeInstructionCode::CompareEqual
+            | RuntimeInstructionCode::CompareNotEqual
+            | RuntimeInstructionCode::CompareLess
+            | RuntimeInstructionCode::CompareLessEqual
+            | RuntimeInstructionCode::CompareGreater
+            | RuntimeInstructionCode::CompareGreaterEqual => {
+                let operator = match invocation.instruction {
+                    RuntimeInstructionCode::CompareEqual => RuntimeBinaryOperator::Equal,
+                    RuntimeInstructionCode::CompareNotEqual => RuntimeBinaryOperator::NotEqual,
+                    RuntimeInstructionCode::CompareLess => RuntimeBinaryOperator::Less,
+                    RuntimeInstructionCode::CompareLessEqual => RuntimeBinaryOperator::LessEqual,
+                    RuntimeInstructionCode::CompareGreater => RuntimeBinaryOperator::Greater,
+                    RuntimeInstructionCode::CompareGreaterEqual => {
+                        RuntimeBinaryOperator::GreaterEqual
+                    }
+                    _ => unreachable!(),
+                };
+                outputs.insert(
+                    FORMAL_OUTPUT,
+                    evaluate_binary(
+                        operator,
+                        instruction_input(inputs, FORMAL_LEFT)?,
+                        instruction_input(inputs, FORMAL_RIGHT)?,
+                    )?,
+                );
+            }
+            RuntimeInstructionCode::Add
+            | RuntimeInstructionCode::Subtract
+            | RuntimeInstructionCode::Multiply
+            | RuntimeInstructionCode::Divide
+            | RuntimeInstructionCode::Modulo => {
+                let operator = match invocation.instruction {
+                    RuntimeInstructionCode::Add => RuntimeBinaryOperator::Add,
+                    RuntimeInstructionCode::Subtract => RuntimeBinaryOperator::Subtract,
+                    RuntimeInstructionCode::Multiply => RuntimeBinaryOperator::Multiply,
+                    RuntimeInstructionCode::Divide => RuntimeBinaryOperator::Divide,
+                    RuntimeInstructionCode::Modulo => RuntimeBinaryOperator::Modulo,
+                    _ => unreachable!(),
+                };
+                outputs.insert(
+                    FORMAL_OUTPUT,
+                    evaluate_binary(
+                        operator,
+                        instruction_input(inputs, FORMAL_LEFT)?,
+                        instruction_input(inputs, FORMAL_RIGHT)?,
+                    )?,
+                );
+            }
+            RuntimeInstructionCode::RisingEdge | RuntimeInstructionCode::FallingEdge => {
+                let instance = invocation
+                    .instance
+                    .ok_or(ExecutionFault::RuntimeInvariant)?;
+                let key = invocation_state_key(execution, instance);
+                let previous = match self
+                    .image
+                    .invocation_state_cells
+                    .get(&key)
+                    .copied()
+                    .unwrap_or_else(|| InvocationStateCell::initial(instance.kind))
+                {
+                    InvocationStateCell::Edge { previous } => previous,
+                    _ => return Err(ExecutionFault::RuntimeInvariant),
+                };
+                let current = instruction_bool(inputs, FORMAL_CLOCK)?;
+                let value = if invocation.instruction == RuntimeInstructionCode::RisingEdge {
+                    current && !previous
+                } else {
+                    !current && previous
+                };
+                self.write_invocation_state(
+                    key,
+                    InvocationStateCell::Edge { previous: current },
+                    instance.retentive,
+                );
+                outputs.insert(FORMAL_OUTPUT, CanonicalValue::Bool(value));
+            }
+            RuntimeInstructionCode::TimerOnDelay
+            | RuntimeInstructionCode::TimerOffDelay
+            | RuntimeInstructionCode::TimerPulse => {
+                self.compute_timer_outputs(invocation, inputs, execution, &mut outputs)?;
+            }
+            RuntimeInstructionCode::CounterUp
+            | RuntimeInstructionCode::CounterDown
+            | RuntimeInstructionCode::CounterUpDown => {
+                self.compute_counter_outputs(invocation, inputs, execution, &mut outputs)?;
+            }
+        }
+        Ok(outputs)
+    }
+
+    fn compute_timer_outputs(
+        &mut self,
+        invocation: &RuntimeInstructionInvocation,
+        inputs: &BTreeMap<u16, CanonicalValue>,
+        execution: &BlockExecution,
+        outputs: &mut BTreeMap<u16, CanonicalValue>,
+    ) -> Result<(), ExecutionFault> {
+        let instance = invocation
+            .instance
+            .ok_or(ExecutionFault::RuntimeInvariant)?;
+        let key = invocation_state_key(execution, instance);
+        let (prior_elapsed, prior_output, prior_input) = match self
+            .image
+            .invocation_state_cells
+            .get(&key)
+            .copied()
+            .unwrap_or_else(|| InvocationStateCell::initial(instance.kind))
+        {
+            InvocationStateCell::Timer {
+                elapsed_ms,
+                output,
+                previous_input,
+            } => (elapsed_ms, output, previous_input),
+            _ => return Err(ExecutionFault::RuntimeInvariant),
+        };
+        let input = instruction_bool(inputs, FORMAL_INPUT)?;
+        let preset = instruction_time(inputs, FORMAL_PRESET_TIME)?;
+        let (elapsed, output) = match invocation.instruction {
+            RuntimeInstructionCode::TimerOnDelay => {
+                let elapsed = if input {
+                    prior_elapsed
+                        .checked_add(SCAN_QUANTUM_MS)
+                        .ok_or(ExecutionFault::TimerOverflow)?
+                        .min(preset)
+                } else {
+                    0
+                };
+                (elapsed, input && elapsed >= preset)
+            }
+            RuntimeInstructionCode::TimerOffDelay => {
+                if input {
+                    (0, true)
+                } else if prior_output {
+                    let elapsed = prior_elapsed
+                        .checked_add(SCAN_QUANTUM_MS)
+                        .ok_or(ExecutionFault::TimerOverflow)?
+                        .min(preset);
+                    (elapsed, elapsed < preset)
+                } else {
+                    (0, false)
+                }
+            }
+            RuntimeInstructionCode::TimerPulse => {
+                let rising = input && !prior_input;
+                if rising && !prior_output {
+                    (0, true)
+                } else if prior_output {
+                    let elapsed = prior_elapsed
+                        .checked_add(SCAN_QUANTUM_MS)
+                        .ok_or(ExecutionFault::TimerOverflow)?
+                        .min(preset);
+                    (elapsed, elapsed < preset)
+                } else {
+                    (0, false)
+                }
+            }
+            _ => return Err(ExecutionFault::RuntimeInvariant),
+        };
+        self.write_invocation_state(
+            key,
+            InvocationStateCell::Timer {
+                elapsed_ms: elapsed,
+                output,
+                previous_input: input,
+            },
+            instance.retentive,
+        );
+        outputs.insert(FORMAL_OUTPUT, CanonicalValue::Bool(output));
+        outputs.insert(FORMAL_ELAPSED_TIME, CanonicalValue::TimeMs(elapsed));
+        Ok(())
+    }
+
+    fn compute_counter_outputs(
+        &mut self,
+        invocation: &RuntimeInstructionInvocation,
+        inputs: &BTreeMap<u16, CanonicalValue>,
+        execution: &BlockExecution,
+        outputs: &mut BTreeMap<u16, CanonicalValue>,
+    ) -> Result<(), ExecutionFault> {
+        let instance = invocation
+            .instance
+            .ok_or(ExecutionFault::RuntimeInvariant)?;
+        let key = invocation_state_key(execution, instance);
+        let (prior_count, prior_up, prior_down) = match self
+            .image
+            .invocation_state_cells
+            .get(&key)
+            .copied()
+            .unwrap_or_else(|| InvocationStateCell::initial(instance.kind))
+        {
+            InvocationStateCell::Counter {
+                count,
+                previous_up,
+                previous_down,
+                ..
+            } => (count, previous_up, previous_down),
+            _ => return Err(ExecutionFault::RuntimeInvariant),
+        };
+        let preset = instruction_i32(inputs, FORMAL_PRESET_VALUE)?;
+        let (up, down, count) = match invocation.instruction {
+            RuntimeInstructionCode::CounterUp => {
+                let up = instruction_bool(inputs, FORMAL_COUNT_UP)?;
+                let reset = instruction_bool(inputs, FORMAL_RESET)?;
+                let count = if reset {
+                    0
+                } else if up && !prior_up {
+                    prior_count.saturating_add(1)
+                } else {
+                    prior_count
+                };
+                (up, false, count)
+            }
+            RuntimeInstructionCode::CounterDown => {
+                let down = instruction_bool(inputs, FORMAL_COUNT_DOWN)?;
+                let load = instruction_bool(inputs, FORMAL_LOAD)?;
+                let count = if load {
+                    preset
+                } else if down && !prior_down {
+                    prior_count.saturating_sub(1)
+                } else {
+                    prior_count
+                };
+                (false, down, count)
+            }
+            RuntimeInstructionCode::CounterUpDown => {
+                let up = instruction_bool(inputs, FORMAL_COUNT_UP)?;
+                let down = instruction_bool(inputs, FORMAL_COUNT_DOWN)?;
+                let reset = instruction_bool(inputs, FORMAL_RESET)?;
+                let load = instruction_bool(inputs, FORMAL_LOAD)?;
+                let count = if reset {
+                    0
+                } else if load {
+                    preset
+                } else {
+                    match (up && !prior_up, down && !prior_down) {
+                        (true, false) => prior_count.saturating_add(1),
+                        (false, true) => prior_count.saturating_sub(1),
+                        (false, false) | (true, true) => prior_count,
+                    }
+                };
+                (up, down, count)
+            }
+            _ => return Err(ExecutionFault::RuntimeInvariant),
+        };
+        let output_up = count >= preset;
+        let output_down = count <= 0;
+        self.write_invocation_state(
+            key,
+            InvocationStateCell::Counter {
+                count,
+                previous_up: up,
+                previous_down: down,
+                output_up,
+                output_down,
+            },
+            instance.retentive,
+        );
+        match invocation.instruction {
+            RuntimeInstructionCode::CounterUp => {
+                outputs.insert(FORMAL_OUTPUT, CanonicalValue::Bool(output_up));
+            }
+            RuntimeInstructionCode::CounterDown => {
+                outputs.insert(FORMAL_OUTPUT, CanonicalValue::Bool(output_down));
+            }
+            RuntimeInstructionCode::CounterUpDown => {
+                outputs.insert(FORMAL_QU, CanonicalValue::Bool(output_up));
+                outputs.insert(FORMAL_QD, CanonicalValue::Bool(output_down));
+            }
+            _ => return Err(ExecutionFault::RuntimeInvariant),
+        }
+        outputs.insert(FORMAL_CURRENT_VALUE, CanonicalValue::I32(count));
+        Ok(())
+    }
+
+    fn write_invocation_state(
+        &mut self,
+        key: InvocationStateKey,
+        value: InvocationStateCell,
+        retentive: bool,
+    ) {
+        self.image.invocation_state_cells.insert(key.clone(), value);
+        if retentive {
+            self.image.retain_invocation_state_cells.insert(key, value);
+        }
+    }
+
+    #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+    fn execute_block_call(
+        &mut self,
+        caller_block: BlockId,
+        operation_id: u32,
+        source_identity: u128,
+        call: &RuntimeBlockCall,
+        scan_sequence: u64,
+        work_units: &mut u32,
+        dynamic_depth: u8,
+        caller_execution: &mut BlockExecution,
+        executed_blocks: &mut Vec<BlockId>,
+        call_boundaries: &mut Vec<CallBoundaryEvent>,
+        context: &FaultContext,
+    ) -> Result<(), (ExecutionFault, FaultContext)> {
+        let enabled = match call.activation {
+            Some(activation) => self
+                .read_execution_bool(caller_execution, activation.enable)
+                .map_err(|fault| (fault, context.clone()))?
+                .unwrap_or(false),
+            None => true,
+        };
+        if !enabled {
+            self.suppress_call_outputs(operation_id, call, caller_execution);
+            self.publish_status(operation_id, call.activation, false, caller_execution);
+            return Ok(());
+        }
+        if dynamic_depth >= crate::MAX_DYNAMIC_CALL_DEPTH {
+            return Err((ExecutionFault::WorkUnitBudgetExceeded, context.clone()));
+        }
+
+        let mut copied_inputs = Vec::with_capacity(call.inputs.len());
+        for input in &call.inputs {
+            let RuntimeFormalRef::BlockMember(formal) = input.formal else {
+                return Err((ExecutionFault::RuntimeInvariant, context.clone()));
+            };
+            let Some(value) = self
+                .read_execution_operand(caller_execution, input.source)
+                .map_err(|fault| (fault, context.clone()))?
+            else {
+                self.suppress_call_outputs(operation_id, call, caller_execution);
+                self.publish_status(operation_id, call.activation, false, caller_execution);
+                return Ok(());
+            };
+            copied_inputs.push((formal, value));
+        }
+
+        let artifact = self
+            .loaded
+            .as_ref()
+            .ok_or_else(|| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+        let mut frame_memory = BTreeMap::new();
+        let mut frame_ids = BTreeSet::new();
+        collect_block_memory_ids(&call.callee, &mut frame_ids);
+        for id in frame_ids {
+            let index = artifact
+                .spec()
+                .memory
+                .binary_search_by_key(&id, |definition| definition.id)
+                .map_err(|_| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+            frame_memory.insert(id, artifact.spec().memory[index].loaded_start);
+        }
+        for member in &call.frame_members {
+            frame_memory.insert(member.memory, member.initial_value);
+        }
+        if let Some(instance) = &call.instance
+            && let Some(persisted) = self.image.function_block_instances.get(instance)
+        {
+            for (memory, value) in persisted {
+                frame_memory.insert(*memory, *value);
+            }
+        }
+        for (formal, value) in copied_inputs {
+            let member = call
+                .frame_members
+                .iter()
+                .find(|member| member.formal == formal)
+                .ok_or_else(|| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+            frame_memory.insert(member.memory, value);
+        }
+
+        let mut state_scope = caller_execution.state_scope.clone();
+        state_scope.push(match &call.instance {
+            Some(instance) => instance_scope_identity(instance),
+            None => call.call_site_identity,
+        });
+        let callee_execution = BlockExecution {
+            frame_memory: Some(frame_memory),
+            suppressed_memory: BTreeSet::new(),
+            invocation_results: BTreeMap::new(),
+            state_scope,
+        };
+        call_boundaries.push(CallBoundaryEvent {
+            kind: CallBoundaryKind::Enter,
+            caller_block,
+            callee_block: call.callee.id,
+            call_operation_id: operation_id,
+            source_identity,
+            call_site_identity: call.call_site_identity,
+            dynamic_depth: dynamic_depth + 1,
+            instance: call.instance.clone(),
+        });
+        self.increment_invocation(call.callee.id);
+        executed_blocks.push(call.callee.id);
+        let completed = self.execute_block_inner(
+            &call.callee,
+            scan_sequence,
+            work_units,
+            dynamic_depth + 1,
+            callee_execution,
+            executed_blocks,
+            call_boundaries,
+        )?;
+        self.charge_work(work_units, 1, context)?;
+
+        let frame = completed
+            .frame_memory
+            .as_ref()
+            .ok_or_else(|| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+        if call.kind == RuntimeCallKind::FunctionBlock {
+            let instance = call
+                .instance
+                .as_ref()
+                .ok_or_else(|| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+            let mut persistent = BTreeMap::new();
+            let mut retained = BTreeMap::new();
+            for member in &call.frame_members {
+                if member.role.persists_in_instance() {
+                    let value = *frame
+                        .get(&member.memory)
+                        .ok_or_else(|| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+                    persistent.insert(member.memory, value);
+                    if member.retentive {
+                        retained.insert(member.memory, value);
+                    }
+                }
+            }
+            self.image
+                .function_block_instances
+                .insert(instance.clone(), persistent);
+            if retained.is_empty() {
+                self.image.retain_function_block_instances.remove(instance);
+            } else {
+                self.image
+                    .retain_function_block_instances
+                    .insert(instance.clone(), retained);
+            }
+        }
+        for member in &call.frame_members {
+            let formal = RuntimeFormalRef::BlockMember(member.formal);
+            if call.outputs.iter().any(|output| output.formal == formal) {
+                let value = *frame
+                    .get(&member.memory)
+                    .ok_or_else(|| (ExecutionFault::RuntimeInvariant, context.clone()))?;
+                caller_execution
+                    .invocation_results
+                    .insert((operation_id, formal), InvocationResult::Value(value));
+            }
+        }
+        self.publish_status(operation_id, call.activation, true, caller_execution);
+        call_boundaries.push(CallBoundaryEvent {
+            kind: CallBoundaryKind::Return,
+            caller_block,
+            callee_block: call.callee.id,
+            call_operation_id: operation_id,
+            source_identity,
+            call_site_identity: call.call_site_identity,
+            dynamic_depth: dynamic_depth + 1,
+            instance: call.instance.clone(),
+        });
+        Ok(())
+    }
+
+    fn suppress_call_outputs(
+        &self,
+        operation_id: u32,
+        call: &RuntimeBlockCall,
+        execution: &mut BlockExecution,
+    ) {
+        for output in &call.outputs {
+            execution
+                .invocation_results
+                .insert((operation_id, output.formal), InvocationResult::Suppressed);
+        }
     }
 
     fn write_memory(&mut self, id: MemoryId, value: CanonicalValue) {
@@ -2853,6 +3962,11 @@ impl VirtualController {
             };
             self.image.state_cells.insert(definition.id, value);
         }
+        // Stateful instruction instances and FB instance frames follow the
+        // same warm-restart policy as ordinary state: only the explicitly
+        // retentive mirror is carried into the next execution.
+        self.image.invocation_state_cells = self.image.retain_invocation_state_cells.clone();
+        self.image.function_block_instances = self.image.retain_function_block_instances.clone();
         // A warm restart retains the boundary raw layer, but the CPU images are
         // reset and will be freshly sampled on the next normal scan.
         for channel in &artifact.spec().channels {
@@ -2899,6 +4013,10 @@ impl VirtualController {
                 self.image.retain_state_cells.insert(definition.id, state);
             }
         }
+        self.image.invocation_state_cells.clear();
+        self.image.retain_invocation_state_cells.clear();
+        self.image.function_block_instances.clear();
+        self.image.retain_function_block_instances.clear();
         self.reset_invocation_ordinals();
     }
 
@@ -3008,6 +4126,310 @@ impl VirtualController {
             encode_input_receipt(&stored.receipt, &mut hasher);
         }
         hasher.finish()
+    }
+}
+
+fn invocation_state_key(
+    execution: &BlockExecution,
+    instance: RuntimeInstructionInstance,
+) -> InvocationStateKey {
+    InvocationStateKey {
+        scope: execution.state_scope.clone(),
+        stable_id: instance.stable_id,
+        kind: instance.kind,
+    }
+}
+
+fn instance_scope_identity(instance: &RuntimeFunctionBlockInstance) -> u128 {
+    let mut hasher = SemanticHasher::new("PES-RUNTIME-FB-INSTANCE-SCOPE-1");
+    hasher.u128(instance.root_instance);
+    hasher.u64(instance.multi_instance_slots.len() as u64);
+    for slot in &instance.multi_instance_slots {
+        hasher.u128(*slot);
+    }
+    let bytes = hasher.finish().0;
+    u128::from_be_bytes(bytes[..16].try_into().expect("16-byte instance identity"))
+}
+
+fn instruction_input(
+    inputs: &BTreeMap<u16, CanonicalValue>,
+    formal: u16,
+) -> Result<CanonicalValue, ExecutionFault> {
+    inputs
+        .get(&formal)
+        .copied()
+        .ok_or(ExecutionFault::RuntimeInvariant)
+}
+
+fn instruction_bool(
+    inputs: &BTreeMap<u16, CanonicalValue>,
+    formal: u16,
+) -> Result<bool, ExecutionFault> {
+    instruction_input(inputs, formal)?
+        .as_bool()
+        .ok_or(ExecutionFault::RuntimeInvariant)
+}
+
+fn instruction_i32(
+    inputs: &BTreeMap<u16, CanonicalValue>,
+    formal: u16,
+) -> Result<i32, ExecutionFault> {
+    instruction_input(inputs, formal)?
+        .as_i32()
+        .ok_or(ExecutionFault::RuntimeInvariant)
+}
+
+fn instruction_time(
+    inputs: &BTreeMap<u16, CanonicalValue>,
+    formal: u16,
+) -> Result<u64, ExecutionFault> {
+    match instruction_input(inputs, formal)? {
+        CanonicalValue::TimeMs(value) => Ok(value),
+        _ => Err(ExecutionFault::RuntimeInvariant),
+    }
+}
+
+fn preserved_instruction_outputs(
+    instruction: RuntimeInstructionCode,
+    state: InvocationStateCell,
+) -> Result<BTreeMap<u16, CanonicalValue>, ExecutionFault> {
+    let mut outputs = BTreeMap::new();
+    match (instruction, state) {
+        (
+            RuntimeInstructionCode::TimerOnDelay
+            | RuntimeInstructionCode::TimerOffDelay
+            | RuntimeInstructionCode::TimerPulse,
+            InvocationStateCell::Timer {
+                elapsed_ms, output, ..
+            },
+        ) => {
+            outputs.insert(FORMAL_OUTPUT, CanonicalValue::Bool(output));
+            outputs.insert(FORMAL_ELAPSED_TIME, CanonicalValue::TimeMs(elapsed_ms));
+        }
+        (
+            RuntimeInstructionCode::CounterUp,
+            InvocationStateCell::Counter {
+                count, output_up, ..
+            },
+        ) => {
+            outputs.insert(FORMAL_OUTPUT, CanonicalValue::Bool(output_up));
+            outputs.insert(FORMAL_CURRENT_VALUE, CanonicalValue::I32(count));
+        }
+        (
+            RuntimeInstructionCode::CounterDown,
+            InvocationStateCell::Counter {
+                count, output_down, ..
+            },
+        ) => {
+            outputs.insert(FORMAL_OUTPUT, CanonicalValue::Bool(output_down));
+            outputs.insert(FORMAL_CURRENT_VALUE, CanonicalValue::I32(count));
+        }
+        (
+            RuntimeInstructionCode::CounterUpDown,
+            InvocationStateCell::Counter {
+                count,
+                output_up,
+                output_down,
+                ..
+            },
+        ) => {
+            outputs.insert(FORMAL_QU, CanonicalValue::Bool(output_up));
+            outputs.insert(FORMAL_QD, CanonicalValue::Bool(output_down));
+            outputs.insert(FORMAL_CURRENT_VALUE, CanonicalValue::I32(count));
+        }
+        _ => return Err(ExecutionFault::RuntimeInvariant),
+    }
+    Ok(outputs)
+}
+
+fn evaluate_binary(
+    operator: RuntimeBinaryOperator,
+    left: CanonicalValue,
+    right: CanonicalValue,
+) -> Result<CanonicalValue, ExecutionFault> {
+    match operator {
+        RuntimeBinaryOperator::Add
+        | RuntimeBinaryOperator::Subtract
+        | RuntimeBinaryOperator::Multiply
+        | RuntimeBinaryOperator::Divide
+        | RuntimeBinaryOperator::Modulo => {
+            let (Some(left), Some(right)) = (left.as_i32(), right.as_i32()) else {
+                return Err(ExecutionFault::RuntimeInvariant);
+            };
+            let value = match operator {
+                RuntimeBinaryOperator::Add => left.checked_add(right),
+                RuntimeBinaryOperator::Subtract => left.checked_sub(right),
+                RuntimeBinaryOperator::Multiply => left.checked_mul(right),
+                RuntimeBinaryOperator::Divide if right == 0 => {
+                    return Err(ExecutionFault::DivideByZero);
+                }
+                RuntimeBinaryOperator::Divide => left.checked_div(right),
+                RuntimeBinaryOperator::Modulo if right == 0 => {
+                    return Err(ExecutionFault::DivideByZero);
+                }
+                RuntimeBinaryOperator::Modulo => left.checked_rem(right),
+                _ => unreachable!(),
+            }
+            .ok_or(ExecutionFault::ArithmeticOverflow)?;
+            Ok(CanonicalValue::I32(value))
+        }
+        RuntimeBinaryOperator::And | RuntimeBinaryOperator::Xor | RuntimeBinaryOperator::Or => {
+            let (Some(left), Some(right)) = (left.as_bool(), right.as_bool()) else {
+                return Err(ExecutionFault::RuntimeInvariant);
+            };
+            Ok(CanonicalValue::Bool(match operator {
+                RuntimeBinaryOperator::And => left && right,
+                RuntimeBinaryOperator::Xor => left ^ right,
+                RuntimeBinaryOperator::Or => left || right,
+                _ => unreachable!(),
+            }))
+        }
+        RuntimeBinaryOperator::Equal | RuntimeBinaryOperator::NotEqual => {
+            if left.value_type() != right.value_type() {
+                return Err(ExecutionFault::RuntimeInvariant);
+            }
+            let equal = left == right;
+            Ok(CanonicalValue::Bool(
+                if operator == RuntimeBinaryOperator::Equal {
+                    equal
+                } else {
+                    !equal
+                },
+            ))
+        }
+        RuntimeBinaryOperator::Less
+        | RuntimeBinaryOperator::LessEqual
+        | RuntimeBinaryOperator::Greater
+        | RuntimeBinaryOperator::GreaterEqual => {
+            let ordering = compare_canonical(left, right)?;
+            Ok(CanonicalValue::Bool(match operator {
+                RuntimeBinaryOperator::Less => ordering.is_lt(),
+                RuntimeBinaryOperator::LessEqual => !ordering.is_gt(),
+                RuntimeBinaryOperator::Greater => ordering.is_gt(),
+                RuntimeBinaryOperator::GreaterEqual => !ordering.is_lt(),
+                _ => unreachable!(),
+            }))
+        }
+    }
+}
+
+fn compare_canonical(
+    left: CanonicalValue,
+    right: CanonicalValue,
+) -> Result<core::cmp::Ordering, ExecutionFault> {
+    match (left, right) {
+        (CanonicalValue::Bool(left), CanonicalValue::Bool(right)) => Ok(left.cmp(&right)),
+        (CanonicalValue::I32(left), CanonicalValue::I32(right)) => Ok(left.cmp(&right)),
+        (CanonicalValue::I64(left), CanonicalValue::I64(right)) => Ok(left.cmp(&right)),
+        (CanonicalValue::U32(left), CanonicalValue::U32(right)) => Ok(left.cmp(&right)),
+        (CanonicalValue::TimeMs(left), CanonicalValue::TimeMs(right)) => Ok(left.cmp(&right)),
+        _ => Err(ExecutionFault::RuntimeInvariant),
+    }
+}
+
+fn collect_block_memory_ids(block: &ProgramBlock, target: &mut BTreeSet<MemoryId>) {
+    for instruction in &block.instructions {
+        collect_operation_memory_ids(instruction.operation(), target);
+    }
+}
+
+fn collect_operand_memory(operand: Operand, target: &mut BTreeSet<MemoryId>) {
+    if let Operand::Memory(memory) = operand {
+        target.insert(memory);
+    }
+}
+
+#[allow(clippy::too_many_lines)]
+fn collect_operation_memory_ids(operation: &Operation, target: &mut BTreeSet<MemoryId>) {
+    match operation {
+        Operation::Noop => {}
+        Operation::SetMemory { target: memory, .. }
+        | Operation::LoadInput { target: memory, .. }
+        | Operation::InvocationOutput { target: memory, .. } => {
+            target.insert(*memory);
+        }
+        Operation::Copy {
+            source,
+            target: memory,
+        }
+        | Operation::Unary {
+            operand: source,
+            target: memory,
+            ..
+        } => {
+            collect_operand_memory(*source, target);
+            target.insert(*memory);
+        }
+        Operation::AddI32 {
+            left,
+            right,
+            target: memory,
+        }
+        | Operation::Binary {
+            left,
+            right,
+            target: memory,
+            ..
+        } => {
+            collect_operand_memory(*left, target);
+            collect_operand_memory(*right, target);
+            target.insert(*memory);
+        }
+        Operation::DivideI32 {
+            numerator,
+            denominator,
+            target: memory,
+        } => {
+            collect_operand_memory(*numerator, target);
+            collect_operand_memory(*denominator, target);
+            target.insert(*memory);
+        }
+        Operation::StoreOutput { source, .. } => collect_operand_memory(*source, target),
+        Operation::RisingEdge {
+            source,
+            target: memory,
+            ..
+        }
+        | Operation::FallingEdge {
+            source,
+            target: memory,
+            ..
+        } => {
+            collect_operand_memory(*source, target);
+            target.insert(*memory);
+        }
+        Operation::TimerOnDelay {
+            input,
+            output,
+            elapsed,
+            ..
+        } => {
+            collect_operand_memory(*input, target);
+            target.insert(*output);
+            target.insert(*elapsed);
+        }
+        Operation::CounterUp {
+            input,
+            reset,
+            output,
+            current,
+            ..
+        } => {
+            collect_operand_memory(*input, target);
+            collect_operand_memory(*reset, target);
+            target.insert(*output);
+            target.insert(*current);
+        }
+        Operation::InvokeInstruction(invocation) => {
+            for input in &invocation.inputs {
+                collect_operand_memory(input.source, target);
+            }
+        }
+        Operation::CallBlock(call) => {
+            for input in &call.inputs {
+                collect_operand_memory(input.source, target);
+            }
+        }
     }
 }
 

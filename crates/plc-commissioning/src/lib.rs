@@ -29,8 +29,9 @@ pub use universe::{
 };
 
 pub use plc_runtime::{
-    ArtifactPackage, CanonicalValue, ChannelId, CommandId, CpuState, Hash32, InputCommand,
-    InputReceipt, MemoryId, RunOutcome, RuntimeBoundaryCommand, RuntimeBoundaryReceipt,
-    RuntimeForceDelta, RuntimeNaturalWrite, RuntimeScanCommand, RuntimeScanReceipt,
-    RuntimeValueTarget, StateId, UniverseId, ValueType, VirtualControllerId,
+    ArtifactPackage, CanonicalValue, ChannelId, CommandId, ControllerSnapshot, CpuState, Hash32,
+    InputCommand, InputReceipt, MemoryId, RunOutcome, RuntimeBoundaryCommand,
+    RuntimeBoundaryReceipt, RuntimeForceDelta, RuntimeNaturalWrite, RuntimeScanCommand,
+    RuntimeScanReceipt, RuntimeValueTarget, SnapshotError, StateId, UniverseId, ValueType,
+    VirtualControllerId,
 };

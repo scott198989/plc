@@ -595,13 +595,13 @@ mod tests {
 
     use super::*;
     use crate::{
-        Hash32, ResourceLimits, RuntimeAdapterError, RuntimeOperationId,
-        project_verified_ir_to_runtime, verify_typed_ir,
+        Hash32, ResourceLimits, RuntimeAdapterError, project_verified_ir_to_runtime,
+        verify_typed_ir,
     };
 
     #[test]
     #[allow(clippy::similar_names)]
-    fn real_scl_fc_call_lowers_to_verified_shared_ir_and_typed_runtime_gap() {
+    fn real_scl_fc_call_requires_a_verified_callable_body_before_runtime_projection() {
         let caller_id = BlockId::new(1);
         let callee_id = BlockId::new(2);
         let arg = InterfaceMemberId::new(10);
@@ -691,12 +691,9 @@ mod tests {
             &program,
             Hash32::ZERO,
         );
-        assert!(matches!(
+        assert_eq!(
             runtime,
-            Err(RuntimeAdapterError::UnsupportedOperation {
-                semantic_operation: RuntimeOperationId("EDU.RT.CALL_BLOCK.v1"),
-                ..
-            })
-        ));
+            Err(RuntimeAdapterError::MissingCallableBody(callee_id))
+        );
     }
 }
