@@ -455,37 +455,11 @@ fn project_runtime_channels<'a>(
 }
 
 fn hardware_value_type(value: PrimitiveType) -> Option<ValueType> {
-    match value {
-        PrimitiveType::Bool => Some(ValueType::Bool),
-        PrimitiveType::Sint | PrimitiveType::Int | PrimitiveType::Dint => Some(ValueType::I32),
-        PrimitiveType::Lint => Some(ValueType::I64),
-        PrimitiveType::Usint
-        | PrimitiveType::Uint
-        | PrimitiveType::Udint
-        | PrimitiveType::Byte
-        | PrimitiveType::Word
-        | PrimitiveType::Dword => Some(ValueType::U32),
-        PrimitiveType::Time => Some(ValueType::TimeMs),
-        PrimitiveType::Ulint
-        | PrimitiveType::Lword
-        | PrimitiveType::Real
-        | PrimitiveType::Lreal
-        | PrimitiveType::Char
-        | PrimitiveType::String(_) => None,
-    }
+    ValueType::from_primitive(value)
 }
 
 fn program_value_type(value: &DataType) -> Option<ValueType> {
-    match value {
-        DataType::Bool => Some(ValueType::Bool),
-        DataType::Int | DataType::DInt => Some(ValueType::I32),
-        DataType::Time => Some(ValueType::TimeMs),
-        DataType::Real
-        | DataType::String { .. }
-        | DataType::Named(_)
-        | DataType::BlockInstance(_)
-        | DataType::InstructionState(_) => None,
-    }
+    value.primitive_type().and_then(ValueType::from_primitive)
 }
 
 fn build_probe_catalog(

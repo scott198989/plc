@@ -1,4 +1,5 @@
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
+use plc_types::{CanonicalF32, CanonicalF64, PrimitiveType, ScalarValue};
 
 use crate::{BlockId, InterfaceMemberId, instruction::StateKind};
 
@@ -26,9 +27,21 @@ pub enum RetainPolicy {
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum DataType {
     Bool,
+    SInt,
     Int,
     DInt,
+    LInt,
+    USInt,
+    UInt,
+    UDInt,
+    ULInt,
+    Byte,
+    Word,
+    DWord,
+    LWord,
     Real,
+    LReal,
+    Char,
     Time,
     String { capacity: u16 },
     Named(String),
@@ -36,12 +49,80 @@ pub enum DataType {
     InstructionState(StateKind),
 }
 
+impl DataType {
+    #[must_use]
+    pub fn primitive_type(&self) -> Option<PrimitiveType> {
+        match self {
+            Self::Bool => Some(PrimitiveType::Bool),
+            Self::SInt => Some(PrimitiveType::Sint),
+            Self::Int => Some(PrimitiveType::Int),
+            Self::DInt => Some(PrimitiveType::Dint),
+            Self::LInt => Some(PrimitiveType::Lint),
+            Self::USInt => Some(PrimitiveType::Usint),
+            Self::UInt => Some(PrimitiveType::Uint),
+            Self::UDInt => Some(PrimitiveType::Udint),
+            Self::ULInt => Some(PrimitiveType::Ulint),
+            Self::Byte => Some(PrimitiveType::Byte),
+            Self::Word => Some(PrimitiveType::Word),
+            Self::DWord => Some(PrimitiveType::Dword),
+            Self::LWord => Some(PrimitiveType::Lword),
+            Self::Real => Some(PrimitiveType::Real),
+            Self::LReal => Some(PrimitiveType::Lreal),
+            Self::Char => Some(PrimitiveType::Char),
+            Self::Time => Some(PrimitiveType::Time),
+            Self::String { capacity } => u8::try_from(*capacity)
+                .ok()
+                .filter(|capacity| *capacity <= 254)
+                .map(PrimitiveType::String),
+            Self::Named(_) | Self::BlockInstance(_) | Self::InstructionState(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub const fn from_primitive(primitive: PrimitiveType) -> Self {
+        match primitive {
+            PrimitiveType::Bool => Self::Bool,
+            PrimitiveType::Sint => Self::SInt,
+            PrimitiveType::Int => Self::Int,
+            PrimitiveType::Dint => Self::DInt,
+            PrimitiveType::Lint => Self::LInt,
+            PrimitiveType::Usint => Self::USInt,
+            PrimitiveType::Uint => Self::UInt,
+            PrimitiveType::Udint => Self::UDInt,
+            PrimitiveType::Ulint => Self::ULInt,
+            PrimitiveType::Byte => Self::Byte,
+            PrimitiveType::Word => Self::Word,
+            PrimitiveType::Dword => Self::DWord,
+            PrimitiveType::Lword => Self::LWord,
+            PrimitiveType::Real => Self::Real,
+            PrimitiveType::Lreal => Self::LReal,
+            PrimitiveType::Char => Self::Char,
+            PrimitiveType::String(capacity) => Self::String {
+                capacity: capacity as u16,
+            },
+            PrimitiveType::Time => Self::Time,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CanonicalValue {
     Bool(bool),
+    SInt(i8),
     Int(i16),
     DInt(i32),
+    LInt(i64),
+    USInt(u8),
+    UInt(u16),
+    UDInt(u32),
+    ULInt(u64),
+    Byte(u8),
+    Word(u16),
+    DWord(u32),
+    LWord(u64),
     RealBits(u32),
+    LRealBits(u64),
+    Char(u8),
     TimeMilliseconds(i64),
     StringBytes(Vec<u8>),
 }
@@ -49,20 +130,63 @@ pub enum CanonicalValue {
 impl CanonicalValue {
     #[must_use]
     pub fn is_compatible_with(&self, data_type: &DataType) -> bool {
+        data_type
+            .primitive_type()
+            .and_then(|primitive| {
+                self.scalar_value_for(primitive)
+                    .map(|value| (primitive, value))
+            })
+            .is_some_and(|(primitive, value)| primitive.validate_scalar(&value).is_ok())
+    }
+
+    #[must_use]
+    pub fn scalar_value_for(&self, data_type: PrimitiveType) -> Option<ScalarValue> {
         match (self, data_type) {
-            (Self::Bool(_), DataType::Bool)
-            | (Self::Int(_), DataType::Int)
-            | (Self::DInt(_), DataType::DInt)
-            | (Self::TimeMilliseconds(_), DataType::Time) => true,
-            (Self::RealBits(bits), DataType::Real) => {
-                let exponent = (bits >> 23) & 0xff;
-                let fraction = bits & 0x7f_ffff;
-                exponent != 0xff || fraction == 0 || *bits == 0x7fc0_0000
+            (Self::Bool(value), PrimitiveType::Bool) => Some(ScalarValue::Bool(*value)),
+            (Self::SInt(value), PrimitiveType::Sint) => {
+                Some(ScalarValue::Signed(i64::from(*value)))
             }
-            (Self::StringBytes(bytes), DataType::String { capacity }) => {
-                bytes.len() <= usize::from(*capacity)
+            (Self::Int(value), PrimitiveType::Int) => Some(ScalarValue::Signed(i64::from(*value))),
+            (Self::DInt(value), PrimitiveType::Dint) => {
+                Some(ScalarValue::Signed(i64::from(*value)))
             }
-            _ => false,
+            (Self::LInt(value), PrimitiveType::Lint) => Some(ScalarValue::Signed(*value)),
+            (Self::USInt(value), PrimitiveType::Usint) => {
+                Some(ScalarValue::Unsigned(u64::from(*value)))
+            }
+            (Self::UInt(value), PrimitiveType::Uint) => {
+                Some(ScalarValue::Unsigned(u64::from(*value)))
+            }
+            (Self::UDInt(value), PrimitiveType::Udint) => {
+                Some(ScalarValue::Unsigned(u64::from(*value)))
+            }
+            (Self::ULInt(value), PrimitiveType::Ulint) => Some(ScalarValue::Unsigned(*value)),
+            (Self::Byte(value), PrimitiveType::Byte) => {
+                Some(ScalarValue::BitString(u64::from(*value)))
+            }
+            (Self::Word(value), PrimitiveType::Word) => {
+                Some(ScalarValue::BitString(u64::from(*value)))
+            }
+            (Self::DWord(value), PrimitiveType::Dword) => {
+                Some(ScalarValue::BitString(u64::from(*value)))
+            }
+            (Self::LWord(value), PrimitiveType::Lword) => Some(ScalarValue::BitString(*value)),
+            (Self::RealBits(bits), PrimitiveType::Real)
+                if CanonicalF32::from_bits(*bits).bits() == *bits =>
+            {
+                Some(ScalarValue::Real(CanonicalF32::from_bits(*bits)))
+            }
+            (Self::LRealBits(bits), PrimitiveType::Lreal)
+                if CanonicalF64::from_bits(*bits).bits() == *bits =>
+            {
+                Some(ScalarValue::Lreal(CanonicalF64::from_bits(*bits)))
+            }
+            (Self::Char(value), PrimitiveType::Char) => Some(ScalarValue::Char(*value)),
+            (Self::TimeMilliseconds(value), PrimitiveType::Time) => Some(ScalarValue::Time(*value)),
+            (Self::StringBytes(bytes), PrimitiveType::String(_)) => {
+                Some(ScalarValue::String(bytes.clone()))
+            }
+            _ => None,
         }
     }
 }

@@ -424,9 +424,21 @@ fn validate_special_member_type(
             }
         }
         DataType::Bool
+        | DataType::SInt
         | DataType::Int
         | DataType::DInt
+        | DataType::LInt
+        | DataType::USInt
+        | DataType::UInt
+        | DataType::UDInt
+        | DataType::ULInt
+        | DataType::Byte
+        | DataType::Word
+        | DataType::DWord
+        | DataType::LWord
         | DataType::Real
+        | DataType::LReal
+        | DataType::Char
         | DataType::Time
         | DataType::String { .. }
         | DataType::Named(_) => {}

@@ -23,6 +23,7 @@ use plc_runtime::{
     RuntimeInstructionStateKind, RuntimeUnaryOperator, TaskId, TimedTask, ValueType,
     runtime_block_signature_fingerprint,
 };
+use plc_types::{CanonicalF32, CanonicalF64};
 
 use crate::{
     BinaryOperator, IrActivation, IrBasicBlockId, IrBoundInput, IrDeclaredOutput, IrFormalRef,
@@ -616,9 +617,10 @@ fn lower_operation(
         }),
         IrOperationKind::Convert {
             source,
-            destination: IrType::Int | IrType::DInt,
-        } => Ok(RuntimeOperation::Copy {
+            destination,
+        } => Ok(RuntimeOperation::Convert {
             source: value(*source)?,
+            destination: ir_value_type(owner, operation.id, destination)?,
             target: result()?,
         }),
         IrOperationKind::InvokeInstruction {
@@ -696,11 +698,6 @@ fn lower_operation(
                 target: result()?,
             })
         }
-        IrOperationKind::Convert { .. } => Err(RuntimeAdapterError::UnsupportedOperation {
-            owner,
-            operation: operation.id,
-            semantic_operation: operation.kind.runtime_operation(),
-        }),
     }
 }
 
@@ -709,6 +706,7 @@ const fn runtime_unary(operator: UnaryOperator) -> RuntimeUnaryOperator {
         UnaryOperator::Plus => RuntimeUnaryOperator::Plus,
         UnaryOperator::Negate => RuntimeUnaryOperator::Negate,
         UnaryOperator::Not => RuntimeUnaryOperator::Not,
+        UnaryOperator::Absolute => RuntimeUnaryOperator::Absolute,
     }
 }
 
@@ -728,6 +726,8 @@ const fn runtime_binary(operator: BinaryOperator) -> RuntimeBinaryOperator {
         BinaryOperator::And => RuntimeBinaryOperator::And,
         BinaryOperator::Xor => RuntimeBinaryOperator::Xor,
         BinaryOperator::Or => RuntimeBinaryOperator::Or,
+        BinaryOperator::Minimum => RuntimeBinaryOperator::Minimum,
+        BinaryOperator::Maximum => RuntimeBinaryOperator::Maximum,
     }
 }
 
@@ -1074,19 +1074,18 @@ fn member_value_type(
     owner: ProgramBlockId,
     member: &InterfaceMember,
 ) -> Result<ValueType, RuntimeAdapterError> {
-    match member.data_type {
-        DataType::Bool => Ok(ValueType::Bool),
-        DataType::Int | DataType::DInt => Ok(ValueType::I32),
-        DataType::Time => Ok(ValueType::TimeMs),
-        DataType::Real
-        | DataType::String { .. }
-        | DataType::Named(_)
-        | DataType::BlockInstance(_)
-        | DataType::InstructionState(_) => Err(RuntimeAdapterError::UnsupportedMemberType {
+    if let Some(value_type) = member
+        .data_type
+        .primitive_type()
+        .and_then(ValueType::from_primitive)
+    {
+        Ok(value_type)
+    } else {
+        Err(RuntimeAdapterError::UnsupportedMemberType {
             owner,
             member: member.id,
             data_type: member.data_type.clone(),
-        }),
+        })
     }
 }
 
@@ -1110,15 +1109,17 @@ fn ir_value_type(
     operation: IrOperationId,
     data_type: &IrType,
 ) -> Result<ValueType, RuntimeAdapterError> {
-    match data_type {
-        IrType::Bool => Ok(ValueType::Bool),
-        IrType::Int | IrType::DInt => Ok(ValueType::I32),
-        IrType::Time => Ok(ValueType::TimeMs),
-        IrType::Real | IrType::String { .. } => Err(RuntimeAdapterError::UnsupportedIrType {
+    if let Some(value_type) = data_type
+        .primitive_type()
+        .and_then(ValueType::from_primitive)
+    {
+        Ok(value_type)
+    } else {
+        Err(RuntimeAdapterError::UnsupportedIrType {
             owner,
             operation,
             data_type: data_type.clone(),
-        }),
+        })
     }
 }
 
@@ -1145,11 +1146,22 @@ fn runtime_constant(
 fn convert_value(value: &ProgramValue) -> Option<RuntimeValue> {
     match value {
         ProgramValue::Bool(value) => Some(RuntimeValue::Bool(*value)),
-        ProgramValue::Int(value) => Some(RuntimeValue::I32(i32::from(*value))),
+        ProgramValue::SInt(value) => Some(RuntimeValue::I8(*value)),
+        ProgramValue::Int(value) => Some(RuntimeValue::I16(*value)),
         ProgramValue::DInt(value) => Some(RuntimeValue::I32(*value)),
-        ProgramValue::TimeMilliseconds(value) => {
-            u64::try_from(*value).ok().map(RuntimeValue::TimeMs)
-        }
-        ProgramValue::RealBits(_) | ProgramValue::StringBytes(_) => None,
+        ProgramValue::LInt(value) => Some(RuntimeValue::I64(*value)),
+        ProgramValue::USInt(value) => Some(RuntimeValue::U8(*value)),
+        ProgramValue::UInt(value) => Some(RuntimeValue::U16(*value)),
+        ProgramValue::UDInt(value) => Some(RuntimeValue::U32(*value)),
+        ProgramValue::ULInt(value) => Some(RuntimeValue::U64(*value)),
+        ProgramValue::Byte(value) => Some(RuntimeValue::Bits8(*value)),
+        ProgramValue::Word(value) => Some(RuntimeValue::Bits16(*value)),
+        ProgramValue::DWord(value) => Some(RuntimeValue::Bits32(*value)),
+        ProgramValue::LWord(value) => Some(RuntimeValue::Bits64(*value)),
+        ProgramValue::RealBits(value) => Some(RuntimeValue::F32(CanonicalF32::from_bits(*value))),
+        ProgramValue::LRealBits(value) => Some(RuntimeValue::F64(CanonicalF64::from_bits(*value))),
+        ProgramValue::Char(value) => Some(RuntimeValue::Char(*value)),
+        ProgramValue::TimeMilliseconds(value) => Some(RuntimeValue::TimeMs(*value)),
+        ProgramValue::StringBytes(_) => None,
     }
 }

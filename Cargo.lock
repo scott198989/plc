@@ -22,6 +22,7 @@ dependencies = [
  "plc-language-tools",
  "plc-program",
  "plc-runtime",
+ "plc-types",
 ]
 
 [[package]]
@@ -45,6 +46,7 @@ name = "plc-hardware"
 version = "0.1.0"
 dependencies = [
  "plc-core",
+ "plc-types",
 ]
 
 [[package]]
@@ -75,10 +77,16 @@ dependencies = [
 [[package]]
 name = "plc-program"
 version = "0.1.0"
+dependencies = [
+ "plc-types",
+]
 
 [[package]]
 name = "plc-runtime"
 version = "0.1.0"
+dependencies = [
+ "plc-types",
+]
 
 [[package]]
 name = "plc-system"
@@ -94,3 +102,7 @@ dependencies = [
  "plc-program",
  "plc-runtime",
 ]
+
+[[package]]
+name = "plc-types"
+version = "0.1.0"

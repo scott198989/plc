@@ -69,7 +69,19 @@ impl CanonicalHasher {
             CanonicalValue::I32(value) => self.i32(value),
             CanonicalValue::I64(value) => self.i64(value),
             CanonicalValue::U32(value) => self.u32(value),
-            CanonicalValue::TimeMs(value) => self.u64(value),
+            CanonicalValue::TimeMs(value) => self.i64(value),
+            CanonicalValue::I8(value) => self.i32(i32::from(value)),
+            CanonicalValue::I16(value) => self.i32(i32::from(value)),
+            CanonicalValue::U8(value) => self.u8(value),
+            CanonicalValue::U16(value) => self.u16(value),
+            CanonicalValue::U64(value) => self.u64(value),
+            CanonicalValue::Bits8(value) => self.u8(value),
+            CanonicalValue::Bits16(value) => self.u16(value),
+            CanonicalValue::Bits32(value) => self.u32(value),
+            CanonicalValue::Bits64(value) => self.u64(value),
+            CanonicalValue::F32(value) => self.u32(value.bits()),
+            CanonicalValue::F64(value) => self.u64(value.bits()),
+            CanonicalValue::Char(value) => self.u8(value),
         }
     }
 }

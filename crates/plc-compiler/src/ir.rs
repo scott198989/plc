@@ -11,6 +11,7 @@ use plc_program::{
     InterfaceRole, ProgramUnitKind, StateKind, StateRequirement, phase2_instruction_registry,
 };
 use plc_runtime::Hash32;
+use plc_types::{PrimitiveCategory, PrimitiveType, explicit_conversion_allowed};
 
 use crate::{
     IrBasicBlockId, IrOperationId, IrValueId, ProbeId, SourceAnchor, SourceMapId, TYPED_IR_VERSION,
@@ -20,9 +21,21 @@ use crate::{
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum IrType {
     Bool,
+    SInt,
     Int,
     DInt,
+    LInt,
+    USInt,
+    UInt,
+    UDInt,
+    ULInt,
+    Byte,
+    Word,
+    DWord,
+    LWord,
     Real,
+    LReal,
+    Char,
     Time,
     String { capacity: u16 },
 }
@@ -31,9 +44,21 @@ impl IrType {
     pub(crate) fn from_program_type(value: &DataType) -> Option<Self> {
         match value {
             DataType::Bool => Some(Self::Bool),
+            DataType::SInt => Some(Self::SInt),
             DataType::Int => Some(Self::Int),
             DataType::DInt => Some(Self::DInt),
+            DataType::LInt => Some(Self::LInt),
+            DataType::USInt => Some(Self::USInt),
+            DataType::UInt => Some(Self::UInt),
+            DataType::UDInt => Some(Self::UDInt),
+            DataType::ULInt => Some(Self::ULInt),
+            DataType::Byte => Some(Self::Byte),
+            DataType::Word => Some(Self::Word),
+            DataType::DWord => Some(Self::DWord),
+            DataType::LWord => Some(Self::LWord),
             DataType::Real => Some(Self::Real),
+            DataType::LReal => Some(Self::LReal),
+            DataType::Char => Some(Self::Char),
             DataType::Time => Some(Self::Time),
             DataType::String { capacity } => Some(Self::String {
                 capacity: *capacity,
@@ -46,14 +71,31 @@ impl IrType {
     pub fn to_program_type(&self) -> DataType {
         match self {
             Self::Bool => DataType::Bool,
+            Self::SInt => DataType::SInt,
             Self::Int => DataType::Int,
             Self::DInt => DataType::DInt,
+            Self::LInt => DataType::LInt,
+            Self::USInt => DataType::USInt,
+            Self::UInt => DataType::UInt,
+            Self::UDInt => DataType::UDInt,
+            Self::ULInt => DataType::ULInt,
+            Self::Byte => DataType::Byte,
+            Self::Word => DataType::Word,
+            Self::DWord => DataType::DWord,
+            Self::LWord => DataType::LWord,
             Self::Real => DataType::Real,
+            Self::LReal => DataType::LReal,
+            Self::Char => DataType::Char,
             Self::Time => DataType::Time,
             Self::String { capacity } => DataType::String {
                 capacity: *capacity,
             },
         }
+    }
+
+    #[must_use]
+    pub fn primitive_type(&self) -> Option<PrimitiveType> {
+        self.to_program_type().primitive_type()
     }
 }
 
@@ -65,6 +107,7 @@ pub enum UnaryOperator {
     Plus,
     Negate,
     Not,
+    Absolute,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -83,6 +126,8 @@ pub enum BinaryOperator {
     And,
     Xor,
     Or,
+    Minimum,
+    Maximum,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -189,6 +234,7 @@ impl IrOperationKind {
                 UnaryOperator::Plus => RuntimeOperationId("EDU.RT.UNARY_PLUS.v1"),
                 UnaryOperator::Negate => RuntimeOperationId("EDU.RT.NEGATE.v1"),
                 UnaryOperator::Not => RuntimeOperationId("EDU.RT.BOOL_NOT.v1"),
+                UnaryOperator::Absolute => RuntimeOperationId("EDU.RT.ABS_CHECKED.v1"),
             },
             Self::Binary { operator, .. } => match operator {
                 BinaryOperator::Multiply => RuntimeOperationId("EDU.RT.MULTIPLY.v1"),
@@ -207,6 +253,8 @@ impl IrOperationKind {
                 BinaryOperator::And => RuntimeOperationId("EDU.RT.BOOL_AND_EAGER.v1"),
                 BinaryOperator::Xor => RuntimeOperationId("EDU.RT.BOOL_XOR_EAGER.v1"),
                 BinaryOperator::Or => RuntimeOperationId("EDU.RT.BOOL_OR_EAGER.v1"),
+                BinaryOperator::Minimum => RuntimeOperationId("EDU.RT.MINIMUM.v1"),
+                BinaryOperator::Maximum => RuntimeOperationId("EDU.RT.MAXIMUM.v1"),
             },
             Self::Convert { .. } => RuntimeOperationId("EDU.RT.CONVERT_CHECKED.v1"),
             Self::InvokeInstruction { .. } => RuntimeOperationId("EDU.RT.INVOKE_INSTRUCTION.v1"),
@@ -759,9 +807,17 @@ fn verify_operation(
             let result =
                 result_type.ok_or(VerificationError::MissingResult(function, operation.id))?;
             let valid = match operator {
-                UnaryOperator::Not => operand_type == &IrType::Bool && result == &IrType::Bool,
-                UnaryOperator::Plus | UnaryOperator::Negate => {
-                    is_ir_numeric(operand_type) && result == operand_type
+                UnaryOperator::Not => {
+                    operand_type.primitive_type().is_some_and(|primitive| {
+                        primitive == PrimitiveType::Bool || primitive.is_bit_string()
+                    }) && result == operand_type
+                }
+                UnaryOperator::Plus => is_ir_numeric(operand_type) && result == operand_type,
+                UnaryOperator::Negate | UnaryOperator::Absolute => {
+                    operand_type.primitive_type().is_some_and(|primitive| {
+                        primitive.is_signed_integer()
+                            || matches!(primitive, PrimitiveType::Real | PrimitiveType::Lreal)
+                    }) && result == operand_type
                 }
             };
             if !valid {
@@ -1442,46 +1498,58 @@ fn verify_binary_types(
     }
     match operator {
         BinaryOperator::And | BinaryOperator::Xor | BinaryOperator::Or => {
-            left == &IrType::Bool && result == &IrType::Bool
+            left.primitive_type().is_some_and(|primitive| {
+                primitive == PrimitiveType::Bool || primitive.is_bit_string()
+            }) && result == left
         }
         BinaryOperator::Equal
         | BinaryOperator::NotEqual
         | BinaryOperator::Less
         | BinaryOperator::LessEqual
         | BinaryOperator::Greater
-        | BinaryOperator::GreaterEqual => result == &IrType::Bool,
-        BinaryOperator::Modulo => matches!(left, IrType::Int | IrType::DInt) && result == left,
+        | BinaryOperator::GreaterEqual => {
+            left.primitive_type()
+                .is_some_and(|primitive| match operator {
+                    BinaryOperator::Equal | BinaryOperator::NotEqual => true,
+                    _ => matches!(
+                        primitive.category(),
+                        PrimitiveCategory::SignedInteger
+                            | PrimitiveCategory::UnsignedInteger
+                            | PrimitiveCategory::FloatingPoint
+                            | PrimitiveCategory::Character
+                            | PrimitiveCategory::String
+                            | PrimitiveCategory::Duration
+                    ),
+                })
+                && result == &IrType::Bool
+        }
+        BinaryOperator::Modulo => {
+            left.primitive_type().is_some_and(PrimitiveType::is_integer) && result == left
+        }
         BinaryOperator::Multiply
         | BinaryOperator::Divide
         | BinaryOperator::Add
-        | BinaryOperator::Subtract => is_ir_numeric(left) && result == left,
+        | BinaryOperator::Subtract
+        | BinaryOperator::Minimum
+        | BinaryOperator::Maximum => is_ir_numeric(left) && result == left,
     }
 }
 
 fn is_ir_numeric(value: &IrType) -> bool {
-    matches!(value, IrType::Int | IrType::DInt | IrType::Real)
+    value
+        .primitive_type()
+        .is_some_and(PrimitiveType::is_numeric)
 }
 
 fn conversion_allowed(source: &IrType, destination: &IrType) -> bool {
-    source == destination
-        || matches!(
-            (source, destination),
-            (IrType::Int, IrType::DInt) | (IrType::Int | IrType::DInt, IrType::Real)
-        )
+    source
+        .primitive_type()
+        .zip(destination.primitive_type())
+        .is_some_and(|(source, destination)| explicit_conversion_allowed(source, destination))
 }
 
 fn canonical_matches_ir(value: &CanonicalValue, data_type: &IrType) -> bool {
-    match (value, data_type) {
-        (CanonicalValue::Bool(_), IrType::Bool)
-        | (CanonicalValue::Int(_), IrType::Int)
-        | (CanonicalValue::DInt(_), IrType::DInt)
-        | (CanonicalValue::RealBits(_), IrType::Real)
-        | (CanonicalValue::TimeMilliseconds(_), IrType::Time) => true,
-        (CanonicalValue::StringBytes(bytes), IrType::String { capacity }) => {
-            bytes.len() <= usize::from(*capacity)
-        }
-        _ => false,
-    }
+    value.is_compatible_with(&data_type.to_program_type())
 }
 
 fn encode_operation(hasher: &mut CanonicalHasher, operation: &IrOperation) {
@@ -1674,6 +1742,18 @@ fn encode_type(hasher: &mut CanonicalHasher, value: &IrType) {
             hasher.u8(6);
             hasher.u16(*capacity);
         }
+        IrType::SInt => hasher.u8(7),
+        IrType::LInt => hasher.u8(8),
+        IrType::USInt => hasher.u8(9),
+        IrType::UInt => hasher.u8(10),
+        IrType::UDInt => hasher.u8(11),
+        IrType::ULInt => hasher.u8(12),
+        IrType::Byte => hasher.u8(13),
+        IrType::Word => hasher.u8(14),
+        IrType::DWord => hasher.u8(15),
+        IrType::LWord => hasher.u8(16),
+        IrType::LReal => hasher.u8(17),
+        IrType::Char => hasher.u8(18),
     }
 }
 
@@ -1702,6 +1782,54 @@ fn encode_value(hasher: &mut CanonicalHasher, value: &CanonicalValue) {
         CanonicalValue::StringBytes(value) => {
             hasher.u8(6);
             hasher.bytes(value);
+        }
+        CanonicalValue::SInt(value) => {
+            hasher.u8(7);
+            hasher.i32(i32::from(*value));
+        }
+        CanonicalValue::LInt(value) => {
+            hasher.u8(8);
+            hasher.i64(*value);
+        }
+        CanonicalValue::USInt(value) => {
+            hasher.u8(9);
+            hasher.u8(*value);
+        }
+        CanonicalValue::UInt(value) => {
+            hasher.u8(10);
+            hasher.u16(*value);
+        }
+        CanonicalValue::UDInt(value) => {
+            hasher.u8(11);
+            hasher.u32(*value);
+        }
+        CanonicalValue::ULInt(value) => {
+            hasher.u8(12);
+            hasher.u64(*value);
+        }
+        CanonicalValue::Byte(value) => {
+            hasher.u8(13);
+            hasher.u8(*value);
+        }
+        CanonicalValue::Word(value) => {
+            hasher.u8(14);
+            hasher.u16(*value);
+        }
+        CanonicalValue::DWord(value) => {
+            hasher.u8(15);
+            hasher.u32(*value);
+        }
+        CanonicalValue::LWord(value) => {
+            hasher.u8(16);
+            hasher.u64(*value);
+        }
+        CanonicalValue::LRealBits(value) => {
+            hasher.u8(17);
+            hasher.u64(*value);
+        }
+        CanonicalValue::Char(value) => {
+            hasher.u8(18);
+            hasher.u8(*value);
         }
     }
 }
@@ -1784,6 +1912,7 @@ const fn unary_tag(value: UnaryOperator) -> u8 {
         UnaryOperator::Plus => 1,
         UnaryOperator::Negate => 2,
         UnaryOperator::Not => 3,
+        UnaryOperator::Absolute => 4,
     }
 }
 
@@ -1803,6 +1932,8 @@ const fn binary_tag(value: BinaryOperator) -> u8 {
         BinaryOperator::And => 12,
         BinaryOperator::Xor => 13,
         BinaryOperator::Or => 14,
+        BinaryOperator::Minimum => 15,
+        BinaryOperator::Maximum => 16,
     }
 }
 

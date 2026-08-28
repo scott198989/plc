@@ -476,6 +476,18 @@ fn encode_type(bytes: &mut Vec<u8>, data_type: &DataType) {
                 plc_program::StateKind::Counter => 3,
             });
         }
+        DataType::SInt => bytes.push(10),
+        DataType::LInt => bytes.push(11),
+        DataType::USInt => bytes.push(12),
+        DataType::UInt => bytes.push(13),
+        DataType::UDInt => bytes.push(14),
+        DataType::ULInt => bytes.push(15),
+        DataType::Byte => bytes.push(16),
+        DataType::Word => bytes.push(17),
+        DataType::DWord => bytes.push(18),
+        DataType::LWord => bytes.push(19),
+        DataType::LReal => bytes.push(20),
+        DataType::Char => bytes.push(21),
     }
 }
 
@@ -505,6 +517,54 @@ fn encode_value(bytes: &mut Vec<u8>, value: &CanonicalValue) {
             bytes.push(6);
             push_len(bytes, value.len());
             bytes.extend_from_slice(value);
+        }
+        CanonicalValue::SInt(value) => {
+            bytes.push(7);
+            bytes.push(value.cast_unsigned());
+        }
+        CanonicalValue::LInt(value) => {
+            bytes.push(8);
+            bytes.extend_from_slice(&value.to_be_bytes());
+        }
+        CanonicalValue::USInt(value) => {
+            bytes.push(9);
+            bytes.push(*value);
+        }
+        CanonicalValue::UInt(value) => {
+            bytes.push(10);
+            bytes.extend_from_slice(&value.to_be_bytes());
+        }
+        CanonicalValue::UDInt(value) => {
+            bytes.push(11);
+            bytes.extend_from_slice(&value.to_be_bytes());
+        }
+        CanonicalValue::ULInt(value) => {
+            bytes.push(12);
+            bytes.extend_from_slice(&value.to_be_bytes());
+        }
+        CanonicalValue::Byte(value) => {
+            bytes.push(13);
+            bytes.push(*value);
+        }
+        CanonicalValue::Word(value) => {
+            bytes.push(14);
+            bytes.extend_from_slice(&value.to_be_bytes());
+        }
+        CanonicalValue::DWord(value) => {
+            bytes.push(15);
+            bytes.extend_from_slice(&value.to_be_bytes());
+        }
+        CanonicalValue::LWord(value) => {
+            bytes.push(16);
+            bytes.extend_from_slice(&value.to_be_bytes());
+        }
+        CanonicalValue::LRealBits(value) => {
+            bytes.push(17);
+            bytes.extend_from_slice(&value.to_be_bytes());
+        }
+        CanonicalValue::Char(value) => {
+            bytes.push(18);
+            bytes.push(*value);
         }
     }
 }

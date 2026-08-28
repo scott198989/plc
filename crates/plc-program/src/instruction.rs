@@ -83,17 +83,13 @@ impl InstructionTypeConstraint {
             Self::Real => candidate == &DataType::Real,
             Self::Time => candidate == &DataType::Time,
             Self::String => matches!(candidate, DataType::String { .. }),
-            Self::Numeric => matches!(candidate, DataType::Int | DataType::DInt | DataType::Real),
-            Self::Integer => matches!(candidate, DataType::Int | DataType::DInt),
-            Self::AnyValue => matches!(
-                candidate,
-                DataType::Bool
-                    | DataType::Int
-                    | DataType::DInt
-                    | DataType::Real
-                    | DataType::Time
-                    | DataType::String { .. }
-            ),
+            Self::Numeric => candidate
+                .primitive_type()
+                .is_some_and(plc_types::PrimitiveType::is_numeric),
+            Self::Integer => candidate
+                .primitive_type()
+                .is_some_and(plc_types::PrimitiveType::is_integer),
+            Self::AnyValue => candidate.primitive_type().is_some(),
             Self::SameAs(formal) => bound_formals
                 .iter()
                 .find(|(candidate_id, _)| *candidate_id == formal)

@@ -10,7 +10,7 @@ use plc_program::{
     ProgramUnitKind, validate_program,
 };
 use plc_runtime::{
-    CanonicalValue, CpuState, RestartKind, RunOutcome, UniverseId, VerifiedArtifact,
+    CanonicalValue, CpuState, RestartKind, RunOutcome, UniverseId, ValueType, VerifiedArtifact,
     VirtualController, VirtualControllerId,
 };
 
@@ -160,7 +160,7 @@ fn nontrivial_scl_compiles_loads_runs_and_is_observed_through_virtual_controller
 }
 
 #[test]
-fn runtime_projection_rejects_compiler_ir_it_cannot_execute_without_approximation() {
+fn runtime_projection_rejects_control_flow_but_executes_real_without_approximation() {
     let branch_program = program_with_members([
         member(FIRST, "Gate", DataType::Bool, 0),
         member(RESULT, "Result", DataType::DInt, 1),
@@ -179,14 +179,20 @@ fn runtime_projection_rejects_compiler_ir_it_cannot_execute_without_approximatio
     let real_program = program_with_members([member(RESULT, "Result", DataType::Real, 0)]);
     let completion = compile(&real_program, "Result := REAL#1.25;", 3);
     assert_eq!(completion.report().outcome(), BuildOutcome::ArtifactCreated);
-    assert_eq!(
-        completion.artifact().unwrap().runtime_projection(),
-        Err(RuntimeAdapterError::UnsupportedMemberType {
-            owner: MAIN,
-            member: RESULT,
-            data_type: DataType::Real,
-        })
-    );
+    let artifact = completion.artifact().unwrap();
+    let projection_result = artifact.runtime_projection();
+    let projection = projection_result
+        .as_ref()
+        .expect("REAL is an exact scalar runtime type");
+    let memory = projection.memory_for(MAIN, RESULT).unwrap();
+    let definition = projection
+        .package()
+        .spec()
+        .memory
+        .iter()
+        .find(|definition| definition.id == memory)
+        .unwrap();
+    assert_eq!(definition.value_type, ValueType::F32);
 }
 
 #[test]

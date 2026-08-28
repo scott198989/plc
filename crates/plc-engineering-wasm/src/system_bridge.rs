@@ -581,8 +581,8 @@ fn parse_wire_value(kind: &str, value: &str) -> Result<CanonicalValue, SystemBri
             .parse::<u32>()
             .map(CanonicalValue::U32)
             .map_err(|_| SystemBridgeError::MalformedCommand("U32 value is outside its range")),
-        "TIME_MS" if canonical_integer(value, false) => value
-            .parse::<u64>()
+        "TIME_MS" if canonical_integer(value, true) => value
+            .parse::<i64>()
             .map(CanonicalValue::TimeMs)
             .map_err(|_| SystemBridgeError::MalformedCommand("TIME_MS value is outside its range")),
         "I32" | "I64" | "U32" | "TIME_MS" => Err(SystemBridgeError::MalformedCommand(
@@ -987,9 +987,25 @@ fn push_value(output: &mut String, value: CanonicalValue) {
     match value {
         CanonicalValue::Bool(value) => push_bool(output, value),
         CanonicalValue::I32(value) => push_json_string(output, &value.to_string()),
-        CanonicalValue::I64(value) => push_json_string(output, &value.to_string()),
-        CanonicalValue::U32(value) => push_json_string(output, &value.to_string()),
-        CanonicalValue::TimeMs(value) => push_json_string(output, &value.to_string()),
+        CanonicalValue::I64(value) | CanonicalValue::TimeMs(value) => {
+            push_json_string(output, &value.to_string());
+        }
+        CanonicalValue::U32(value) | CanonicalValue::Bits32(value) => {
+            push_json_string(output, &value.to_string());
+        }
+        CanonicalValue::I8(value) => push_json_string(output, &value.to_string()),
+        CanonicalValue::I16(value) => push_json_string(output, &value.to_string()),
+        CanonicalValue::U8(value) | CanonicalValue::Bits8(value) | CanonicalValue::Char(value) => {
+            push_json_string(output, &value.to_string());
+        }
+        CanonicalValue::U16(value) | CanonicalValue::Bits16(value) => {
+            push_json_string(output, &value.to_string());
+        }
+        CanonicalValue::U64(value) | CanonicalValue::Bits64(value) => {
+            push_json_string(output, &value.to_string());
+        }
+        CanonicalValue::F32(value) => push_json_string(output, &value.bits().to_string()),
+        CanonicalValue::F64(value) => push_json_string(output, &value.bits().to_string()),
     }
     output.push('}');
 }
@@ -1024,6 +1040,18 @@ const fn value_type(value: ValueType) -> &'static str {
         ValueType::I64 => "I64",
         ValueType::U32 => "U32",
         ValueType::TimeMs => "TIME_MS",
+        ValueType::I8 => "SINT",
+        ValueType::I16 => "INT",
+        ValueType::U8 => "USINT",
+        ValueType::U16 => "UINT",
+        ValueType::U64 => "ULINT",
+        ValueType::Bits8 => "BYTE",
+        ValueType::Bits16 => "WORD",
+        ValueType::Bits32 => "DWORD",
+        ValueType::Bits64 => "LWORD",
+        ValueType::F32 => "REAL_BITS",
+        ValueType::F64 => "LREAL_BITS",
+        ValueType::Char => "CHAR",
     }
 }
 

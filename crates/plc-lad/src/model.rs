@@ -672,6 +672,18 @@ fn encode_type(hasher: &mut CanonicalHasher, value: &DataType) {
             hasher.u8(9);
             hasher.u8(state_kind_tag(*kind));
         }
+        DataType::SInt => hasher.u8(10),
+        DataType::LInt => hasher.u8(11),
+        DataType::USInt => hasher.u8(12),
+        DataType::UInt => hasher.u8(13),
+        DataType::UDInt => hasher.u8(14),
+        DataType::ULInt => hasher.u8(15),
+        DataType::Byte => hasher.u8(16),
+        DataType::Word => hasher.u8(17),
+        DataType::DWord => hasher.u8(18),
+        DataType::LWord => hasher.u8(19),
+        DataType::LReal => hasher.u8(20),
+        DataType::Char => hasher.u8(21),
     }
 }
 
@@ -700,6 +712,54 @@ fn encode_value(hasher: &mut CanonicalHasher, value: &CanonicalValue) {
         CanonicalValue::StringBytes(value) => {
             hasher.u8(6);
             hasher.bytes(value);
+        }
+        CanonicalValue::SInt(value) => {
+            hasher.u8(7);
+            hasher.i32(i32::from(*value));
+        }
+        CanonicalValue::LInt(value) => {
+            hasher.u8(8);
+            hasher.i64(*value);
+        }
+        CanonicalValue::USInt(value) => {
+            hasher.u8(9);
+            hasher.u8(*value);
+        }
+        CanonicalValue::UInt(value) => {
+            hasher.u8(10);
+            hasher.u16(*value);
+        }
+        CanonicalValue::UDInt(value) => {
+            hasher.u8(11);
+            hasher.u32(*value);
+        }
+        CanonicalValue::ULInt(value) => {
+            hasher.u8(12);
+            hasher.u64(*value);
+        }
+        CanonicalValue::Byte(value) => {
+            hasher.u8(13);
+            hasher.u8(*value);
+        }
+        CanonicalValue::Word(value) => {
+            hasher.u8(14);
+            hasher.u16(*value);
+        }
+        CanonicalValue::DWord(value) => {
+            hasher.u8(15);
+            hasher.u32(*value);
+        }
+        CanonicalValue::LWord(value) => {
+            hasher.u8(16);
+            hasher.u64(*value);
+        }
+        CanonicalValue::LRealBits(value) => {
+            hasher.u8(17);
+            hasher.u64(*value);
+        }
+        CanonicalValue::Char(value) => {
+            hasher.u8(18);
+            hasher.u8(*value);
         }
     }
 }

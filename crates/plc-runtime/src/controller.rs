@@ -3,6 +3,11 @@ use alloc::{
     vec::Vec,
 };
 use core::{error::Error, fmt};
+use plc_types::{
+    BitBinaryOperator, ComparisonOperator, NumericBinaryOperator, PrimitiveType, ScalarFault,
+    absolute, bit_binary, bit_not, compare, convert as scalar_convert, maximum, minimum, negate,
+    numeric_binary,
+};
 
 use crate::{
     ArtifactError, ArtifactPackage, BlockId, CanonicalValue, ChannelDirection, ChannelId,
@@ -2965,7 +2970,10 @@ impl VirtualController {
                 self.write_execution_memory(
                     execution,
                     *elapsed,
-                    CanonicalValue::TimeMs(next_elapsed),
+                    CanonicalValue::TimeMs(
+                        i64::try_from(next_elapsed)
+                            .map_err(|_| local(ExecutionFault::TimerOverflow))?,
+                    ),
                 );
                 Ok(())
             }
@@ -3029,6 +3037,31 @@ impl VirtualController {
             } => self
                 .execute_binary(execution, *operator, *left, *right, *target)
                 .map_err(local),
+            Operation::Convert {
+                source,
+                destination,
+                target,
+            } => {
+                let Some(value) = self
+                    .read_execution_operand(execution, *source)
+                    .map_err(local)?
+                else {
+                    Self::suppress_execution_memory(execution, *target);
+                    return Ok(());
+                };
+                let converted = scalar_convert(
+                    &value
+                        .typed_scalar()
+                        .map_err(|_| local(ExecutionFault::RuntimeInvariant))?,
+                    destination.primitive_type(),
+                )
+                .map_err(map_scalar_fault)
+                .map_err(local)?;
+                let runtime_value = CanonicalValue::from_typed_scalar(converted)
+                    .map_err(|_| local(ExecutionFault::RuntimeInvariant))?;
+                self.write_execution_memory(execution, *target, runtime_value);
+                Ok(())
+            }
             Operation::InvokeInstruction(invocation) => self
                 .execute_instruction_invocation(operation_id, invocation, execution)
                 .map_err(local),
@@ -3080,16 +3113,45 @@ impl VirtualController {
             return Ok(());
         };
         let value = match (operator, value) {
-            (RuntimeUnaryOperator::Plus, CanonicalValue::I32(value)) => CanonicalValue::I32(value),
-            (RuntimeUnaryOperator::Negate, CanonicalValue::I32(value)) => CanonicalValue::I32(
-                value
-                    .checked_neg()
-                    .ok_or(ExecutionFault::ArithmeticOverflow)?,
-            ),
             (RuntimeUnaryOperator::Not, CanonicalValue::Bool(value)) => {
                 CanonicalValue::Bool(!value)
             }
-            _ => return Err(ExecutionFault::RuntimeInvariant),
+            (RuntimeUnaryOperator::Plus, value) => {
+                let typed = value
+                    .typed_scalar()
+                    .map_err(|_| ExecutionFault::RuntimeInvariant)?;
+                if !typed.data_type().is_numeric() {
+                    return Err(ExecutionFault::RuntimeInvariant);
+                }
+                value
+            }
+            (RuntimeUnaryOperator::Negate, value) => CanonicalValue::from_typed_scalar(
+                negate(
+                    &value
+                        .typed_scalar()
+                        .map_err(|_| ExecutionFault::RuntimeInvariant)?,
+                )
+                .map_err(map_scalar_fault)?,
+            )
+            .map_err(|_| ExecutionFault::RuntimeInvariant)?,
+            (RuntimeUnaryOperator::Absolute, value) => CanonicalValue::from_typed_scalar(
+                absolute(
+                    &value
+                        .typed_scalar()
+                        .map_err(|_| ExecutionFault::RuntimeInvariant)?,
+                )
+                .map_err(map_scalar_fault)?,
+            )
+            .map_err(|_| ExecutionFault::RuntimeInvariant)?,
+            (RuntimeUnaryOperator::Not, value) => CanonicalValue::from_typed_scalar(
+                bit_not(
+                    &value
+                        .typed_scalar()
+                        .map_err(|_| ExecutionFault::RuntimeInvariant)?,
+                )
+                .map_err(map_scalar_fault)?,
+            )
+            .map_err(|_| ExecutionFault::RuntimeInvariant)?,
         };
         self.write_execution_memory(execution, target, value);
         Ok(())
@@ -3527,7 +3589,12 @@ impl VirtualController {
             instance.retentive,
         );
         outputs.insert(FORMAL_OUTPUT, CanonicalValue::Bool(output));
-        outputs.insert(FORMAL_ELAPSED_TIME, CanonicalValue::TimeMs(elapsed));
+        outputs.insert(
+            FORMAL_ELAPSED_TIME,
+            CanonicalValue::TimeMs(
+                i64::try_from(elapsed).map_err(|_| ExecutionFault::TimerOverflow)?,
+            ),
+        );
         Ok(())
     }
 
@@ -4184,7 +4251,9 @@ fn instruction_time(
     formal: u16,
 ) -> Result<u64, ExecutionFault> {
     match instruction_input(inputs, formal)? {
-        CanonicalValue::TimeMs(value) => Ok(value),
+        CanonicalValue::TimeMs(value) => {
+            u64::try_from(value).map_err(|_| ExecutionFault::TimerOverflow)
+        }
         _ => Err(ExecutionFault::RuntimeInvariant),
     }
 }
@@ -4204,7 +4273,12 @@ fn preserved_instruction_outputs(
             },
         ) => {
             outputs.insert(FORMAL_OUTPUT, CanonicalValue::Bool(output));
-            outputs.insert(FORMAL_ELAPSED_TIME, CanonicalValue::TimeMs(elapsed_ms));
+            outputs.insert(
+                FORMAL_ELAPSED_TIME,
+                CanonicalValue::TimeMs(
+                    i64::try_from(elapsed_ms).map_err(|_| ExecutionFault::TimerOverflow)?,
+                ),
+            );
         }
         (
             RuntimeInstructionCode::CounterUp,
@@ -4247,83 +4321,111 @@ fn evaluate_binary(
     left: CanonicalValue,
     right: CanonicalValue,
 ) -> Result<CanonicalValue, ExecutionFault> {
+    let left_typed = left
+        .typed_scalar()
+        .map_err(|_| ExecutionFault::RuntimeInvariant)?;
+    let right_typed = right
+        .typed_scalar()
+        .map_err(|_| ExecutionFault::RuntimeInvariant)?;
     match operator {
         RuntimeBinaryOperator::Add
         | RuntimeBinaryOperator::Subtract
         | RuntimeBinaryOperator::Multiply
         | RuntimeBinaryOperator::Divide
-        | RuntimeBinaryOperator::Modulo => {
-            let (Some(left), Some(right)) = (left.as_i32(), right.as_i32()) else {
-                return Err(ExecutionFault::RuntimeInvariant);
+        | RuntimeBinaryOperator::Modulo => CanonicalValue::from_typed_scalar(
+            numeric_binary(
+                match operator {
+                    RuntimeBinaryOperator::Add => NumericBinaryOperator::Add,
+                    RuntimeBinaryOperator::Subtract => NumericBinaryOperator::Subtract,
+                    RuntimeBinaryOperator::Multiply => NumericBinaryOperator::Multiply,
+                    RuntimeBinaryOperator::Divide => NumericBinaryOperator::Divide,
+                    RuntimeBinaryOperator::Modulo => NumericBinaryOperator::Modulo,
+                    _ => unreachable!(),
+                },
+                &left_typed,
+                &right_typed,
+            )
+            .map_err(map_scalar_fault)?,
+        )
+        .map_err(|_| ExecutionFault::RuntimeInvariant),
+        RuntimeBinaryOperator::Minimum | RuntimeBinaryOperator::Maximum => {
+            let result = if operator == RuntimeBinaryOperator::Minimum {
+                minimum(&left_typed, &right_typed)
+            } else {
+                maximum(&left_typed, &right_typed)
             };
-            let value = match operator {
-                RuntimeBinaryOperator::Add => left.checked_add(right),
-                RuntimeBinaryOperator::Subtract => left.checked_sub(right),
-                RuntimeBinaryOperator::Multiply => left.checked_mul(right),
-                RuntimeBinaryOperator::Divide if right == 0 => {
-                    return Err(ExecutionFault::DivideByZero);
-                }
-                RuntimeBinaryOperator::Divide => left.checked_div(right),
-                RuntimeBinaryOperator::Modulo if right == 0 => {
-                    return Err(ExecutionFault::DivideByZero);
-                }
-                RuntimeBinaryOperator::Modulo => left.checked_rem(right),
-                _ => unreachable!(),
-            }
-            .ok_or(ExecutionFault::ArithmeticOverflow)?;
-            Ok(CanonicalValue::I32(value))
+            CanonicalValue::from_typed_scalar(result.map_err(map_scalar_fault)?)
+                .map_err(|_| ExecutionFault::RuntimeInvariant)
         }
         RuntimeBinaryOperator::And | RuntimeBinaryOperator::Xor | RuntimeBinaryOperator::Or => {
-            let (Some(left), Some(right)) = (left.as_bool(), right.as_bool()) else {
-                return Err(ExecutionFault::RuntimeInvariant);
-            };
-            Ok(CanonicalValue::Bool(match operator {
-                RuntimeBinaryOperator::And => left && right,
-                RuntimeBinaryOperator::Xor => left ^ right,
-                RuntimeBinaryOperator::Or => left || right,
-                _ => unreachable!(),
-            }))
-        }
-        RuntimeBinaryOperator::Equal | RuntimeBinaryOperator::NotEqual => {
-            if left.value_type() != right.value_type() {
-                return Err(ExecutionFault::RuntimeInvariant);
+            if left_typed.data_type() == PrimitiveType::Bool {
+                let (Some(left), Some(right)) = (left.as_bool(), right.as_bool()) else {
+                    return Err(ExecutionFault::RuntimeInvariant);
+                };
+                Ok(CanonicalValue::Bool(match operator {
+                    RuntimeBinaryOperator::And => left && right,
+                    RuntimeBinaryOperator::Xor => left ^ right,
+                    RuntimeBinaryOperator::Or => left || right,
+                    _ => unreachable!(),
+                }))
+            } else {
+                CanonicalValue::from_typed_scalar(
+                    bit_binary(
+                        match operator {
+                            RuntimeBinaryOperator::And => BitBinaryOperator::And,
+                            RuntimeBinaryOperator::Xor => BitBinaryOperator::Xor,
+                            RuntimeBinaryOperator::Or => BitBinaryOperator::Or,
+                            _ => unreachable!(),
+                        },
+                        &left_typed,
+                        &right_typed,
+                    )
+                    .map_err(map_scalar_fault)?,
+                )
+                .map_err(|_| ExecutionFault::RuntimeInvariant)
             }
-            let equal = left == right;
-            Ok(CanonicalValue::Bool(
-                if operator == RuntimeBinaryOperator::Equal {
-                    equal
-                } else {
-                    !equal
-                },
-            ))
         }
+        RuntimeBinaryOperator::Equal | RuntimeBinaryOperator::NotEqual => Ok(CanonicalValue::Bool(
+            compare(
+                if operator == RuntimeBinaryOperator::Equal {
+                    ComparisonOperator::Equal
+                } else {
+                    ComparisonOperator::NotEqual
+                },
+                &left_typed,
+                &right_typed,
+            )
+            .map_err(map_scalar_fault)?,
+        )),
         RuntimeBinaryOperator::Less
         | RuntimeBinaryOperator::LessEqual
         | RuntimeBinaryOperator::Greater
-        | RuntimeBinaryOperator::GreaterEqual => {
-            let ordering = compare_canonical(left, right)?;
-            Ok(CanonicalValue::Bool(match operator {
-                RuntimeBinaryOperator::Less => ordering.is_lt(),
-                RuntimeBinaryOperator::LessEqual => !ordering.is_gt(),
-                RuntimeBinaryOperator::Greater => ordering.is_gt(),
-                RuntimeBinaryOperator::GreaterEqual => !ordering.is_lt(),
-                _ => unreachable!(),
-            }))
-        }
+        | RuntimeBinaryOperator::GreaterEqual => Ok(CanonicalValue::Bool(
+            compare(
+                match operator {
+                    RuntimeBinaryOperator::Less => ComparisonOperator::Less,
+                    RuntimeBinaryOperator::LessEqual => ComparisonOperator::LessEqual,
+                    RuntimeBinaryOperator::Greater => ComparisonOperator::Greater,
+                    RuntimeBinaryOperator::GreaterEqual => ComparisonOperator::GreaterEqual,
+                    _ => unreachable!(),
+                },
+                &left_typed,
+                &right_typed,
+            )
+            .map_err(map_scalar_fault)?,
+        )),
     }
 }
 
-fn compare_canonical(
-    left: CanonicalValue,
-    right: CanonicalValue,
-) -> Result<core::cmp::Ordering, ExecutionFault> {
-    match (left, right) {
-        (CanonicalValue::Bool(left), CanonicalValue::Bool(right)) => Ok(left.cmp(&right)),
-        (CanonicalValue::I32(left), CanonicalValue::I32(right)) => Ok(left.cmp(&right)),
-        (CanonicalValue::I64(left), CanonicalValue::I64(right)) => Ok(left.cmp(&right)),
-        (CanonicalValue::U32(left), CanonicalValue::U32(right)) => Ok(left.cmp(&right)),
-        (CanonicalValue::TimeMs(left), CanonicalValue::TimeMs(right)) => Ok(left.cmp(&right)),
-        _ => Err(ExecutionFault::RuntimeInvariant),
+const fn map_scalar_fault(fault: ScalarFault) -> ExecutionFault {
+    match fault {
+        ScalarFault::DivideByZero => ExecutionFault::DivideByZero,
+        ScalarFault::ArithmeticOverflow => ExecutionFault::ArithmeticOverflow,
+        ScalarFault::InvalidShiftCount
+        | ScalarFault::InvalidArgument
+        | ScalarFault::Conversion
+        | ScalarFault::Bounds
+        | ScalarFault::Type(_) => ExecutionFault::RuntimeInvariant,
     }
 }
 
@@ -4373,6 +4475,14 @@ fn collect_operation_memory_ids(operation: &Operation, target: &mut BTreeSet<Mem
         } => {
             collect_operand_memory(*left, target);
             collect_operand_memory(*right, target);
+            target.insert(*memory);
+        }
+        Operation::Convert {
+            source,
+            target: memory,
+            ..
+        } => {
+            collect_operand_memory(*source, target);
             target.insert(*memory);
         }
         Operation::DivideI32 {

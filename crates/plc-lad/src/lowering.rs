@@ -1540,9 +1540,21 @@ fn node_operands(node: &LadNode) -> Vec<&LadOperandRef> {
 fn ir_type(value: &DataType) -> Option<IrType> {
     match value {
         DataType::Bool => Some(IrType::Bool),
+        DataType::SInt => Some(IrType::SInt),
         DataType::Int => Some(IrType::Int),
         DataType::DInt => Some(IrType::DInt),
+        DataType::LInt => Some(IrType::LInt),
+        DataType::USInt => Some(IrType::USInt),
+        DataType::UInt => Some(IrType::UInt),
+        DataType::UDInt => Some(IrType::UDInt),
+        DataType::ULInt => Some(IrType::ULInt),
+        DataType::Byte => Some(IrType::Byte),
+        DataType::Word => Some(IrType::Word),
+        DataType::DWord => Some(IrType::DWord),
+        DataType::LWord => Some(IrType::LWord),
         DataType::Real => Some(IrType::Real),
+        DataType::LReal => Some(IrType::LReal),
+        DataType::Char => Some(IrType::Char),
         DataType::Time => Some(IrType::Time),
         DataType::String { capacity } => Some(IrType::String {
             capacity: *capacity,

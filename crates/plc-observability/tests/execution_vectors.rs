@@ -345,7 +345,9 @@ fn trace_scan_metrics_are_sampled_from_the_authoritative_commissioned_scan_recei
     );
     assert_eq!(
         capture.samples[0].channel_values[0].value,
-        Some(CanonicalValue::TimeMs(SCAN_QUANTUM_MS))
+        Some(CanonicalValue::TimeMs(
+            i64::try_from(SCAN_QUANTUM_MS).expect("scan quantum fits signed TIME"),
+        ))
     );
     assert_eq!(
         capture.samples[0].channel_values[1].probe_identity,

@@ -12,6 +12,7 @@ members = [
     "crates/plc-program",
     "crates/plc-runtime",
     "crates/plc-system",
+    "crates/plc-types",
 ]
 resolver = "3"
 

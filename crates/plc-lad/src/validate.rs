@@ -1919,9 +1919,21 @@ fn walk_semantic(
 fn canonical_type(value: &plc_program::CanonicalValue) -> Option<DataType> {
     match value {
         plc_program::CanonicalValue::Bool(_) => Some(DataType::Bool),
+        plc_program::CanonicalValue::SInt(_) => Some(DataType::SInt),
         plc_program::CanonicalValue::Int(_) => Some(DataType::Int),
         plc_program::CanonicalValue::DInt(_) => Some(DataType::DInt),
+        plc_program::CanonicalValue::LInt(_) => Some(DataType::LInt),
+        plc_program::CanonicalValue::USInt(_) => Some(DataType::USInt),
+        plc_program::CanonicalValue::UInt(_) => Some(DataType::UInt),
+        plc_program::CanonicalValue::UDInt(_) => Some(DataType::UDInt),
+        plc_program::CanonicalValue::ULInt(_) => Some(DataType::ULInt),
+        plc_program::CanonicalValue::Byte(_) => Some(DataType::Byte),
+        plc_program::CanonicalValue::Word(_) => Some(DataType::Word),
+        plc_program::CanonicalValue::DWord(_) => Some(DataType::DWord),
+        plc_program::CanonicalValue::LWord(_) => Some(DataType::LWord),
         plc_program::CanonicalValue::RealBits(_) => Some(DataType::Real),
+        plc_program::CanonicalValue::LRealBits(_) => Some(DataType::LReal),
+        plc_program::CanonicalValue::Char(_) => Some(DataType::Char),
         plc_program::CanonicalValue::TimeMilliseconds(_) => Some(DataType::Time),
         plc_program::CanonicalValue::StringBytes(bytes) => u16::try_from(bytes.len())
             .ok()

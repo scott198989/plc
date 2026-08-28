@@ -14,9 +14,21 @@ pub enum TypeAdapterError {
 pub fn data_type_to_ir_type(data_type: &DataType) -> Result<IrType, TypeAdapterError> {
     match data_type {
         DataType::Bool => Ok(IrType::Bool),
+        DataType::SInt => Ok(IrType::SInt),
         DataType::Int => Ok(IrType::Int),
         DataType::DInt => Ok(IrType::DInt),
+        DataType::LInt => Ok(IrType::LInt),
+        DataType::USInt => Ok(IrType::USInt),
+        DataType::UInt => Ok(IrType::UInt),
+        DataType::UDInt => Ok(IrType::UDInt),
+        DataType::ULInt => Ok(IrType::ULInt),
+        DataType::Byte => Ok(IrType::Byte),
+        DataType::Word => Ok(IrType::Word),
+        DataType::DWord => Ok(IrType::DWord),
+        DataType::LWord => Ok(IrType::LWord),
         DataType::Real => Ok(IrType::Real),
+        DataType::LReal => Ok(IrType::LReal),
+        DataType::Char => Ok(IrType::Char),
         DataType::Time => Ok(IrType::Time),
         DataType::String { capacity } => Ok(IrType::String {
             capacity: *capacity,

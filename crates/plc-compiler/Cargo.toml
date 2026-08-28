@@ -14,6 +14,7 @@ path = "src/lib.rs"
 plc-hardware = { path = "../plc-hardware" }
 plc-program = { path = "../plc-program" }
 plc-runtime = { path = "../plc-runtime" }
+plc-types = { path = "../plc-types" }
 
 [dev-dependencies]
 plc-lad = { path = "../plc-lad" }

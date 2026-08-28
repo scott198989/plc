@@ -1,16 +1,14 @@
 [package]
-name = "plc-hardware"
+name = "plc-types"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.94.0"
 publish = false
-
-[dependencies]
-plc-core = { path = "../plc-core" }
-plc-types = { path = "../plc-types" }
+license = "UNLICENSED"
+description = "Capability-free canonical EDU-21 primitive types and scalar semantics"
 
 [lib]
-crate-type = ["rlib"]
+path = "src/lib.rs"
 
 [lints.rust]
 unsafe_code = "forbid"

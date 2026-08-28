@@ -47,7 +47,7 @@ pub const MAX_DYNAMIC_CALL_DEPTH: u8 = 64;
 
 /// Version identities participate in artifact, snapshot, state, and replay
 /// hashes. Any semantic change requires a new value.
-pub const RUNTIME_SEMANTICS_VERSION: &str = "EDU-RTM-1";
+pub const RUNTIME_SEMANTICS_VERSION: &str = "EDU-RTM-2";
 pub const SCHEDULER_VERSION: &str = "EDU-SCH-1";
 pub const PRIORITY_TABLE_VERSION: &str = "EDU-PRIORITY-1";
 pub const WORK_COST_VERSION: &str = "EDU-WORK-1";

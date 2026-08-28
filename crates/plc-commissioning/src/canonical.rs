@@ -81,7 +81,55 @@ pub(crate) fn encode_value(value: plc_runtime::CanonicalValue, hasher: &mut Cano
         }
         plc_runtime::CanonicalValue::TimeMs(value) => {
             hasher.u8(5);
+            hasher.bytes(&value.to_be_bytes());
+        }
+        plc_runtime::CanonicalValue::I8(value) => {
+            hasher.u8(6);
+            hasher.bytes(&value.to_be_bytes());
+        }
+        plc_runtime::CanonicalValue::I16(value) => {
+            hasher.u8(7);
+            hasher.bytes(&value.to_be_bytes());
+        }
+        plc_runtime::CanonicalValue::U8(value) => {
+            hasher.u8(8);
+            hasher.u8(value);
+        }
+        plc_runtime::CanonicalValue::U16(value) => {
+            hasher.u8(9);
+            hasher.bytes(&value.to_be_bytes());
+        }
+        plc_runtime::CanonicalValue::U64(value) => {
+            hasher.u8(10);
             hasher.u64(value);
+        }
+        plc_runtime::CanonicalValue::Bits8(value) => {
+            hasher.u8(11);
+            hasher.u8(value);
+        }
+        plc_runtime::CanonicalValue::Bits16(value) => {
+            hasher.u8(12);
+            hasher.bytes(&value.to_be_bytes());
+        }
+        plc_runtime::CanonicalValue::Bits32(value) => {
+            hasher.u8(13);
+            hasher.u32(value);
+        }
+        plc_runtime::CanonicalValue::Bits64(value) => {
+            hasher.u8(14);
+            hasher.u64(value);
+        }
+        plc_runtime::CanonicalValue::F32(value) => {
+            hasher.u8(15);
+            hasher.u32(value.bits());
+        }
+        plc_runtime::CanonicalValue::F64(value) => {
+            hasher.u8(16);
+            hasher.u64(value.bits());
+        }
+        plc_runtime::CanonicalValue::Char(value) => {
+            hasher.u8(17);
+            hasher.u8(value);
         }
     }
 }

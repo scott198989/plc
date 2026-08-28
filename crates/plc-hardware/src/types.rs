@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 
 use plc_core::{Sha256Digest, Uuid};
+pub use plc_types::{CanonicalF32, CanonicalF64, PrimitiveType};
 
 use crate::canonical::CanonicalEncoder;
 use crate::ids::TypeDeclarationId;
@@ -27,139 +28,6 @@ impl FiniteF64 {
     #[must_use]
     pub const fn bits(self) -> u64 {
         self.0
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CanonicalF32(u32);
-
-impl CanonicalF32 {
-    pub const QUIET_NAN_BITS: u32 = 0x7fc0_0000;
-
-    #[must_use]
-    pub fn new(value: f32) -> Self {
-        if value.is_nan() {
-            Self(Self::QUIET_NAN_BITS)
-        } else {
-            Self(value.to_bits())
-        }
-    }
-
-    #[must_use]
-    pub const fn bits(self) -> u32 {
-        self.0
-    }
-
-    #[must_use]
-    pub fn get(self) -> f32 {
-        f32::from_bits(self.0)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct CanonicalF64(u64);
-
-impl CanonicalF64 {
-    pub const QUIET_NAN_BITS: u64 = 0x7ff8_0000_0000_0000;
-
-    #[must_use]
-    pub fn new(value: f64) -> Self {
-        if value.is_nan() {
-            Self(Self::QUIET_NAN_BITS)
-        } else {
-            Self(value.to_bits())
-        }
-    }
-
-    #[must_use]
-    pub const fn bits(self) -> u64 {
-        self.0
-    }
-
-    #[must_use]
-    pub fn get(self) -> f64 {
-        f64::from_bits(self.0)
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub enum PrimitiveType {
-    Bool,
-    Sint,
-    Int,
-    Dint,
-    Lint,
-    Usint,
-    Uint,
-    Udint,
-    Ulint,
-    Byte,
-    Word,
-    Dword,
-    Lword,
-    Real,
-    Lreal,
-    Char,
-    String(u8),
-    Time,
-}
-
-impl PrimitiveType {
-    #[must_use]
-    pub const fn stable_id(self) -> &'static str {
-        match self {
-            Self::Bool => "BOOL",
-            Self::Sint => "SINT",
-            Self::Int => "INT",
-            Self::Dint => "DINT",
-            Self::Lint => "LINT",
-            Self::Usint => "USINT",
-            Self::Uint => "UINT",
-            Self::Udint => "UDINT",
-            Self::Ulint => "ULINT",
-            Self::Byte => "BYTE",
-            Self::Word => "WORD",
-            Self::Dword => "DWORD",
-            Self::Lword => "LWORD",
-            Self::Real => "REAL",
-            Self::Lreal => "LREAL",
-            Self::Char => "CHAR",
-            Self::String(_) => "STRING",
-            Self::Time => "TIME",
-        }
-    }
-
-    #[must_use]
-    pub const fn storage_width_bytes(self) -> Option<u8> {
-        match self {
-            Self::Bool | Self::String(_) => None,
-            Self::Sint | Self::Usint | Self::Byte | Self::Char => Some(1),
-            Self::Int | Self::Uint | Self::Word => Some(2),
-            Self::Dint | Self::Udint | Self::Dword | Self::Real => Some(4),
-            Self::Lint | Self::Ulint | Self::Lword | Self::Lreal | Self::Time => Some(8),
-        }
-    }
-
-    #[must_use]
-    pub const fn is_bit_string(self) -> bool {
-        matches!(self, Self::Byte | Self::Word | Self::Dword | Self::Lword)
-    }
-
-    #[must_use]
-    pub const fn is_signed_integer(self) -> bool {
-        matches!(self, Self::Sint | Self::Int | Self::Dint | Self::Lint)
-    }
-
-    #[must_use]
-    pub const fn is_unsigned_integer(self) -> bool {
-        matches!(self, Self::Usint | Self::Uint | Self::Udint | Self::Ulint)
-    }
-
-    fn encode(self, encoder: &mut CanonicalEncoder) {
-        encoder.text(self.stable_id());
-        if let Self::String(capacity) = self {
-            encoder.u8(capacity);
-        }
     }
 }
 
@@ -408,7 +276,7 @@ impl CanonicalType {
         match self {
             Self::Primitive(primitive) => {
                 encoder.tag("primitive");
-                primitive.encode(encoder);
+                encode_primitive(*primitive, encoder);
             }
             Self::Array {
                 dimensions,
@@ -439,6 +307,13 @@ impl CanonicalType {
                 });
             }
         }
+    }
+}
+
+fn encode_primitive(primitive: PrimitiveType, encoder: &mut CanonicalEncoder) {
+    encoder.text(primitive.stable_id());
+    if let PrimitiveType::String(capacity) = primitive {
+        encoder.u8(capacity);
     }
 }
 

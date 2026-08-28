@@ -4,6 +4,10 @@ use alloc::{
     vec::Vec,
 };
 use core::{error::Error, fmt};
+use plc_types::{
+    CanonicalF32, CanonicalF64, PrimitiveType, ScalarTypeError, ScalarValue, TypedScalar,
+    explicit_conversion_allowed,
+};
 
 use crate::{
     PRIORITY_TABLE_VERSION, RUNTIME_SEMANTICS_VERSION, SCAN_QUANTUM_MS, SCHEDULER_VERSION,
@@ -42,6 +46,18 @@ pub enum ValueType {
     I64 = 3,
     U32 = 4,
     TimeMs = 5,
+    I8 = 6,
+    I16 = 7,
+    U8 = 8,
+    U16 = 9,
+    U64 = 10,
+    Bits8 = 11,
+    Bits16 = 12,
+    Bits32 = 13,
+    Bits64 = 14,
+    F32 = 15,
+    F64 = 16,
+    Char = 17,
 }
 
 impl ValueType {
@@ -52,6 +68,65 @@ impl ValueType {
             Self::I64 => CanonicalValue::I64(0),
             Self::U32 => CanonicalValue::U32(0),
             Self::TimeMs => CanonicalValue::TimeMs(0),
+            Self::I8 => CanonicalValue::I8(0),
+            Self::I16 => CanonicalValue::I16(0),
+            Self::U8 => CanonicalValue::U8(0),
+            Self::U16 => CanonicalValue::U16(0),
+            Self::U64 => CanonicalValue::U64(0),
+            Self::Bits8 => CanonicalValue::Bits8(0),
+            Self::Bits16 => CanonicalValue::Bits16(0),
+            Self::Bits32 => CanonicalValue::Bits32(0),
+            Self::Bits64 => CanonicalValue::Bits64(0),
+            Self::F32 => CanonicalValue::F32(CanonicalF32::from_bits(0)),
+            Self::F64 => CanonicalValue::F64(CanonicalF64::from_bits(0)),
+            Self::Char => CanonicalValue::Char(0),
+        }
+    }
+
+    #[must_use]
+    pub const fn primitive_type(self) -> PrimitiveType {
+        match self {
+            Self::Bool => PrimitiveType::Bool,
+            Self::I8 => PrimitiveType::Sint,
+            Self::I16 => PrimitiveType::Int,
+            Self::I32 => PrimitiveType::Dint,
+            Self::I64 => PrimitiveType::Lint,
+            Self::U8 => PrimitiveType::Usint,
+            Self::U16 => PrimitiveType::Uint,
+            Self::U32 => PrimitiveType::Udint,
+            Self::U64 => PrimitiveType::Ulint,
+            Self::Bits8 => PrimitiveType::Byte,
+            Self::Bits16 => PrimitiveType::Word,
+            Self::Bits32 => PrimitiveType::Dword,
+            Self::Bits64 => PrimitiveType::Lword,
+            Self::F32 => PrimitiveType::Real,
+            Self::F64 => PrimitiveType::Lreal,
+            Self::Char => PrimitiveType::Char,
+            Self::TimeMs => PrimitiveType::Time,
+        }
+    }
+
+    #[must_use]
+    pub const fn from_primitive(value: PrimitiveType) -> Option<Self> {
+        match value {
+            PrimitiveType::Bool => Some(Self::Bool),
+            PrimitiveType::Sint => Some(Self::I8),
+            PrimitiveType::Int => Some(Self::I16),
+            PrimitiveType::Dint => Some(Self::I32),
+            PrimitiveType::Lint => Some(Self::I64),
+            PrimitiveType::Usint => Some(Self::U8),
+            PrimitiveType::Uint => Some(Self::U16),
+            PrimitiveType::Udint => Some(Self::U32),
+            PrimitiveType::Ulint => Some(Self::U64),
+            PrimitiveType::Byte => Some(Self::Bits8),
+            PrimitiveType::Word => Some(Self::Bits16),
+            PrimitiveType::Dword => Some(Self::Bits32),
+            PrimitiveType::Lword => Some(Self::Bits64),
+            PrimitiveType::Real => Some(Self::F32),
+            PrimitiveType::Lreal => Some(Self::F64),
+            PrimitiveType::Char => Some(Self::Char),
+            PrimitiveType::Time => Some(Self::TimeMs),
+            PrimitiveType::String(_) => None,
         }
     }
 }
@@ -62,7 +137,19 @@ pub enum CanonicalValue {
     I32(i32),
     I64(i64),
     U32(u32),
-    TimeMs(u64),
+    TimeMs(i64),
+    I8(i8),
+    I16(i16),
+    U8(u8),
+    U16(u16),
+    U64(u64),
+    Bits8(u8),
+    Bits16(u16),
+    Bits32(u32),
+    Bits64(u64),
+    F32(CanonicalF32),
+    F64(CanonicalF64),
+    Char(u8),
 }
 
 impl CanonicalValue {
@@ -73,6 +160,18 @@ impl CanonicalValue {
             Self::I64(_) => ValueType::I64,
             Self::U32(_) => ValueType::U32,
             Self::TimeMs(_) => ValueType::TimeMs,
+            Self::I8(_) => ValueType::I8,
+            Self::I16(_) => ValueType::I16,
+            Self::U8(_) => ValueType::U8,
+            Self::U16(_) => ValueType::U16,
+            Self::U64(_) => ValueType::U64,
+            Self::Bits8(_) => ValueType::Bits8,
+            Self::Bits16(_) => ValueType::Bits16,
+            Self::Bits32(_) => ValueType::Bits32,
+            Self::Bits64(_) => ValueType::Bits64,
+            Self::F32(_) => ValueType::F32,
+            Self::F64(_) => ValueType::F64,
+            Self::Char(_) => ValueType::Char,
         }
     }
 
@@ -99,7 +198,85 @@ impl CanonicalValue {
             Self::I32(value) => hasher.i32(value),
             Self::I64(value) => hasher.i64(value),
             Self::U32(value) => hasher.u32(value),
-            Self::TimeMs(value) => hasher.u64(value),
+            Self::TimeMs(value) => hasher.i64(value),
+            Self::I8(value) => hasher.i32(i32::from(value)),
+            Self::I16(value) => hasher.i32(i32::from(value)),
+            Self::U8(value) => hasher.u32(u32::from(value)),
+            Self::U16(value) => hasher.u32(u32::from(value)),
+            Self::U64(value) => hasher.u64(value),
+            Self::Bits8(value) => hasher.u32(u32::from(value)),
+            Self::Bits16(value) => hasher.u32(u32::from(value)),
+            Self::Bits32(value) => hasher.u32(value),
+            Self::Bits64(value) => hasher.u64(value),
+            Self::F32(value) => hasher.u32(value.bits()),
+            Self::F64(value) => hasher.u64(value.bits()),
+            Self::Char(value) => hasher.u8(value),
+        }
+    }
+
+    pub fn typed_scalar(self) -> Result<TypedScalar, ScalarTypeError> {
+        let data_type = self.value_type().primitive_type();
+        let value = match self {
+            Self::Bool(value) => ScalarValue::Bool(value),
+            Self::I8(value) => ScalarValue::Signed(i64::from(value)),
+            Self::I16(value) => ScalarValue::Signed(i64::from(value)),
+            Self::I32(value) => ScalarValue::Signed(i64::from(value)),
+            Self::I64(value) => ScalarValue::Signed(value),
+            Self::U8(value) => ScalarValue::Unsigned(u64::from(value)),
+            Self::U16(value) => ScalarValue::Unsigned(u64::from(value)),
+            Self::U32(value) => ScalarValue::Unsigned(u64::from(value)),
+            Self::U64(value) => ScalarValue::Unsigned(value),
+            Self::Bits8(value) => ScalarValue::BitString(u64::from(value)),
+            Self::Bits16(value) => ScalarValue::BitString(u64::from(value)),
+            Self::Bits32(value) => ScalarValue::BitString(u64::from(value)),
+            Self::Bits64(value) => ScalarValue::BitString(value),
+            Self::F32(value) => ScalarValue::Real(value),
+            Self::F64(value) => ScalarValue::Lreal(value),
+            Self::Char(value) => ScalarValue::Char(value),
+            Self::TimeMs(value) => ScalarValue::Time(value),
+        };
+        TypedScalar::new(data_type, value)
+    }
+
+    pub fn from_typed_scalar(value: TypedScalar) -> Result<Self, ScalarTypeError> {
+        let data_type = value.data_type();
+        match (data_type, value.into_value()) {
+            (PrimitiveType::Bool, ScalarValue::Bool(value)) => Ok(Self::Bool(value)),
+            (PrimitiveType::Sint, ScalarValue::Signed(value)) => i8::try_from(value)
+                .map(Self::I8)
+                .map_err(|_| ScalarTypeError::ValueDoesNotMatchType),
+            (PrimitiveType::Int, ScalarValue::Signed(value)) => i16::try_from(value)
+                .map(Self::I16)
+                .map_err(|_| ScalarTypeError::ValueDoesNotMatchType),
+            (PrimitiveType::Dint, ScalarValue::Signed(value)) => i32::try_from(value)
+                .map(Self::I32)
+                .map_err(|_| ScalarTypeError::ValueDoesNotMatchType),
+            (PrimitiveType::Lint, ScalarValue::Signed(value)) => Ok(Self::I64(value)),
+            (PrimitiveType::Usint, ScalarValue::Unsigned(value)) => u8::try_from(value)
+                .map(Self::U8)
+                .map_err(|_| ScalarTypeError::ValueDoesNotMatchType),
+            (PrimitiveType::Uint, ScalarValue::Unsigned(value)) => u16::try_from(value)
+                .map(Self::U16)
+                .map_err(|_| ScalarTypeError::ValueDoesNotMatchType),
+            (PrimitiveType::Udint, ScalarValue::Unsigned(value)) => u32::try_from(value)
+                .map(Self::U32)
+                .map_err(|_| ScalarTypeError::ValueDoesNotMatchType),
+            (PrimitiveType::Ulint, ScalarValue::Unsigned(value)) => Ok(Self::U64(value)),
+            (PrimitiveType::Byte, ScalarValue::BitString(value)) => u8::try_from(value)
+                .map(Self::Bits8)
+                .map_err(|_| ScalarTypeError::ValueDoesNotMatchType),
+            (PrimitiveType::Word, ScalarValue::BitString(value)) => u16::try_from(value)
+                .map(Self::Bits16)
+                .map_err(|_| ScalarTypeError::ValueDoesNotMatchType),
+            (PrimitiveType::Dword, ScalarValue::BitString(value)) => u32::try_from(value)
+                .map(Self::Bits32)
+                .map_err(|_| ScalarTypeError::ValueDoesNotMatchType),
+            (PrimitiveType::Lword, ScalarValue::BitString(value)) => Ok(Self::Bits64(value)),
+            (PrimitiveType::Real, ScalarValue::Real(value)) => Ok(Self::F32(value)),
+            (PrimitiveType::Lreal, ScalarValue::Lreal(value)) => Ok(Self::F64(value)),
+            (PrimitiveType::Char, ScalarValue::Char(value)) => Ok(Self::Char(value)),
+            (PrimitiveType::Time, ScalarValue::Time(value)) => Ok(Self::TimeMs(value)),
+            _ => Err(ScalarTypeError::ValueDoesNotMatchType),
         }
     }
 }
@@ -367,6 +544,7 @@ pub enum RuntimeUnaryOperator {
     Plus,
     Negate,
     Not,
+    Absolute,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -385,6 +563,8 @@ pub enum RuntimeBinaryOperator {
     And,
     Xor,
     Or,
+    Minimum,
+    Maximum,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -619,6 +799,11 @@ pub enum Operation {
         right: Operand,
         target: MemoryId,
     },
+    Convert {
+        source: Operand,
+        destination: ValueType,
+        target: MemoryId,
+    },
     InvokeInstruction(RuntimeInstructionInvocation),
     CallBlock(RuntimeBlockCall),
     InvocationOutput {
@@ -736,6 +921,7 @@ impl Operation {
                     RuntimeUnaryOperator::Plus => 1,
                     RuntimeUnaryOperator::Negate => 2,
                     RuntimeUnaryOperator::Not => 3,
+                    RuntimeUnaryOperator::Absolute => 4,
                 });
                 operand.encode(hasher);
                 hasher.u32(target.0);
@@ -762,9 +948,21 @@ impl Operation {
                     RuntimeBinaryOperator::And => 12,
                     RuntimeBinaryOperator::Xor => 13,
                     RuntimeBinaryOperator::Or => 14,
+                    RuntimeBinaryOperator::Minimum => 15,
+                    RuntimeBinaryOperator::Maximum => 16,
                 });
                 left.encode(hasher);
                 right.encode(hasher);
+                hasher.u32(target.0);
+            }
+            Self::Convert {
+                source,
+                destination,
+                target,
+            } => {
+                hasher.u8(16);
+                source.encode(hasher);
+                hasher.u8(*destination as u8);
                 hasher.u32(target.0);
             }
             Self::InvokeInstruction(invocation) => {
@@ -1276,7 +1474,8 @@ fn validate_block_inner(
             | Operation::TimerOnDelay { .. }
             | Operation::CounterUp { .. }
             | Operation::Unary { .. }
-            | Operation::Binary { .. } => {}
+            | Operation::Binary { .. }
+            | Operation::Convert { .. } => {}
         }
     }
     if invocation_outputs.values().any(|(_, projected)| !projected) {
@@ -1454,12 +1653,22 @@ fn validate_operation(spec: &ArtifactSpec, operation: &Operation) -> Result<(), 
             operand,
             target,
         } => {
-            let expected = match operator {
-                RuntimeUnaryOperator::Not => ValueType::Bool,
-                RuntimeUnaryOperator::Plus | RuntimeUnaryOperator::Negate => ValueType::I32,
+            let actual = operand_type(*operand)?;
+            let primitive = actual.primitive_type();
+            let accepted = match operator {
+                RuntimeUnaryOperator::Plus => primitive.is_numeric(),
+                RuntimeUnaryOperator::Negate | RuntimeUnaryOperator::Absolute => {
+                    primitive.is_signed_integer()
+                        || matches!(primitive, PrimitiveType::Real | PrimitiveType::Lreal)
+                }
+                RuntimeUnaryOperator::Not => {
+                    primitive == PrimitiveType::Bool || primitive.is_bit_string()
+                }
             };
-            same(operand_type(*operand)?, expected)?;
-            same(memory_type(*target)?, expected)
+            if !accepted {
+                return Err(ArtifactError::TypeMismatch);
+            }
+            same(memory_type(*target)?, actual)
         }
         Operation::Binary {
             operator,
@@ -1474,8 +1683,11 @@ fn validate_operation(spec: &ArtifactSpec, operation: &Operation) -> Result<(), 
                 RuntimeBinaryOperator::And
                 | RuntimeBinaryOperator::Xor
                 | RuntimeBinaryOperator::Or => {
-                    same(left_type, ValueType::Bool)?;
-                    same(memory_type(*target)?, ValueType::Bool)
+                    let primitive = left_type.primitive_type();
+                    if primitive != PrimitiveType::Bool && !primitive.is_bit_string() {
+                        return Err(ArtifactError::TypeMismatch);
+                    }
+                    same(memory_type(*target)?, left_type)
                 }
                 RuntimeBinaryOperator::Equal
                 | RuntimeBinaryOperator::NotEqual
@@ -1489,11 +1701,29 @@ fn validate_operation(spec: &ArtifactSpec, operation: &Operation) -> Result<(), 
                 | RuntimeBinaryOperator::Divide
                 | RuntimeBinaryOperator::Modulo
                 | RuntimeBinaryOperator::Add
-                | RuntimeBinaryOperator::Subtract => {
-                    same(left_type, ValueType::I32)?;
-                    same(memory_type(*target)?, ValueType::I32)
+                | RuntimeBinaryOperator::Subtract
+                | RuntimeBinaryOperator::Minimum
+                | RuntimeBinaryOperator::Maximum => {
+                    let primitive = left_type.primitive_type();
+                    if !primitive.is_numeric()
+                        || (*operator == RuntimeBinaryOperator::Modulo && !primitive.is_integer())
+                    {
+                        return Err(ArtifactError::TypeMismatch);
+                    }
+                    same(memory_type(*target)?, left_type)
                 }
             }
+        }
+        Operation::Convert {
+            source,
+            destination,
+            target,
+        } => {
+            let source = operand_type(*source)?;
+            if !explicit_conversion_allowed(source.primitive_type(), destination.primitive_type()) {
+                return Err(ArtifactError::TypeMismatch);
+            }
+            same(memory_type(*target)?, *destination)
         }
         Operation::InvokeInstruction(_)
         | Operation::CallBlock(_)

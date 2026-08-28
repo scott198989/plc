@@ -150,8 +150,20 @@ impl NumericValue {
             CanonicalValue::I32(value) => Some(Self::Signed(i64::from(value))),
             CanonicalValue::I64(value) => Some(Self::Signed(value)),
             CanonicalValue::U32(value) => Some(Self::Unsigned(u64::from(value))),
-            CanonicalValue::TimeMs(value) => Some(Self::Unsigned(value)),
-            CanonicalValue::Bool(_) => None,
+            CanonicalValue::TimeMs(value) => Some(Self::Signed(value)),
+            CanonicalValue::I8(value) => Some(Self::Signed(i64::from(value))),
+            CanonicalValue::I16(value) => Some(Self::Signed(i64::from(value))),
+            CanonicalValue::U8(value) => Some(Self::Unsigned(u64::from(value))),
+            CanonicalValue::U16(value) => Some(Self::Unsigned(u64::from(value))),
+            CanonicalValue::U64(value) => Some(Self::Unsigned(value)),
+            CanonicalValue::Bool(_)
+            | CanonicalValue::Bits8(_)
+            | CanonicalValue::Bits16(_)
+            | CanonicalValue::Bits32(_)
+            | CanonicalValue::Bits64(_)
+            | CanonicalValue::F32(_)
+            | CanonicalValue::F64(_)
+            | CanonicalValue::Char(_) => None,
         }
     }
 
@@ -1034,8 +1046,11 @@ impl TraceEngine {
                 }
                 TraceProbeIdentity::ScanQuantumMs => (
                     None,
-                    runtime_publication
-                        .map(|publication| CanonicalValue::TimeMs(publication.scan_quantum_ms)),
+                    runtime_publication.and_then(|publication| {
+                        i64::try_from(publication.scan_quantum_ms)
+                            .ok()
+                            .map(CanonicalValue::TimeMs)
+                    }),
                     Some(Quality::Good),
                     SampleFreshness::Current,
                     None,
@@ -2030,6 +2045,18 @@ fn canonical_value_text(value: CanonicalValue) -> String {
         CanonicalValue::I64(value) => alloc::format!("I64:{value}"),
         CanonicalValue::U32(value) => alloc::format!("U32:{value}"),
         CanonicalValue::TimeMs(value) => alloc::format!("TIME_MS:{value}"),
+        CanonicalValue::I8(value) => alloc::format!("SINT:{value}"),
+        CanonicalValue::I16(value) => alloc::format!("INT:{value}"),
+        CanonicalValue::U8(value) => alloc::format!("USINT:{value}"),
+        CanonicalValue::U16(value) => alloc::format!("UINT:{value}"),
+        CanonicalValue::U64(value) => alloc::format!("ULINT:{value}"),
+        CanonicalValue::Bits8(value) => alloc::format!("BYTE:16#{value:02X}"),
+        CanonicalValue::Bits16(value) => alloc::format!("WORD:16#{value:04X}"),
+        CanonicalValue::Bits32(value) => alloc::format!("DWORD:16#{value:08X}"),
+        CanonicalValue::Bits64(value) => alloc::format!("LWORD:16#{value:016X}"),
+        CanonicalValue::F32(value) => alloc::format!("REAL_BITS:16#{:08X}", value.bits()),
+        CanonicalValue::F64(value) => alloc::format!("LREAL_BITS:16#{:016X}", value.bits()),
+        CanonicalValue::Char(value) => alloc::format!("CHAR:{value}"),
     }
 }
 
@@ -2040,6 +2067,18 @@ fn value_type_token(value: ValueType) -> &'static str {
         ValueType::I64 => "I64",
         ValueType::U32 => "U32",
         ValueType::TimeMs => "TIME_MS",
+        ValueType::I8 => "SINT",
+        ValueType::I16 => "INT",
+        ValueType::U8 => "USINT",
+        ValueType::U16 => "UINT",
+        ValueType::U64 => "ULINT",
+        ValueType::Bits8 => "BYTE",
+        ValueType::Bits16 => "WORD",
+        ValueType::Bits32 => "DWORD",
+        ValueType::Bits64 => "LWORD",
+        ValueType::F32 => "REAL",
+        ValueType::F64 => "LREAL",
+        ValueType::Char => "CHAR",
     }
 }
 

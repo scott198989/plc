@@ -11,6 +11,7 @@ description = "Capability-free deterministic VirtualController runtime for the P
 path = "src/lib.rs"
 
 [dependencies]
+plc-types = { path = "../plc-types" }
 
 [lints.rust]
 unsafe_code = "forbid"
