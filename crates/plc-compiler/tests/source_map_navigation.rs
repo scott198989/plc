@@ -6,10 +6,19 @@ use plc_compiler::{
     SourceLanguage, SourceMapEntry, SourceMapId, SourceMapSite, SourceMapTable, TextRange,
     lower_scl_frontend_artifact, project_verified_ir_to_runtime, scl::analyze_scl_with_program,
 };
+use plc_language_tools::{
+    ActivationRole, ConnectionId, ConnectionKind, EffectRole, FbdConnection, FbdDocument,
+    FbdDocumentId, FbdNetwork, FbdNode, FbdPort, NetworkId, NodeId, NodeKind, PortDirection,
+    PortId, PortMultiplicity, PortStatus, lower_fbd_to_verified_ir,
+};
 use plc_program::{
-    BlockId, BlockInterface, ControllerId, ControllerProgram, DataType, EngineeringNumber,
-    InterfaceMember, InterfaceMemberId, InterfaceRole, ObDeclaration, ProgramBlock,
-    ProgramUnitKind,
+    BlockId, BlockInterface, CanonicalValue as ProgramValue, ControllerId, ControllerProgram,
+    DIVIDE, DataType, EngineeringNumber, FORMAL_LEFT, FORMAL_OUTPUT, FORMAL_RIGHT, InterfaceMember,
+    InterfaceMemberId, InterfaceRole, ObDeclaration, ProgramBlock, ProgramUnitKind,
+};
+use plc_runtime::{
+    CpuState, DiagnosticCode as RuntimeDiagnosticCode, RestartKind, RunOutcome, UniverseId,
+    VirtualController, VirtualControllerId,
 };
 
 const OWNER: BlockId = BlockId::new(1);
@@ -503,5 +512,217 @@ fn graphical_relocation_uses_stable_graph_ids_and_fails_closed_when_removed() {
     assert_eq!(
         table.resolve_source_anchor(&removed),
         SourceAnchorResolution::Unavailable(SourceAnchorUnavailableReason::StableIdentityMissing)
+    );
+}
+
+fn numeric_fbd_port(
+    id: u128,
+    name: &str,
+    direction: PortDirection,
+    formal: Option<plc_compiler::IrFormalRef>,
+) -> FbdPort {
+    FbdPort {
+        id: PortId::new(id),
+        name: name.into(),
+        direction,
+        data_type: Some(DataType::DInt),
+        required: direction == PortDirection::Input,
+        multiplicity: if direction == PortDirection::Output {
+            PortMultiplicity::Many
+        } else {
+            PortMultiplicity::One
+        },
+        activation: ActivationRole::None,
+        status: PortStatus::Active,
+        effect_role: EffectRole::Value,
+        formal,
+    }
+}
+
+fn faulting_fbd(owner: BlockId, result: InterfaceMemberId, edited: bool) -> FbdDocument {
+    let numerator = FbdNode::from_ports(
+        NodeId::new(801),
+        0,
+        NodeKind::Constant {
+            value: ProgramValue::DInt(10),
+        },
+        [numeric_fbd_port(8_011, "OUT", PortDirection::Output, None)],
+    );
+    let denominator = FbdNode::from_ports(
+        NodeId::new(802),
+        1,
+        NodeKind::Constant {
+            value: ProgramValue::DInt(0),
+        },
+        [numeric_fbd_port(8_021, "OUT", PortDirection::Output, None)],
+    );
+    let divide = FbdNode::from_ports(
+        NodeId::new(803),
+        2,
+        NodeKind::Instruction {
+            code: DIVIDE,
+            instance: None,
+        },
+        [
+            numeric_fbd_port(
+                8_031,
+                "A",
+                PortDirection::Input,
+                Some(plc_compiler::IrFormalRef::Instruction(FORMAL_LEFT)),
+            ),
+            numeric_fbd_port(
+                8_032,
+                "B",
+                PortDirection::Input,
+                Some(plc_compiler::IrFormalRef::Instruction(FORMAL_RIGHT)),
+            ),
+            numeric_fbd_port(
+                8_033,
+                "OUT",
+                PortDirection::Output,
+                Some(plc_compiler::IrFormalRef::Instruction(FORMAL_OUTPUT)),
+            ),
+        ],
+    );
+    let store = FbdNode::from_ports(
+        NodeId::new(804),
+        3,
+        NodeKind::StoreMember { member: result },
+        [numeric_fbd_port(8_041, "IN", PortDirection::Input, None)],
+    );
+    let mut nodes = vec![numerator, denominator, divide, store];
+    if edited {
+        nodes.push(FbdNode::from_ports(
+            NodeId::new(805),
+            4,
+            NodeKind::Constant {
+                value: ProgramValue::DInt(99),
+            },
+            [numeric_fbd_port(8_051, "OUT", PortDirection::Output, None)],
+        ));
+    }
+    FbdDocument::new(
+        FbdDocumentId::new(0xF803),
+        owner,
+        [FbdNetwork::from_parts(
+            NetworkId::new(800),
+            0,
+            nodes,
+            [
+                FbdConnection {
+                    id: ConnectionId::new(8_001),
+                    source: PortId::new(8_011),
+                    target: PortId::new(8_031),
+                    kind: ConnectionKind::Data,
+                },
+                FbdConnection {
+                    id: ConnectionId::new(8_002),
+                    source: PortId::new(8_021),
+                    target: PortId::new(8_032),
+                    kind: ConnectionKind::Data,
+                },
+                FbdConnection {
+                    id: ConnectionId::new(8_003),
+                    source: PortId::new(8_033),
+                    target: PortId::new(8_041),
+                    kind: ConnectionKind::Data,
+                },
+            ],
+        )],
+    )
+}
+
+#[test]
+fn fbd_runtime_fault_relocates_to_same_stable_node_after_offline_graph_edit() {
+    let owner = BlockId::new(80);
+    let result = InterfaceMemberId::new(801);
+    let block = ProgramBlock::new(
+        owner,
+        "Main",
+        number(1),
+        ProgramUnitKind::OrganizationBlock(ObDeclaration::CyclicMain),
+        BlockInterface::from_members([InterfaceMember::plain(
+            result,
+            "Result",
+            InterfaceRole::Temp,
+            DataType::DInt,
+            0,
+        )]),
+    );
+    let mut program = ControllerProgram::new(ControllerId::new(80));
+    program.insert_block(block).unwrap();
+
+    let loaded = lower_fbd_to_verified_ir(&faulting_fbd(owner, result, false), &program)
+        .expect("loaded FBD verifies");
+    let projection = project_verified_ir_to_runtime(
+        &loaded.verified_ir,
+        &loaded.lowered.compiler_source_maps,
+        &loaded.lowered.compiler_probes,
+        &program,
+        Hash32::from_bytes([0x80; 32]),
+    )
+    .expect("loaded FBD projects to runtime");
+    let mut controller = VirtualController::new(UniverseId(80), VirtualControllerId(80), 0x8000);
+    controller.power_on().unwrap();
+    controller
+        .install_verified_artifact(projection.package())
+        .unwrap();
+    controller.request_run(RestartKind::Resume).unwrap();
+    let event = match controller.run_scan().unwrap() {
+        RunOutcome::Faulted(event) => event,
+        RunOutcome::Completed(report) => panic!("divide-by-zero FBD completed: {report:?}"),
+    };
+    assert_eq!(event.code, RuntimeDiagnosticCode::ArithmeticDivideByZero);
+    assert_eq!(controller.cpu_state(), CpuState::Faulted);
+    let context = event
+        .fault_context
+        .expect("fault retains exact runtime site");
+    let binding = projection
+        .source_for(context.source_identity)
+        .expect("runtime fault source identity maps to compiler source");
+    let fault_anchor = binding
+        .anchors
+        .iter()
+        .find(|anchor| {
+            anchor.language == SourceLanguage::Fbd
+                && anchor.network_id == Some(800)
+                && anchor.node_id == Some(803)
+        })
+        .cloned()
+        .expect("faulting DIV node has an authored stable anchor");
+
+    let edited = lower_fbd_to_verified_ir(&faulting_fbd(owner, result, true), &program)
+        .expect("offline unrelated-node edit remains valid FBD");
+    assert_ne!(
+        fault_anchor.source_revision_hash,
+        edited
+            .lowered
+            .compiler_source_maps
+            .entries()
+            .values()
+            .flat_map(|entry| &entry.anchors)
+            .find(|anchor| anchor.node_id == Some(803))
+            .unwrap()
+            .source_revision_hash,
+        "offline edit must produce a new immutable graph revision"
+    );
+    let SourceAnchorResolution::Relocated(relocated) = edited
+        .lowered
+        .compiler_source_maps
+        .resolve_source_anchor(&fault_anchor)
+    else {
+        panic!("runtime fault anchor must relocate by stable FBD identity");
+    };
+    assert_eq!(relocated.anchor.language, SourceLanguage::Fbd);
+    assert_eq!(relocated.anchor.network_id, Some(800));
+    assert_eq!(relocated.anchor.node_id, Some(803));
+    assert!(!relocated.sites.is_empty());
+    assert_eq!(
+        edited
+            .lowered
+            .compiler_probes
+            .resolved_source_to_probes(&relocated)
+            .len(),
+        relocated.sites.len()
     );
 }

@@ -1128,6 +1128,14 @@ pub struct ControllerSnapshot {
     content_hash: Hash32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ControllerStateRegionHashes {
+    pub cpu: Hash32,
+    pub memory: Hash32,
+    pub io: Hash32,
+    pub timers_counters_edges: Hash32,
+}
+
 impl ControllerSnapshot {
     pub const fn content_hash(&self) -> Hash32 {
         self.content_hash
@@ -1143,6 +1151,69 @@ impl ControllerSnapshot {
 
     pub const fn captured_controller_epoch(&self) -> u64 {
         self.body.captured_controller_epoch
+    }
+
+    /// Complete immutable virtual-I/O state retained by this snapshot.
+    #[must_use]
+    pub const fn virtual_io_boundary(&self) -> &VirtualIoBoundary {
+        &self.body.boundary
+    }
+
+    /// Independently hashes the replay-visible runtime regions rather than
+    /// repeating the aggregate snapshot hash under several labels.
+    #[must_use]
+    pub fn state_region_hashes(&self) -> ControllerStateRegionHashes {
+        let mut cpu = SemanticHasher::new("PES-RUNTIME-REGION-CPU-1");
+        cpu.u64(self.body.captured_universe_epoch);
+        cpu.u64(self.body.captured_controller_epoch);
+        cpu.u8(self.body.captured_cpu_state as u8);
+        cpu.u64(self.body.virtual_time_ms);
+        cpu.u64(self.body.captured_scan_sequence);
+        cpu.u64(self.body.captured_event_sequence);
+        cpu.hash(self.body.artifact_fingerprint);
+        cpu.hash(self.body.profile_fingerprint);
+        cpu.u64(self.body.deterministic_seed);
+        cpu.u64(self.body.image.invocation_ordinals.len() as u64);
+        for (block, ordinal) in &self.body.image.invocation_ordinals {
+            cpu.u32(block.0);
+            cpu.u64(*ordinal);
+        }
+
+        let mut memory = SemanticHasher::new("PES-RUNTIME-REGION-MEMORY-1");
+        encode_value_map(&self.body.image.actual_memory, &mut memory);
+        encode_value_map(&self.body.image.retain_memory, &mut memory);
+        encode_aggregate_value_map(&self.body.image.actual_aggregate_memory, &mut memory);
+        encode_aggregate_value_map(&self.body.image.retain_aggregate_memory, &mut memory);
+        encode_function_block_instances(&self.body.image.function_block_instances, &mut memory);
+        encode_function_block_instances(
+            &self.body.image.retain_function_block_instances,
+            &mut memory,
+        );
+
+        let mut io = SemanticHasher::new("PES-RUNTIME-REGION-IO-1");
+        encode_value_map(&self.body.image.natural_inputs, &mut io);
+        encode_value_map(&self.body.image.effective_inputs, &mut io);
+        encode_value_map(&self.body.image.natural_outputs, &mut io);
+        encode_value_map(&self.body.image.effective_outputs, &mut io);
+        io.u64(self.body.image.force_overlays.len() as u64);
+        for (target, value) in &self.body.image.force_overlays {
+            encode_runtime_target(*target, &mut io);
+            value.encode(&mut io);
+        }
+        self.body.boundary.encode(&mut io);
+
+        let mut state = SemanticHasher::new("PES-RUNTIME-REGION-TIMER-COUNTER-EDGE-1");
+        encode_state_map(&self.body.image.state_cells, &mut state);
+        encode_state_map(&self.body.image.retain_state_cells, &mut state);
+        encode_invocation_state_map(&self.body.image.invocation_state_cells, &mut state);
+        encode_invocation_state_map(&self.body.image.retain_invocation_state_cells, &mut state);
+
+        ControllerStateRegionHashes {
+            cpu: cpu.finish(),
+            memory: memory.finish(),
+            io: io.finish(),
+            timers_counters_edges: state.finish(),
+        }
     }
 
     fn calculate_hash(&self) -> Hash32 {
@@ -5501,4 +5572,90 @@ fn hash_snapshot(schema_version: u32, body: &SnapshotBody) -> Hash32 {
         encode_input_receipt(&stored.receipt, &mut hasher);
     }
     hasher.finish()
+}
+
+#[cfg(test)]
+mod fault_taxonomy_tests {
+    use alloc::vec;
+
+    use super::*;
+    use crate::{ArtifactSpec, ProgramImage, Sha256};
+
+    fn running_controller(identity: u128) -> (VirtualController, Hash32) {
+        let package = ArtifactPackage::seal_verified(ArtifactSpec::edu21(
+            Sha256::digest(b"defensive-fault-taxonomy-profile"),
+            vec![],
+            vec![],
+            vec![],
+            ProgramImage {
+                startup: None,
+                timed: vec![],
+                cyclic: ProgramBlock {
+                    id: BlockId(1),
+                    instructions: vec![],
+                },
+            },
+        ))
+        .expect("minimal verified artifact");
+        let fingerprint = package.fingerprint();
+        let mut controller = VirtualController::new(
+            UniverseId(0xF100 + identity),
+            VirtualControllerId(0xF200 + identity),
+            identity as u64,
+        );
+        controller.power_on().unwrap();
+        controller.install_verified_artifact(&package).unwrap();
+        controller.request_run(RestartKind::Resume).unwrap();
+        (controller, fingerprint)
+    }
+
+    #[test]
+    fn defensive_bounds_and_invariant_faults_share_the_fatal_cpu_and_causal_policy() {
+        for (ordinal, fault, expected_code) in [
+            (
+                1_u128,
+                ExecutionFault::BoundsOrString,
+                DiagnosticCode::BoundsOrString,
+            ),
+            (
+                2_u128,
+                ExecutionFault::RuntimeInvariant,
+                DiagnosticCode::RuntimeInvariantFailure,
+            ),
+        ] {
+            let (mut controller, artifact_fingerprint) = running_controller(ordinal);
+            let context = FaultContext {
+                artifact_fingerprint,
+                block_id: BlockId(0xB0 + ordinal as u32),
+                operation_id: 0xC0 + ordinal as u32,
+                source_identity: 0xD000 + ordinal,
+                scan_sequence: 1,
+                controller_epoch: controller.controller_epoch(),
+                virtual_timestamp_ms: controller.virtual_time_ms(),
+                work_units_before_operation: 7,
+            };
+            let event = controller.enter_fatal_fault(fault, context.clone());
+            assert_eq!(controller.cpu_state(), CpuState::Faulted);
+            assert_eq!(event.code, expected_code);
+            assert_eq!(event.severity, DiagnosticSeverity::Fatal);
+            assert_eq!(event.fault_context, Some(context));
+            assert_eq!(event.root_occurrence_id, event.occurrence_id);
+            assert_eq!(event.parent_occurrence_id, None);
+            assert_eq!(
+                event.fault_boundary_state_hash,
+                Some(controller.last_state_hash())
+            );
+            assert!(
+                controller
+                    .boundary_hashes()
+                    .last()
+                    .unwrap()
+                    .is_fatal_fault()
+            );
+            assert_eq!(
+                controller.replay_events().last().unwrap().kind,
+                ReplayEventKind::FatalFault
+            );
+        }
+    }
 }

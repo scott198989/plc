@@ -141,6 +141,25 @@ impl KernelBridge {
             .map_err(Into::into)
     }
 
+    pub(crate) fn export_replay_baseline(&self) -> Result<Vec<u8>, BridgeError> {
+        self.active.as_ref().ok_or(BridgeError::NoActiveSession)?;
+        self.system
+            .as_ref()
+            .ok_or(BridgeError::NoActiveSession)?
+            .export_replay_baseline()
+            .map_err(Into::into)
+    }
+
+    pub(crate) fn verify_replay_package(&self, package: &[u8]) -> Result<Vec<u8>, BridgeError> {
+        check_input(package)?;
+        self.active.as_ref().ok_or(BridgeError::NoActiveSession)?;
+        self.system
+            .as_ref()
+            .ok_or(BridgeError::NoActiveSession)?
+            .verify_replay_package(package)
+            .map_err(Into::into)
+    }
+
     pub(crate) fn prepare_save(&mut self, mode: SaveMode) -> Result<Vec<u8>, BridgeError> {
         if self.pending_save.is_some() {
             return Err(BridgeError::PendingSaveExists);
@@ -291,6 +310,43 @@ mod exports {
 
     #[allow(unsafe_code)]
     #[unsafe(no_mangle)]
+    pub extern "C" fn plc_session_export_replay_baseline() -> i32 {
+        match BRIDGE.with_borrow(KernelBridge::export_replay_baseline) {
+            Ok(output) => {
+                write_output(output);
+                STATUS_OK
+            }
+            Err(error) => {
+                write_error(error);
+                STATUS_ERROR
+            }
+        }
+    }
+
+    #[allow(unsafe_code)]
+    #[unsafe(no_mangle)]
+    pub extern "C" fn plc_session_verify_replay_package(length: u32) -> i32 {
+        let input = match read_input(length) {
+            Ok(input) => input,
+            Err(error) => {
+                write_error(error);
+                return STATUS_ERROR;
+            }
+        };
+        match BRIDGE.with_borrow(|bridge| bridge.verify_replay_package(&input)) {
+            Ok(output) => {
+                write_output(output);
+                STATUS_OK
+            }
+            Err(error) => {
+                write_error(error);
+                STATUS_ERROR
+            }
+        }
+    }
+
+    #[allow(unsafe_code)]
+    #[unsafe(no_mangle)]
     pub extern "C" fn plc_session_prepare_save(mode: u32, length: u32) -> i32 {
         let save_mode = if mode == 0 {
             SaveMode::Save
@@ -426,6 +482,7 @@ mod tests {
     use super::{BridgeError, KernelBridge, SaveMode};
     use crate::{system_bridge::SystemBridge, test_fixture::RuntimeFixture};
     use plc_core::{DecodeLimits, KernelSession, Project, Uuid, sha256};
+    use plc_system::{ReplayDecodeLimits, ReplayPackage};
 
     const CREATE: &[u8] = br#"{"displayName":"Bridge","documentId":"cda496e1-165b-4ab0-9ddc-9ad749bf75a4","profile":{"id":"EDU-21 Core","manifestHash":"9febe00e579c161920610be4d2079621b6255217a623f29ee0f656fcd992ed9a","version":"1.0.0"},"rootId":"88c521b1-f9f7-4bb0-8dc1-adca746a13a6","schemaVersion":1}"#;
 
@@ -697,6 +754,33 @@ mod tests {
             bridge.system_command(b"PES-SYSTEM-COMMAND-1\nBUILD"),
             Err(BridgeError::System(message)) if message.contains("malformed")
         ));
+    }
+
+    #[test]
+    fn wasm_system_bridge_exports_and_executes_closed_replay_baseline() {
+        let fixture = RuntimeFixture::canonical();
+        let mut bridge = bridge_from_project(fixture.project());
+        execute_runtime(&mut bridge, "BUILD", &[], 1);
+        execute_runtime(&mut bridge, "POWER_ON", &[], 2);
+        execute_runtime(&mut bridge, "PREVIEW_LOAD", &["STOP".to_owned()], 3);
+        execute_runtime(&mut bridge, "COMMIT_LOAD", &[], 4);
+        execute_runtime(&mut bridge, "GO_ONLINE", &[], 5);
+        execute_runtime(&mut bridge, "CAPTURE_SNAPSHOT", &[], 6);
+
+        let bytes = bridge
+            .export_replay_baseline()
+            .expect("production replay baseline export");
+        let decoded = ReplayPackage::decode(&bytes, ReplayDecodeLimits::edu21())
+            .expect("canonical replay package");
+        assert!(decoded.events().is_empty());
+        assert!(decoded.boundaries().is_empty());
+        let result = bridge
+            .verify_replay_package(&bytes)
+            .expect("production bridge replay execution");
+        let json = String::from_utf8(result).expect("replay result JSON");
+        assert!(json.contains(r#""verified":true"#));
+        assert!(json.contains(r#""observedBoundaryCount":0"#));
+        assert!(json.contains(&decoded.content_fingerprint().to_hex()));
     }
 
     #[test]

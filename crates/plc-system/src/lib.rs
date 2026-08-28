@@ -10,6 +10,7 @@
 mod build_product;
 mod graph_projection;
 mod hardware_projection;
+mod replay_executor;
 mod replay_package;
 mod session;
 mod software_projection;
@@ -30,6 +31,10 @@ pub use session::{
 
 pub use hardware_projection::{
     CanonicalHardwareProjection, ProjectDiagnostic, ProjectDiagnosticPhase, project_hardware,
+};
+pub use replay_executor::{
+    ENGINEERING_REPLAY_ALGORITHM, EngineeringReplayError, EngineeringReplayExecution,
+    EngineeringReplayExecutor, engineering_replay_state_regions,
 };
 pub use replay_package::{
     ActorKind, CanonicalReplayPlcValue, ReplayActorProvenance, ReplayBoundaryHash,

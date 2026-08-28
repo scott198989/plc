@@ -9,11 +9,16 @@ use plc_core::{
     Payload, PayloadValue, ProfilePin, Project, ProjectObjectKind, TransactionId, Uuid,
 };
 use plc_hardware::{HardwareFaultAction, InstalledOccupant, ModuleId, TrainingProfile};
-use plc_observability::{Quality, StableTargetId};
-use plc_runtime::{CanonicalValue, CpuState, Hash32, ReplayEventKind, RunOutcome};
+use plc_observability::{ForceId, Quality, StableTargetId};
+use plc_runtime::{CanonicalValue, CpuState, Hash32, ReplayEvent, ReplayEventKind, RunOutcome};
 use plc_system::{
-    EngineeringSession, RestoreApproval, SystemBuildError, SystemCommandIdentity, SystemError,
-    build_project_controller, project_hardware,
+    ActorKind, CanonicalReplayPlcValue, ENGINEERING_REPLAY_ALGORITHM, EngineeringReplayError,
+    EngineeringReplayExecutor, EngineeringSession, EngineeringSessionSnapshot,
+    ReplayActorProvenance, ReplayBoundaryHash, ReplayCommandResult, ReplayPackage,
+    ReplayPackageEvent, ReplayPackageSpec, ReplayPayloadValue, ReplayPriorityClass,
+    ReplayResultStatus, ReplayTypedPayload, RestoreApproval, SystemBuildError,
+    SystemCommandIdentity, SystemError, build_project_controller, engineering_replay_state_regions,
+    project_hardware,
 };
 
 struct Fixture {
@@ -728,6 +733,252 @@ fn projected_module_id(fixture: &Fixture, object_id: ObjectId) -> ModuleId {
         .expect("canonical module projection")
 }
 
+fn runtime(session: &EngineeringSession) -> &plc_runtime::VirtualController {
+    let controller = session
+        .read_model()
+        .expect("read model")
+        .runtime_controller_id;
+    session
+        .universe()
+        .controller(controller)
+        .expect("runtime instance")
+        .runtime()
+}
+
+fn restored_recording_session(
+    fixture: &Fixture,
+    snapshot: &EngineeringSessionSnapshot,
+) -> EngineeringSession {
+    let mut session = loaded_session(fixture);
+    let preview = session
+        .preview_restore(snapshot)
+        .expect("recording restore preview");
+    session
+        .commit_restore(snapshot, &preview, RestoreApproval::approve(&preview))
+        .expect("recording restore");
+    session
+}
+
+fn replay_priority(kind: ReplayEventKind) -> ReplayPriorityClass {
+    match kind {
+        ReplayEventKind::RequestRun | ReplayEventKind::RequestStop => {
+            ReplayPriorityClass::ControllerLifecycle
+        }
+        ReplayEventKind::RawInputAccepted => ReplayPriorityClass::RawInput,
+        ReplayEventKind::ScanCompleted | ReplayEventKind::FatalFault => {
+            ReplayPriorityClass::ScheduledProgram
+        }
+        ReplayEventKind::HardwareBoundary => ReplayPriorityClass::OutputProcess,
+        ReplayEventKind::ObservationBoundary => ReplayPriorityClass::Publication,
+        _ => ReplayPriorityClass::ApprovedLoadSnapshot,
+    }
+}
+
+fn typed_replay_event(
+    runtime_event: &ReplayEvent,
+    artifact: Hash32,
+    profile: Hash32,
+    actor: ReplayActorProvenance,
+    fields: BTreeMap<String, ReplayPayloadValue>,
+) -> ReplayPackageEvent {
+    let payload = ReplayTypedPayload::new(runtime_event.kind, fields).expect("typed payload");
+    let detail =
+        ReplayTypedPayload::new(runtime_event.kind, BTreeMap::new()).expect("typed result detail");
+    ReplayPackageEvent::from_runtime(
+        runtime_event,
+        artifact,
+        profile,
+        replay_priority(runtime_event.kind),
+        actor,
+        payload,
+        ReplayCommandResult::new(ReplayResultStatus::Accepted, "ACCEPTED", detail)
+            .expect("typed result"),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_recorded_operation(
+    session: &EngineeringSession,
+    before: usize,
+    expected_ingress: ReplayEventKind,
+    ingress_fields: &BTreeMap<String, ReplayPayloadValue>,
+    actor: ReplayActorProvenance,
+    artifact: Hash32,
+    profile: Hash32,
+    events: &mut Vec<ReplayPackageEvent>,
+) {
+    for generated in &runtime(session).replay_events()[before..] {
+        let is_ingress = generated.kind == expected_ingress;
+        let event_actor = if is_ingress {
+            actor
+        } else {
+            ReplayActorProvenance {
+                kind: ActorKind::System,
+                ..actor
+            }
+        };
+        events.push(typed_replay_event(
+            generated,
+            artifact,
+            profile,
+            event_actor,
+            if is_ingress {
+                (*ingress_fields).clone()
+            } else {
+                BTreeMap::new()
+            },
+        ));
+    }
+}
+
+fn captured_replay_package(fixture: &Fixture) -> (EngineeringSessionSnapshot, ReplayPackage) {
+    let initial_snapshot = loaded_session(fixture)
+        .capture_snapshot()
+        .expect("initial aggregate snapshot");
+    let mut recorder = restored_recording_session(fixture, &initial_snapshot);
+    let artifact = recorder
+        .read_model()
+        .expect("recorder read")
+        .loaded_artifact_fingerprint
+        .expect("loaded artifact");
+    let profile = recorder
+        .read_model()
+        .expect("recorder read")
+        .profile_fingerprint
+        .expect("profile");
+    let mut events = Vec::new();
+
+    let raw_identity = identity(9_000);
+    let raw_actor = ReplayActorProvenance {
+        kind: ActorKind::Operator,
+        actor_id: raw_identity.author_identity,
+        command_id: raw_identity.command_id,
+        idempotency_key: raw_identity.idempotency_key,
+    };
+    let before = runtime(&recorder).replay_events().len();
+    recorder
+        .set_raw_virtual_input(
+            raw_identity,
+            stable_target(fixture.input_tag),
+            CanonicalValue::Bool(true),
+        )
+        .expect("recorded raw input");
+    append_recorded_operation(
+        &recorder,
+        before,
+        ReplayEventKind::RawInputAccepted,
+        &BTreeMap::from([
+            (
+                "target".to_owned(),
+                ReplayPayloadValue::Identity(stable_target(fixture.input_tag).0),
+            ),
+            (
+                "value".to_owned(),
+                ReplayPayloadValue::Plc(
+                    CanonicalReplayPlcValue::from_runtime(CanonicalValue::Bool(true))
+                        .expect("canonical replay value"),
+                ),
+            ),
+        ]),
+        raw_actor,
+        artifact,
+        profile,
+        &mut events,
+    );
+
+    let lifecycle_actor = ReplayActorProvenance {
+        kind: ActorKind::Operator,
+        actor_id: 77,
+        command_id: 9_100,
+        idempotency_key: 19_100,
+    };
+    let before = runtime(&recorder).replay_events().len();
+    recorder.request_run().expect("recorded RUN");
+    append_recorded_operation(
+        &recorder,
+        before,
+        ReplayEventKind::RequestRun,
+        &BTreeMap::new(),
+        lifecycle_actor,
+        artifact,
+        profile,
+        &mut events,
+    );
+
+    let scan_identity = identity(9_200);
+    let scan_actor = ReplayActorProvenance {
+        kind: ActorKind::Operator,
+        actor_id: scan_identity.author_identity,
+        command_id: scan_identity.command_id,
+        idempotency_key: scan_identity.idempotency_key,
+    };
+    let before = runtime(&recorder).replay_events().len();
+    recorder.run_scan(scan_identity).expect("recorded scan");
+    append_recorded_operation(
+        &recorder,
+        before,
+        ReplayEventKind::ScanCompleted,
+        &BTreeMap::new(),
+        scan_actor,
+        artifact,
+        profile,
+        &mut events,
+    );
+
+    let scan_event = events
+        .iter()
+        .find(|event| event.kind == ReplayEventKind::ScanCompleted)
+        .expect("scan replay event");
+    let causal_input_event_sequence = events
+        .iter()
+        .take_while(|event| event.event_sequence < scan_event.event_sequence)
+        .filter(|event| {
+            !matches!(
+                event.kind,
+                ReplayEventKind::ScanCompleted
+                    | ReplayEventKind::FatalFault
+                    | ReplayEventKind::ObservationBoundary
+            )
+        })
+        .last()
+        .expect("causal input event")
+        .event_sequence;
+    let runtime_boundary = runtime(&recorder)
+        .boundary_hashes()
+        .iter()
+        .rev()
+        .find(|boundary| boundary.is_scan_end())
+        .expect("scan boundary")
+        .clone();
+    let final_snapshot = recorder
+        .capture_snapshot()
+        .expect("recorded final snapshot");
+    let boundary = ReplayBoundaryHash::from_runtime(
+        &runtime_boundary,
+        scan_event.event_sequence,
+        causal_input_event_sequence,
+        engineering_replay_state_regions(&final_snapshot),
+        &events,
+    )
+    .expect("canonical replay boundary");
+    let deterministic_seed = runtime(&recorder).deterministic_seed();
+    let spec = ReplayPackageSpec::edu21(
+        &initial_snapshot,
+        artifact,
+        profile,
+        deterministic_seed,
+        ENGINEERING_REPLAY_ALGORITHM,
+        events,
+        vec![boundary],
+    )
+    .bind_event_order()
+    .expect("bound replay event order");
+    (
+        initial_snapshot,
+        ReplayPackage::encode(spec).expect("encoded replay package"),
+    )
+}
+
 #[test]
 fn hardware_compiler_runtime_and_load_share_one_profile_authority() {
     let fixture = Fixture::canonical_scl();
@@ -1037,6 +1288,16 @@ fn aggregate_snapshot_is_deterministic_tamper_safe_and_restores_runtime_values()
         .expect("input");
     session.run_scan(identity(11)).expect("scan");
     session.request_stop().expect("stop");
+    let force_id = ForceId(0x5151);
+    session
+        .create_force(
+            identity(41),
+            force_id,
+            stable_target(fixture.output_tag),
+            CanonicalValue::Bool(true),
+            "snapshot provenance fixture",
+        )
+        .expect("force captured with aggregate snapshot");
     let snapshot = session.capture_snapshot().expect("snapshot");
     assert_eq!(
         snapshot.content_hash,
@@ -1053,6 +1314,13 @@ fn aggregate_snapshot_is_deterministic_tamper_safe_and_restores_runtime_values()
     assert_eq!(before_rejection, session.universe().semantic_state_hash());
 
     session
+        .remove_force(
+            identity(42),
+            force_id,
+            "mutate live registry before restore",
+        )
+        .expect("remove captured force");
+    session
         .set_raw_virtual_input(
             identity(12),
             stable_target(fixture.input_tag),
@@ -1060,6 +1328,78 @@ fn aggregate_snapshot_is_deterministic_tamper_safe_and_restores_runtime_values()
         )
         .expect("changed input");
     let preview = session.preview_restore(&snapshot).expect("restore preview");
+    assert!(preview.current_force_registry.entries.is_empty());
+    assert_eq!(preview.current_force_registry.audit_records.len(), 2);
+    assert_eq!(preview.snapshot_force_registry.entries.len(), 1);
+    assert_eq!(preview.snapshot_force_registry.audit_records.len(), 1);
+    assert_eq!(preview.snapshot_force_registry.entries[0].id, force_id);
+    assert_eq!(
+        preview.snapshot_force_registry.audit_records[0].record_hash,
+        preview.planned_force_registry.audit_records[0].record_hash,
+        "restore preserves the exact captured force audit provenance"
+    );
+    assert_eq!(preview.planned_force_registry.entries.len(), 1);
+    assert_eq!(preview.planned_force_registry.entries[0].id, force_id);
+    assert_eq!(
+        preview.snapshot_force_registry.entries[0].target_id,
+        preview.planned_force_registry.entries[0].target_id
+    );
+    assert_ne!(
+        preview.snapshot_force_registry.entries[0].bound_universe_epoch,
+        preview.planned_force_registry.entries[0].bound_universe_epoch,
+        "planned registry exposes the exact epoch rebound instead of hiding it behind an aggregate hash"
+    );
+    assert_ne!(preview.current_virtual_io, preview.snapshot_virtual_io);
+    assert_ne!(
+        preview.snapshot_virtual_io, preview.planned_virtual_io,
+        "planned boundary exposes restore-time causal sequence rebinding"
+    );
+    assert_eq!(
+        preview
+            .snapshot_virtual_io
+            .raw_inputs()
+            .map(|input| (input.channel_id, input.canonical_value))
+            .collect::<Vec<_>>(),
+        preview
+            .planned_virtual_io
+            .raw_inputs()
+            .map(|input| (input.channel_id, input.canonical_value))
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        preview
+            .snapshot_virtual_io
+            .delivered_outputs()
+            .map(|output| {
+                (
+                    output.channel_id,
+                    output.canonical_value,
+                    output.quality,
+                    output.suppressed,
+                )
+            })
+            .collect::<Vec<_>>(),
+        preview
+            .planned_virtual_io
+            .delivered_outputs()
+            .map(|output| {
+                (
+                    output.channel_id,
+                    output.canonical_value,
+                    output.quality,
+                    output.suppressed,
+                )
+            })
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(
+        preview.snapshot_virtual_io_hash,
+        preview.snapshot_virtual_io.content_hash()
+    );
+    assert_eq!(
+        preview.planned_virtual_io_hash,
+        preview.planned_virtual_io.content_hash()
+    );
     session
         .commit_restore(&snapshot, &preview, RestoreApproval::approve(&preview))
         .expect("approved atomic restore");
@@ -1233,4 +1573,206 @@ fn presentation_only_edit_preserves_current_build_and_online_match() {
             .fingerprint(),
         artifact_fingerprint
     );
+}
+
+#[test]
+fn production_replay_executor_reconstructs_state_and_compares_independent_regions() {
+    let fixture = Fixture::canonical_scl();
+    let (initial_snapshot, package) = captured_replay_package(&fixture);
+    let decoded = ReplayPackage::decode(package.bytes(), plc_system::ReplayDecodeLimits::edu21())
+        .expect("canonical package round trip");
+    let kinds = decoded
+        .events()
+        .iter()
+        .map(|event| event.kind)
+        .collect::<Vec<_>>();
+    assert!(
+        kinds.windows(2).any(|window| {
+            window
+                == [
+                    ReplayEventKind::RequestRun,
+                    ReplayEventKind::HardwareBoundary,
+                ]
+        }),
+        "RUN did not retain its generated hardware output"
+    );
+    assert!(
+        kinds.windows(3).any(|window| {
+            window
+                == [
+                    ReplayEventKind::ObservationBoundary,
+                    ReplayEventKind::ScanCompleted,
+                    ReplayEventKind::HardwareBoundary,
+                ]
+        }),
+        "scan did not retain its complete generated event stream"
+    );
+    let execution = EngineeringReplayExecutor::execute(
+        fixture.engine.project().clone(),
+        fixture.controller,
+        &initial_snapshot,
+        &decoded,
+    )
+    .expect("production replay execution");
+
+    assert_eq!(execution.divergence, None);
+    assert_eq!(execution.observed_boundaries, decoded.boundaries());
+    assert_eq!(execution.observed_boundaries.len(), 1);
+    assert_eq!(
+        execution
+            .observed_boundaries
+            .first()
+            .expect("observed boundary")
+            .region_hashes
+            .len(),
+        9
+    );
+    assert!(
+        execution
+            .final_snapshot
+            .virtual_io_boundary()
+            .raw_inputs()
+            .any(|input| input.canonical_value == CanonicalValue::Bool(true))
+    );
+}
+
+#[test]
+fn queued_generated_replay_output_rejects_payload_injection_before_passive_match() {
+    let fixture = Fixture::canonical_scl();
+    let (initial_snapshot, good_package) = captured_replay_package(&fixture);
+    let mut events = good_package.events().to_vec();
+    let queued = events
+        .iter_mut()
+        .find(|event| event.kind == ReplayEventKind::HardwareBoundary)
+        .expect("queued hardware output");
+    queued.payload = ReplayTypedPayload::new(
+        ReplayEventKind::HardwareBoundary,
+        BTreeMap::from([(
+            "vendorExportPath".to_owned(),
+            ReplayPayloadValue::Text("C:/unsafe/deployable.bin".to_owned()),
+        )]),
+    )
+    .expect("structurally typed injection");
+    let injected = ReplayPackage::encode(
+        ReplayPackageSpec::edu21(
+            &initial_snapshot,
+            good_package.artifact_hash(),
+            good_package.profile_hash(),
+            good_package.deterministic_seed(),
+            good_package.deterministic_algorithm(),
+            events,
+            good_package.boundaries().to_vec(),
+        )
+        .bind_event_order()
+        .expect("rebound injected event order"),
+    )
+    .expect("structurally valid injected package");
+
+    let error = EngineeringReplayExecutor::execute(
+        fixture.engine.project().clone(),
+        fixture.controller,
+        &initial_snapshot,
+        &injected,
+    )
+    .expect_err("queued generated output must reject injected fields");
+    assert!(matches!(
+        error,
+        EngineeringReplayError::InvalidIngress {
+            field: "generated-event-shape",
+            ..
+        }
+    ));
+}
+
+#[test]
+fn production_replay_executor_rejects_non_simulator_ingress_without_state_change() {
+    let fixture = Fixture::canonical_scl();
+    let (initial_snapshot, good_package) = captured_replay_package(&fixture);
+    let first = good_package.events().first().expect("recorded event");
+
+    let attempts = [
+        (
+            ReplayEventKind::ArtifactInstalled,
+            BTreeMap::from([(
+                "vendorArtifact".to_owned(),
+                ReplayPayloadValue::Text("S7-1500 deployable package".to_owned()),
+            )]),
+        ),
+        (
+            ReplayEventKind::RequestRun,
+            BTreeMap::from([(
+                "exportKind".to_owned(),
+                ReplayPayloadValue::Text("MC7+".to_owned()),
+            )]),
+        ),
+        (
+            ReplayEventKind::RawInputAccepted,
+            BTreeMap::from([
+                (
+                    "target".to_owned(),
+                    ReplayPayloadValue::Identity(stable_target(fixture.input_tag).0),
+                ),
+                (
+                    "value".to_owned(),
+                    ReplayPayloadValue::Plc(
+                        CanonicalReplayPlcValue::from_runtime(CanonicalValue::Bool(true))
+                            .expect("canonical replay value"),
+                    ),
+                ),
+                (
+                    "filesystemPath".to_owned(),
+                    ReplayPayloadValue::Text("C:/unsafe/vendor.bin".to_owned()),
+                ),
+            ]),
+        ),
+    ];
+
+    for (kind, fields) in attempts {
+        let mut event = first.clone();
+        event.kind = kind;
+        event.priority = replay_priority(kind);
+        event.payload = ReplayTypedPayload::new(kind, fields).expect("malicious typed payload");
+        event.result = ReplayCommandResult::new(
+            ReplayResultStatus::Accepted,
+            "ACCEPTED",
+            ReplayTypedPayload::new(kind, BTreeMap::new()).expect("empty result"),
+        )
+        .expect("typed result");
+        let package = ReplayPackage::encode(ReplayPackageSpec::edu21(
+            &initial_snapshot,
+            good_package.artifact_hash(),
+            good_package.profile_hash(),
+            good_package.deterministic_seed(),
+            good_package.deterministic_algorithm(),
+            vec![event],
+            Vec::new(),
+        ))
+        .expect("structurally valid adversarial package");
+
+        let mut executor = EngineeringReplayExecutor::from_snapshot(
+            fixture.engine.project().clone(),
+            fixture.controller,
+            &initial_snapshot,
+        )
+        .expect("reconstructed executor");
+        let before = executor
+            .session()
+            .capture_snapshot()
+            .expect("before rejection")
+            .content_hash;
+        let error = executor
+            .verify_package(&package)
+            .expect_err("non-simulator ingress must fail closed");
+        assert!(matches!(
+            error,
+            EngineeringReplayError::UnsupportedIngress { .. }
+                | EngineeringReplayError::InvalidIngress { .. }
+        ));
+        let after = executor
+            .session()
+            .capture_snapshot()
+            .expect("after rejection")
+            .content_hash;
+        assert_eq!(before, after, "rejected package mutated replay state");
+    }
 }

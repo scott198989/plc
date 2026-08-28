@@ -14,8 +14,10 @@ use plc_observability::{
 };
 use plc_runtime::{CanonicalValue, CpuState, Hash32, ValueType};
 use plc_system::{
-    EngineeringReadModel, EngineeringSession, EngineeringSessionSnapshot, ProjectDiagnostic,
-    ProjectDiagnosticPhase, RestoreApproval, SystemCommandIdentity, SystemError, project_hardware,
+    ENGINEERING_REPLAY_ALGORITHM, EngineeringReadModel, EngineeringReplayError,
+    EngineeringReplayExecutor, EngineeringSession, EngineeringSessionSnapshot, ProjectDiagnostic,
+    ProjectDiagnosticPhase, ReplayDecodeLimits, ReplayPackage, ReplayPackageError,
+    ReplayPackageSpec, RestoreApproval, SystemCommandIdentity, SystemError, project_hardware,
     project_software,
 };
 
@@ -62,6 +64,18 @@ impl fmt::Display for SystemBridgeError {
 impl From<SystemError> for SystemBridgeError {
     fn from(value: SystemError) -> Self {
         Self::System(format!("{value:?}"))
+    }
+}
+
+impl From<ReplayPackageError> for SystemBridgeError {
+    fn from(value: ReplayPackageError) -> Self {
+        Self::System(value.to_string())
+    }
+}
+
+impl From<EngineeringReplayError> for SystemBridgeError {
+    fn from(value: EngineeringReplayError) -> Self {
+        Self::System(value.to_string())
     }
 }
 
@@ -229,6 +243,83 @@ impl SystemBridge {
 
     pub(crate) fn runtime_query(&self) -> Result<Vec<u8>, SystemBridgeError> {
         Ok(self.runtime_query_string()?.into_bytes())
+    }
+
+    /// Exports the current captured aggregate snapshot as a canonical closed
+    /// replay baseline. It contains no vendor artifact or deployable payload.
+    pub(crate) fn export_replay_baseline(&self) -> Result<Vec<u8>, SystemBridgeError> {
+        let snapshot = self
+            .pending_snapshot
+            .as_ref()
+            .ok_or(SystemBridgeError::NoPendingSnapshot)?;
+        let session = self.session_ref()?;
+        let read = session.read_model()?;
+        let profile = read
+            .profile_fingerprint
+            .ok_or(SystemBridgeError::RuntimeUnavailable)?;
+        let runtime = session
+            .universe()
+            .controller(read.runtime_controller_id)
+            .map(plc_commissioning::ControllerInstance::runtime)
+            .ok_or(SystemBridgeError::RuntimeUnavailable)?;
+        let package = ReplayPackage::encode(ReplayPackageSpec::edu21(
+            snapshot,
+            snapshot.loaded_artifact_fingerprint,
+            profile,
+            runtime.deterministic_seed(),
+            ENGINEERING_REPLAY_ALGORITHM,
+            Vec::new(),
+            Vec::new(),
+        ))?;
+        Ok(package.bytes().to_vec())
+    }
+
+    /// Reconstructs the captured aggregate snapshot and executes a bounded
+    /// replay package through the production simulator ingress interpreter.
+    pub(crate) fn verify_replay_package(&self, bytes: &[u8]) -> Result<Vec<u8>, SystemBridgeError> {
+        let snapshot = self
+            .pending_snapshot
+            .as_ref()
+            .ok_or(SystemBridgeError::NoPendingSnapshot)?;
+        let controller = self
+            .controller_object_id
+            .ok_or(SystemBridgeError::RuntimeUnavailable)?;
+        let package = ReplayPackage::decode(bytes, ReplayDecodeLimits::edu21())?;
+        let execution = EngineeringReplayExecutor::execute(
+            self.project().clone(),
+            controller,
+            snapshot,
+            &package,
+        )?;
+        let mut output = String::with_capacity(512);
+        output.push_str(r#"{"contentFingerprint":"#);
+        push_json_string(&mut output, &package.content_fingerprint().to_hex());
+        output.push_str(r#","divergence":"#);
+        if let Some(divergence) = &execution.divergence {
+            output.push_str(r#"{"boundaryIndex":"#);
+            write!(output, "{}", divergence.boundary_index).expect("write to String");
+            output.push_str(r#","expectedStateHash":"#);
+            match divergence.expected_state_hash {
+                Some(hash) => push_json_string(&mut output, &hash.to_hex()),
+                None => output.push_str("null"),
+            }
+            output.push_str(r#","observedStateHash":"#);
+            match divergence.observed_state_hash {
+                Some(hash) => push_json_string(&mut output, &hash.to_hex()),
+                None => output.push_str("null"),
+            }
+            output.push('}');
+        } else {
+            output.push_str("null");
+        }
+        output.push_str(r#","finalSnapshotHash":"#);
+        push_json_string(&mut output, &execution.final_snapshot.content_hash.to_hex());
+        output.push_str(r#","observedBoundaryCount":"#);
+        write!(output, "{}", execution.observed_boundaries.len()).expect("write to String");
+        output.push_str(r#","schemaVersion":1,"verified":"#);
+        push_bool(&mut output, execution.divergence.is_none());
+        output.push('}');
+        Ok(output.into_bytes())
     }
 
     fn runtime_query_string(&self) -> Result<String, SystemBridgeError> {

@@ -4,10 +4,10 @@ use plc_program::{BlockId, DataType};
 
 use crate::{
     BinaryOperator, IrBasicBlock, IrBasicBlockId, IrBoundInput, IrDeclaredOutput, IrFormalRef,
-    IrFunction, IrOperation, IrOperationId, IrOperationKind, IrTerminator, IrTerminatorKind,
-    IrType, IrValue, IrValueId, ProbeDefinition, ProbeId, ProbeKind, ProbeTable, SclSource,
-    SourceAnchor, SourceMapEntry, SourceMapId, SourceMapSite, SourceMapTable, TYPED_IR_VERSION,
-    TypedIrProgram, UnaryOperator,
+    IrFunction, IrInstanceIdentity, IrOperation, IrOperationId, IrOperationKind, IrTerminator,
+    IrTerminatorKind, IrType, IrValue, IrValueId, ProbeDefinition, ProbeId, ProbeKind, ProbeTable,
+    SclSource, SourceAnchor, SourceMapEntry, SourceMapId, SourceMapSite, SourceMapTable,
+    TYPED_IR_VERSION, TypedIrProgram, UnaryOperator,
     scl::{
         BinaryOp, TypedBlock, TypedCall, TypedCaseArm, TypedExpr, TypedExprKind, TypedMember,
         TypedStatement, TypedStatementKind, UnaryOp,
@@ -320,7 +320,7 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
                 target: call.target,
                 inputs,
                 outputs,
-                instance: None,
+                instance: call.instance.clone().map(IrInstanceIdentity::FunctionBlock),
                 activation: None,
             },
             anchor.clone(),

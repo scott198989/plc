@@ -35,10 +35,11 @@ use plc_observability::{
     execute_force_command_with_io_state, publish_modify_plan,
 };
 use plc_runtime::{
-    CanonicalValue, CommandId, ControllerSnapshot, CpuState, Hash32, InputCommand, InputReceipt,
-    RestartKind, RunOutcome, RuntimeBoundaryCommand, RuntimeHardwareBoundaryCommand,
-    RuntimeOutputDeliveryOverride, RuntimeScanCommand, RuntimeValueTarget, ValueType,
-    VirtualControllerId, canonical_force_overlay_hash,
+    CanonicalValue, CommandId, ControllerSnapshot, ControllerStateRegionHashes, CpuState, Hash32,
+    InputCommand, InputReceipt, RestartKind, RunOutcome, RuntimeBoundaryCommand,
+    RuntimeHardwareBoundaryCommand, RuntimeOutputDeliveryOverride, RuntimeScanCommand,
+    RuntimeValueTarget, ValueType, VirtualControllerId, VirtualIoBoundary,
+    canonical_force_overlay_hash,
 };
 
 use crate::software_projection::object_u128;
@@ -231,6 +232,21 @@ pub struct EngineeringSessionSnapshot {
     trace_capture_ids: BTreeSet<TraceCaptureId>,
 }
 
+impl EngineeringSessionSnapshot {
+    /// Independently calculated replay-region hashes from the captured runtime
+    /// image. This does not expose mutable snapshot internals.
+    #[must_use]
+    pub fn runtime_state_region_hashes(&self) -> ControllerStateRegionHashes {
+        self.runtime.state_region_hashes()
+    }
+
+    /// Complete immutable virtual-I/O state held by this aggregate snapshot.
+    #[must_use]
+    pub const fn virtual_io_boundary(&self) -> &VirtualIoBoundary {
+        self.runtime.virtual_io_boundary()
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum ForceRestoreClassification {
@@ -261,8 +277,23 @@ pub struct RestorePreview {
     pub current_force_registry_hash: Hash32,
     pub snapshot_force_registry_hash: Hash32,
     pub planned_force_registry_hash: Hash32,
+    /// Full force records, canonical order, and audit provenance at preview time.
+    pub current_force_registry: ForceRegistrySnapshot,
+    /// Full force records and audit provenance captured in the requested snapshot.
+    pub snapshot_force_registry: ForceRegistrySnapshot,
+    /// Full rebound force records and audit provenance produced by an isolated restore.
+    pub planned_force_registry: ForceRegistrySnapshot,
     pub force_delta_hash: Hash32,
     pub force_deltas: Vec<ForceRestoreDelta>,
+    pub current_virtual_io_hash: Hash32,
+    pub snapshot_virtual_io_hash: Hash32,
+    pub planned_virtual_io_hash: Hash32,
+    /// Complete current raw-input/delivered-output boundary, not a projection.
+    pub current_virtual_io: VirtualIoBoundary,
+    /// Complete virtual-I/O boundary retained by the requested snapshot.
+    pub snapshot_virtual_io: VirtualIoBoundary,
+    /// Complete virtual-I/O boundary produced by the isolated restore candidate.
+    pub planned_virtual_io: VirtualIoBoundary,
     pub planned_universe_epoch: u64,
     pub planned_controller_epoch: u64,
     pub safe_mode: CpuState,
@@ -279,6 +310,9 @@ pub struct RestoreApproval {
     snapshot_force_registry_hash: Hash32,
     planned_force_registry_hash: Hash32,
     force_delta_hash: Hash32,
+    current_virtual_io_hash: Hash32,
+    snapshot_virtual_io_hash: Hash32,
+    planned_virtual_io_hash: Hash32,
     preview_hash: Hash32,
 }
 
@@ -294,6 +328,9 @@ impl RestoreApproval {
             snapshot_force_registry_hash: preview.snapshot_force_registry_hash,
             planned_force_registry_hash: preview.planned_force_registry_hash,
             force_delta_hash: preview.force_delta_hash,
+            current_virtual_io_hash: preview.current_virtual_io_hash,
+            snapshot_virtual_io_hash: preview.snapshot_virtual_io_hash,
+            planned_virtual_io_hash: preview.planned_virtual_io_hash,
             preview_hash: preview.preview_hash,
         }
     }
@@ -1188,6 +1225,14 @@ impl EngineeringSession {
         let expected_current_state_hash = self.universe.semantic_state_hash();
         let current_force_registry_hash = self.forces.registry_hash();
         let snapshot_force_registry_hash = snapshot.forces.registry_hash;
+        let current_force_registry = self
+            .forces
+            .snapshot(self.context(PublicationBoundary::SerializedCommand)?);
+        let snapshot_force_registry = snapshot.forces.clone();
+        let current_virtual_io = self.runtime()?.boundary().clone();
+        let snapshot_virtual_io = snapshot.runtime.virtual_io_boundary().clone();
+        let current_virtual_io_hash = current_virtual_io.content_hash();
+        let snapshot_virtual_io_hash = snapshot_virtual_io.content_hash();
 
         // Exercise the complete restore path on an isolated clone. This makes
         // preview a real validation/rebind pass rather than an optimistic diff.
@@ -1201,6 +1246,11 @@ impl EngineeringSession {
         let planned_universe_epoch = simulated.universe.universe_epoch();
         let planned_controller_epoch = simulated.runtime()?.controller_epoch();
         let planned_force_registry_hash = simulated.forces.registry_hash();
+        let planned_force_registry = simulated
+            .forces
+            .snapshot(simulated.context(PublicationBoundary::SerializedCommand)?);
+        let planned_virtual_io = simulated.runtime()?.boundary().clone();
+        let planned_virtual_io_hash = planned_virtual_io.content_hash();
         let force_deltas = force_restore_deltas(&self.forces, &simulated.forces);
         let force_delta_hash = hash_force_restore_deltas(
             current_force_registry_hash,
@@ -1216,8 +1266,17 @@ impl EngineeringSession {
             current_force_registry_hash,
             snapshot_force_registry_hash,
             planned_force_registry_hash,
+            current_force_registry,
+            snapshot_force_registry,
+            planned_force_registry,
             force_delta_hash,
             force_deltas,
+            current_virtual_io_hash,
+            snapshot_virtual_io_hash,
+            planned_virtual_io_hash,
+            current_virtual_io,
+            snapshot_virtual_io,
+            planned_virtual_io,
             planned_universe_epoch,
             planned_controller_epoch,
             safe_mode,
@@ -1243,10 +1302,15 @@ impl EngineeringSession {
         }
         let mut candidate = self.clone();
         let restored_hash = candidate.apply_snapshot(snapshot)?;
+        let candidate_force_registry = candidate
+            .forces
+            .snapshot(candidate.context(PublicationBoundary::SerializedCommand)?);
         if candidate.universe.universe_epoch() != preview.planned_universe_epoch
             || candidate.runtime()?.controller_epoch() != preview.planned_controller_epoch
             || candidate.runtime()?.cpu_state() != preview.safe_mode
             || candidate.forces.registry_hash() != preview.planned_force_registry_hash
+            || candidate_force_registry != preview.planned_force_registry
+            || candidate.runtime()?.boundary() != &preview.planned_virtual_io
         {
             return Err(SystemError::Snapshot(
                 "restore result diverged from its approved plan".to_owned(),
@@ -3014,8 +3078,8 @@ fn encode_optional_force_hash(value: Option<&ForceEntry>, output: &mut Vec<u8>) 
 }
 
 fn hash_restore_preview(preview: &RestorePreview) -> Hash32 {
-    let mut bytes = Vec::with_capacity(32 * 7 + 64);
-    bytes.extend_from_slice(b"PES-RESTORE-PREVIEW-1\0");
+    let mut bytes = Vec::with_capacity(32 * 16 + 64);
+    bytes.extend_from_slice(b"PES-RESTORE-PREVIEW-2\0");
     bytes.extend_from_slice(preview.snapshot_content_hash.as_bytes());
     bytes.extend_from_slice(&preview.expected_universe_epoch.to_be_bytes());
     bytes.extend_from_slice(&preview.expected_controller_epoch.to_be_bytes());
@@ -3023,7 +3087,13 @@ fn hash_restore_preview(preview: &RestorePreview) -> Hash32 {
     bytes.extend_from_slice(preview.current_force_registry_hash.as_bytes());
     bytes.extend_from_slice(preview.snapshot_force_registry_hash.as_bytes());
     bytes.extend_from_slice(preview.planned_force_registry_hash.as_bytes());
+    bytes.extend_from_slice(preview.current_force_registry.content_hash.as_bytes());
+    bytes.extend_from_slice(preview.snapshot_force_registry.content_hash.as_bytes());
+    bytes.extend_from_slice(preview.planned_force_registry.content_hash.as_bytes());
     bytes.extend_from_slice(preview.force_delta_hash.as_bytes());
+    bytes.extend_from_slice(preview.current_virtual_io_hash.as_bytes());
+    bytes.extend_from_slice(preview.snapshot_virtual_io_hash.as_bytes());
+    bytes.extend_from_slice(preview.planned_virtual_io_hash.as_bytes());
     bytes.extend_from_slice(&preview.planned_universe_epoch.to_be_bytes());
     bytes.extend_from_slice(&preview.planned_controller_epoch.to_be_bytes());
     bytes.push(preview.safe_mode as u8);

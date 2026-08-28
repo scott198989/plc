@@ -447,6 +447,75 @@ impl CanonicalReplayPlcValue {
     pub fn canonical_json_bytes(&self) -> Vec<u8> {
         canonical_json(&plc_value_json(self))
     }
+
+    /// Converts a closed scalar replay value back to the runtime's canonical
+    /// value type. Aggregate and STRING values remain package-only because a
+    /// raw virtual-I/O command cannot accept them.
+    pub fn to_runtime(&self) -> Result<CanonicalValue, ReplayPackageError> {
+        validate_plc_wire(self)?;
+        let text = match &self.value {
+            ReplayPlcNode::Text(value) => Some(value.as_str()),
+            _ => None,
+        };
+        let parse_signed = || {
+            text.and_then(|value| value.parse::<i64>().ok())
+                .ok_or_else(|| ReplayPackageError::PlcType("signed scalar".to_owned()))
+        };
+        let parse_unsigned = || {
+            text.and_then(|value| value.parse::<u64>().ok())
+                .ok_or_else(|| ReplayPackageError::PlcType("unsigned scalar".to_owned()))
+        };
+        let parse_hex = || {
+            text.and_then(|value| u64::from_str_radix(value, 16).ok())
+                .ok_or_else(|| ReplayPackageError::PlcType("hex scalar".to_owned()))
+        };
+        match (self.type_id.as_str(), &self.value) {
+            ("BOOL", ReplayPlcNode::Bool(value)) => Ok(CanonicalValue::Bool(*value)),
+            ("SINT", _) => i8::try_from(parse_signed()?)
+                .map(CanonicalValue::I8)
+                .map_err(|_| ReplayPackageError::PlcType("SINT range".to_owned())),
+            ("INT", _) => i16::try_from(parse_signed()?)
+                .map(CanonicalValue::I16)
+                .map_err(|_| ReplayPackageError::PlcType("INT range".to_owned())),
+            ("DINT", _) => i32::try_from(parse_signed()?)
+                .map(CanonicalValue::I32)
+                .map_err(|_| ReplayPackageError::PlcType("DINT range".to_owned())),
+            ("LINT", _) => Ok(CanonicalValue::I64(parse_signed()?)),
+            ("TIME", _) => Ok(CanonicalValue::TimeMs(parse_signed()?)),
+            ("USINT", _) => u8::try_from(parse_unsigned()?)
+                .map(CanonicalValue::U8)
+                .map_err(|_| ReplayPackageError::PlcType("USINT range".to_owned())),
+            ("UINT", _) => u16::try_from(parse_unsigned()?)
+                .map(CanonicalValue::U16)
+                .map_err(|_| ReplayPackageError::PlcType("UINT range".to_owned())),
+            ("UDINT", _) => u32::try_from(parse_unsigned()?)
+                .map(CanonicalValue::U32)
+                .map_err(|_| ReplayPackageError::PlcType("UDINT range".to_owned())),
+            ("ULINT", _) => Ok(CanonicalValue::U64(parse_unsigned()?)),
+            ("BYTE", _) => u8::try_from(parse_hex()?)
+                .map(CanonicalValue::Bits8)
+                .map_err(|_| ReplayPackageError::PlcType("BYTE range".to_owned())),
+            ("WORD", _) => u16::try_from(parse_hex()?)
+                .map(CanonicalValue::Bits16)
+                .map_err(|_| ReplayPackageError::PlcType("WORD range".to_owned())),
+            ("DWORD", _) => u32::try_from(parse_hex()?)
+                .map(CanonicalValue::Bits32)
+                .map_err(|_| ReplayPackageError::PlcType("DWORD range".to_owned())),
+            ("LWORD", _) => Ok(CanonicalValue::Bits64(parse_hex()?)),
+            ("REAL", _) => u32::try_from(parse_hex()?)
+                .map(|bits| CanonicalValue::F32(plc_types::CanonicalF32::from_bits(bits)))
+                .map_err(|_| ReplayPackageError::PlcType("REAL bits".to_owned())),
+            ("LREAL", _) => Ok(CanonicalValue::F64(plc_types::CanonicalF64::from_bits(
+                parse_hex()?,
+            ))),
+            ("CHAR", _) => u8::try_from(parse_hex()?)
+                .map(CanonicalValue::Char)
+                .map_err(|_| ReplayPackageError::PlcType("CHAR range".to_owned())),
+            _ => Err(ReplayPackageError::PlcType(
+                "value is not a runtime scalar ingress type".to_owned(),
+            )),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -854,6 +923,26 @@ impl ReplayPackage {
     #[must_use]
     pub const fn initial_snapshot_hash(&self) -> Hash32 {
         self.manifest.initial_snapshot_hash
+    }
+
+    #[must_use]
+    pub const fn artifact_hash(&self) -> Hash32 {
+        self.manifest.artifact_hash
+    }
+
+    #[must_use]
+    pub const fn profile_hash(&self) -> Hash32 {
+        self.manifest.profile_hash
+    }
+
+    #[must_use]
+    pub const fn deterministic_seed(&self) -> u64 {
+        self.manifest.deterministic_seed
+    }
+
+    #[must_use]
+    pub fn deterministic_algorithm(&self) -> &str {
+        &self.manifest.deterministic_algorithm
     }
 
     #[must_use]

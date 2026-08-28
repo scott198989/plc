@@ -5,8 +5,8 @@ use alloc::{
 };
 
 use plc_program::{
-    BlockId, CALL_FC, CanonicalValue, ControllerProgram, DataType, InterfaceMember,
-    InterfaceMemberId, InterfaceRole, ProgramBlock, ProgramUnitKind,
+    BlockId, CALL_FB, CALL_FC, CanonicalValue, ControllerProgram, DataBlockKind, DataType,
+    InstancePath, InterfaceMember, InterfaceMemberId, InterfaceRole, ProgramBlock, ProgramUnitKind,
 };
 
 use crate::{
@@ -277,6 +277,7 @@ pub(crate) struct TypedCall {
     pub target: BlockId,
     pub inputs: Vec<TypedCallInput>,
     pub outputs: Vec<TypedCallOutput>,
+    pub instance: Option<InstancePath>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -393,6 +394,7 @@ struct BoundCaseLabel {
 #[derive(Clone, Debug)]
 struct BoundCall {
     target: Option<ProgramBlock>,
+    instance: Option<InstancePath>,
     arguments: Vec<BoundCallArgument>,
 }
 
@@ -639,6 +641,7 @@ impl Binder<'_> {
                 .cloned()
                 .collect()
         });
+        let mut instance = None;
         let target = match candidates.as_slice() {
             [target] => {
                 self.external_occurrence(
@@ -651,7 +654,18 @@ impl Binder<'_> {
                     Some(target.id),
                     None,
                 );
-                Some(target.clone())
+                match target.kind {
+                    ProgramUnitKind::DataBlock(DataBlockKind::Instance { fb_type }) => {
+                        instance = Some(InstancePath {
+                            root_instance_db: target.id,
+                            multi_instance_slots: Vec::new(),
+                        });
+                        self.program
+                            .and_then(|program| program.block(fb_type))
+                            .cloned()
+                    }
+                    _ => Some(target.clone()),
+                }
             }
             [] => {
                 self.external_occurrence(
@@ -701,6 +715,7 @@ impl Binder<'_> {
             .collect();
         BoundCall {
             target,
+            instance,
             arguments: bound_arguments,
         }
     }
@@ -1671,7 +1686,20 @@ impl TypeChecker {
         let Some(target) = &call.target else {
             return TypedStatementKind::Error;
         };
-        if target.kind == ProgramUnitKind::Function {
+        let (instruction, instance) = match (target.kind, call.instance.as_ref()) {
+            (ProgramUnitKind::Function, None) => (CALL_FC, None),
+            (ProgramUnitKind::FunctionBlock, Some(instance)) => (CALL_FB, Some(instance.clone())),
+            _ => {
+                self.issue(
+                    DiagnosticCode::INSTANCE_INVALID,
+                    statement.range,
+                    statement.id,
+                    "SCL FB calls must name an explicit instance DB; FC calls must name the FC",
+                );
+                return TypedStatementKind::Error;
+            }
+        };
+        {
             let mut inputs = Vec::new();
             let mut outputs = Vec::new();
             let mut seen = BTreeSet::new();
@@ -1803,20 +1831,14 @@ impl TypeChecker {
                     flow.return_assigned = true;
                 }
             }
-            return TypedStatementKind::Call(TypedCall {
-                instruction: CALL_FC,
+            TypedStatementKind::Call(TypedCall {
+                instruction,
                 target: target.id,
                 inputs,
                 outputs,
-            });
+                instance,
+            })
         }
-        self.issue(
-            DiagnosticCode::INSTANCE_INVALID,
-            statement.range,
-            statement.id,
-            "SCL FB calls require explicit instance syntax; this call form only targets FCs",
-        );
-        TypedStatementKind::Error
     }
 
     fn reject_active_iterator_write(

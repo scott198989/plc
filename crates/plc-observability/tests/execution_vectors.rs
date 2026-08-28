@@ -472,6 +472,112 @@ fn runtime_diagnostic_bridge_ingests_real_provider_events_exactly_once() {
 }
 
 #[test]
+fn defensive_fault_taxonomy_crosses_the_causal_diagnostic_provider_seam_without_loss() {
+    let (mut universe, _) = setup();
+    for _ in 0..3 {
+        universe
+            .request_run(
+                universe.session_command_binding(SESSION).unwrap(),
+                RestartKind::Resume,
+            )
+            .unwrap();
+        universe
+            .request_stop(universe.session_command_binding(SESSION).unwrap())
+            .unwrap();
+    }
+    let binding = universe.session_command_binding(SESSION).unwrap();
+    let context = ObservationContext::from_virtual_universe(
+        &universe,
+        binding,
+        PublicationBoundary::SerializedCommand,
+    )
+    .unwrap();
+    let taxonomy = [
+        (plc_runtime::DiagnosticCode::TimerOverflow, "EDU-RTM-0003"),
+        (
+            plc_runtime::DiagnosticCode::WorkUnitBudgetExceeded,
+            "EDU-RTM-0004",
+        ),
+        (plc_runtime::DiagnosticCode::BoundsOrString, "EDU-RTM-0002"),
+        (
+            plc_runtime::DiagnosticCode::RuntimeInvariantFailure,
+            "EDU-RTM-0006",
+        ),
+    ];
+    assert!(context.event_sequence >= 1);
+    for (index, (code, expected_registry_code)) in taxonomy.into_iter().enumerate() {
+        let occurrence_id = 0xFA01 + u128::try_from(index).unwrap();
+        let provider = plc_runtime::DiagnosticEvent {
+            occurrence_id,
+            parent_occurrence_id: None,
+            root_occurrence_id: occurrence_id,
+            code,
+            severity: plc_runtime::DiagnosticSeverity::Fatal,
+            universe_epoch: context.universe_epoch,
+            controller_epoch: context.controller_epoch,
+            event_sequence: 1,
+            virtual_timestamp_ms: context.virtual_timestamp_ms,
+            fault_context: Some(plc_runtime::FaultContext {
+                artifact_fingerprint: context.artifact_fingerprint,
+                block_id: BlockId(0xF0),
+                operation_id: u32::try_from(index).unwrap() + 1,
+                source_identity: 0xFB01 + u128::try_from(index).unwrap(),
+                scan_sequence: 1,
+                controller_epoch: context.controller_epoch,
+                virtual_timestamp_ms: context.virtual_timestamp_ms,
+                work_units_before_operation: u32::try_from(index).unwrap(),
+            }),
+            fault_boundary_state_hash: Some(hash("defensive-fatal-boundary")),
+        };
+        let mut ledger = DiagnosticLedger::new(
+            DiagnosticRegistry::edu21_runtime(),
+            DiagnosticLimits::edu21(),
+        )
+        .unwrap();
+        let mut bridge = RuntimeDiagnosticBridge::default();
+        let receipts = bridge
+            .ingest_provider_events(&mut ledger, context, core::slice::from_ref(&provider))
+            .expect("validated authoritative provider event");
+        let receipt = &receipts[0];
+        assert!(!receipt.duplicate);
+        assert!(receipt.verify());
+        assert_eq!(receipt.provider_code, provider.code);
+        assert_eq!(receipt.provider_key.occurrence_id, provider.occurrence_id);
+        assert_eq!(receipt.provider_event_sequence, provider.event_sequence);
+        assert_eq!(
+            receipt.provider_virtual_timestamp_ms,
+            provider.virtual_timestamp_ms
+        );
+        let event = ledger
+            .retained_events()
+            .into_iter()
+            .find(|event| event.occurrence_id == receipt.ledger_occurrence_id)
+            .unwrap();
+        assert_eq!(event.severity, DiagnosticSeverity::Fatal);
+        assert_eq!(event.parent_occurrence_id, None);
+        assert_eq!(event.root_occurrence_id, event.occurrence_id);
+        assert_eq!(
+            ledger
+                .registry()
+                .definition(event.definition_id)
+                .unwrap()
+                .code
+                .0,
+            expected_registry_code
+        );
+        assert_eq!(bridge.receipts().len(), 1);
+        assert_eq!(bridge.replay_hash().unwrap(), bridge.bridge_hash());
+
+        let ledger_hash = ledger.ledger_hash();
+        let duplicates = bridge
+            .ingest_provider_events(&mut ledger, context, core::slice::from_ref(&provider))
+            .expect("identical provider replay is idempotent");
+        assert!(duplicates[0].duplicate);
+        assert_eq!(ledger.ledger_hash(), ledger_hash);
+    }
+}
+
+#[test]
 fn force_execution_is_atomic_and_duplicate_receipt_does_not_publish_again() {
     let (mut universe, catalog) = setup();
     let mut registry = ForceRegistry::new();

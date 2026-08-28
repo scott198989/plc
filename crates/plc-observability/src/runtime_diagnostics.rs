@@ -101,13 +101,27 @@ impl RuntimeDiagnosticBridge {
         let runtime = instance.runtime();
         let provider_events = runtime.diagnostics().to_vec();
 
+        self.ingest_provider_events(ledger, base_context, &provider_events)
+    }
+
+    /// Ingests an authoritative runtime provider stream already paired with
+    /// its observation context. This is the production seam used by replay and
+    /// aggregate restore code when the provider is not borrowed through a
+    /// live `VirtualUniverse`; the same epoch, ordering, causal, and artifact
+    /// validation applies and the update remains atomic.
+    pub fn ingest_provider_events(
+        &mut self,
+        ledger: &mut DiagnosticLedger,
+        base_context: ObservationContext,
+        provider_events: &[RuntimeDiagnosticEvent],
+    ) -> Result<Vec<RuntimeDiagnosticReceipt>, RuntimeDiagnosticBridgeError> {
         let mut candidate = self.clone();
         let mut ledger_candidate = ledger.clone();
         candidate.bind(base_context)?;
-        candidate.validate_provider_stream(&provider_events, base_context)?;
+        candidate.validate_provider_stream(provider_events, base_context)?;
 
         let mut output = Vec::new();
-        for provider_event in &provider_events {
+        for provider_event in provider_events {
             let key = provider_key(provider_event);
             let payload_hash = hash_runtime_provider_event(provider_event);
             if provider_event.universe_epoch != base_context.universe_epoch

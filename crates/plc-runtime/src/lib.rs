@@ -14,15 +14,15 @@ pub use boundary::{
 };
 pub use controller::{
     AtomicInstallError, AtomicInstallReport, BoundaryHash, CallBoundaryEvent, CallBoundaryKind,
-    CommandError, ControllerSnapshot, CpuState, DiagnosticCode, DiagnosticEvent,
-    DiagnosticSeverity, FaultContext, InstallOutcome, ReplayEvent, ReplayEventKind, ReplaySegment,
-    RestartKind, RestoreApproval, RunOutcome, RuntimeAppliedWrite, RuntimeBoundaryCommand,
-    RuntimeBoundaryError, RuntimeBoundaryReceipt, RuntimeCloneReport, RuntimeForceDelta,
-    RuntimeForceResetApproval, RuntimeHardwareBoundaryCommand, RuntimeHardwareBoundaryReceipt,
-    RuntimeInstallDisposition, RuntimeLifecycleError, RuntimeNaturalWrite,
-    RuntimeOutputDeliveryOverride, RuntimePublicationBoundary, RuntimeReplacementReport,
-    RuntimeScanCommand, RuntimeScanReceipt, RuntimeStateTransferPlan, RuntimeValueTarget,
-    ScanReport, SnapshotError, StagedAtomicInstall, StagedControllerClone,
+    CommandError, ControllerSnapshot, ControllerStateRegionHashes, CpuState, DiagnosticCode,
+    DiagnosticEvent, DiagnosticSeverity, FaultContext, InstallOutcome, ReplayEvent,
+    ReplayEventKind, ReplaySegment, RestartKind, RestoreApproval, RunOutcome, RuntimeAppliedWrite,
+    RuntimeBoundaryCommand, RuntimeBoundaryError, RuntimeBoundaryReceipt, RuntimeCloneReport,
+    RuntimeForceDelta, RuntimeForceResetApproval, RuntimeHardwareBoundaryCommand,
+    RuntimeHardwareBoundaryReceipt, RuntimeInstallDisposition, RuntimeLifecycleError,
+    RuntimeNaturalWrite, RuntimeOutputDeliveryOverride, RuntimePublicationBoundary,
+    RuntimeReplacementReport, RuntimeScanCommand, RuntimeScanReceipt, RuntimeStateTransferPlan,
+    RuntimeValueTarget, ScanReport, SnapshotError, StagedAtomicInstall, StagedControllerClone,
     StagedControllerReplacement, VirtualController, canonical_force_overlay_hash,
 };
 pub use hash::{Hash32, Sha256};

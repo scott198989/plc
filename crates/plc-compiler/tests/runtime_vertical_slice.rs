@@ -5,9 +5,9 @@ use plc_compiler::{
     CompilerProfile, ResourceLimits, RuntimeMappedSite, SclSource,
 };
 use plc_program::{
-    BlockId, BlockInterface, ControllerId, ControllerProgram, DataType, EngineeringNumber,
-    InterfaceMember, InterfaceMemberId, InterfaceRole, ObDeclaration, ProgramBlock,
-    ProgramUnitKind, validate_program,
+    BlockId, BlockInterface, ControllerId, ControllerProgram, DataBlockKind, DataType,
+    EngineeringNumber, InterfaceMember, InterfaceMemberId, InterfaceRole, ObDeclaration,
+    ProgramBlock, ProgramUnitKind, RetainPolicy, validate_program,
 };
 use plc_runtime::{
     CanonicalValue, CpuState, RestartKind, RunOutcome, UniverseId, ValueType, VerifiedArtifact,
@@ -346,4 +346,178 @@ fn verified_scl_fc_executes_with_copy_in_copy_out_and_two_call_outputs() {
         } if block == projection.block_for(MAIN).unwrap()
     ));
     assert!(!call_source.anchors.is_empty());
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn verified_scl_fb_keeps_stable_instance_identity_and_persisted_state_through_restore() {
+    const ACCUMULATOR: BlockId = BlockId::new(0x303);
+    const ACCUMULATOR_DB: BlockId = BlockId::new(0x304);
+    const ADDEND: InterfaceMemberId = InterfaceMemberId::new(0x3_001);
+    const TOTAL: InterfaceMemberId = InterfaceMemberId::new(0x3_002);
+    const STORED_TOTAL: InterfaceMemberId = InterfaceMemberId::new(0x3_003);
+
+    let main = ProgramBlock::new(
+        MAIN,
+        "Main",
+        number(1),
+        ProgramUnitKind::OrganizationBlock(ObDeclaration::CyclicMain),
+        BlockInterface::from_members([
+            member(FIRST, "Increment", DataType::DInt, 0),
+            member(RESULT, "ObservedTotal", DataType::DInt, 1),
+        ]),
+    );
+    let mut total =
+        InterfaceMember::plain(TOTAL, "Total", InterfaceRole::Output, DataType::DInt, 0);
+    total.required_output_binding = true;
+    let mut stored_total = InterfaceMember::plain(
+        STORED_TOTAL,
+        "StoredTotal",
+        InterfaceRole::Static,
+        DataType::DInt,
+        0,
+    );
+    stored_total.retain_policy = Some(RetainPolicy::Retentive);
+    let accumulator = ProgramBlock::new(
+        ACCUMULATOR,
+        "Accumulate",
+        number(3),
+        ProgramUnitKind::FunctionBlock,
+        BlockInterface::from_members([
+            InterfaceMember::plain(ADDEND, "Addend", InterfaceRole::Input, DataType::DInt, 0),
+            total,
+            stored_total,
+        ]),
+    );
+    let instance_db = ProgramBlock::new(
+        ACCUMULATOR_DB,
+        "AccumulatorInstance",
+        number(30),
+        ProgramUnitKind::DataBlock(DataBlockKind::Instance {
+            fb_type: ACCUMULATOR,
+        }),
+        BlockInterface::default(),
+    );
+    let mut program = ControllerProgram::new(ControllerId::new(0x57));
+    for block in [main, accumulator, instance_db] {
+        program.insert_block(block).unwrap();
+    }
+    assert!(validate_program(&program).is_valid());
+
+    let sources = BTreeMap::from([
+        (
+            MAIN,
+            SclSource::new(
+                MAIN,
+                "Increment := DINT#2; AccumulatorInstance(Addend := Increment, Total => ObservedTotal);",
+            ),
+        ),
+        (
+            ACCUMULATOR,
+            SclSource::new(
+                ACCUMULATOR,
+                "StoredTotal := StoredTotal + Addend; Total := StoredTotal;",
+            ),
+        ),
+    ]);
+    let snapshot = BuildSnapshot::capture(&program, &sources, CompilerProfile::edu21_core())
+        .expect("SCL FB snapshot is valid");
+    let current = snapshot.snapshot_hash();
+    let completion = Compiler::new(ResourceLimits::default()).unwrap().compile(
+        &BuildAttempt::new(
+            BuildAttemptId::new(0x55),
+            snapshot,
+            BuildScope::RebuildAllSoftware,
+        ),
+        current,
+        None,
+    );
+    assert_eq!(
+        completion.report().outcome(),
+        BuildOutcome::ArtifactCreated,
+        "{:#?}",
+        completion.report()
+    );
+    let projection = completion
+        .artifact()
+        .unwrap()
+        .runtime_projection()
+        .expect("verified SCL FB is runnable");
+    let accumulator_runtime = projection
+        .block_for(ACCUMULATOR)
+        .expect("FB runtime block binding");
+    let expected_instance = plc_runtime::RuntimeFunctionBlockInstance {
+        root_instance: ACCUMULATOR_DB.get(),
+        multi_instance_slots: vec![],
+    };
+
+    let call = projection
+        .package()
+        .spec()
+        .program
+        .cyclic
+        .instructions
+        .iter()
+        .find_map(|instruction| match instruction.operation() {
+            plc_runtime::Operation::CallBlock(call)
+                if call.target_identity == ACCUMULATOR.get() =>
+            {
+                Some(call)
+            }
+            _ => None,
+        })
+        .expect("SCL CALL_FB reaches the runtime artifact");
+    assert_eq!(call.instance.as_ref(), Some(&expected_instance));
+    assert_eq!(call.callee.id, accumulator_runtime);
+
+    let result_memory = projection.memory_for(MAIN, RESULT).unwrap();
+    let mut controller =
+        VirtualController::new(UniverseId(0xCAFE), VirtualControllerId(0xBEF2), 0x55);
+    controller.power_on().unwrap();
+    controller
+        .install_verified_artifact(projection.package())
+        .unwrap();
+    controller.request_run(RestartKind::Resume).unwrap();
+    for expected in [2, 4] {
+        assert!(matches!(
+            controller.run_scan(),
+            Ok(RunOutcome::Completed(_))
+        ));
+        assert_eq!(
+            controller.actual_memory(result_memory),
+            Some(CanonicalValue::I32(expected))
+        );
+    }
+    let retained = controller
+        .capture_snapshot()
+        .expect("RUN snapshot includes FB state");
+    assert!(matches!(
+        controller.run_scan(),
+        Ok(RunOutcome::Completed(_))
+    ));
+    assert_eq!(
+        controller.actual_memory(result_memory),
+        Some(CanonicalValue::I32(6))
+    );
+
+    controller.request_stop().unwrap();
+    let approval = controller.prepare_restore(&retained).unwrap();
+    controller.restore_snapshot(&retained, approval).unwrap();
+    controller.request_run(RestartKind::Resume).unwrap();
+    let report = match controller.run_scan().unwrap() {
+        RunOutcome::Completed(report) => report,
+        RunOutcome::Faulted(event) => panic!("restored SCL FB faulted: {event:?}"),
+    };
+    assert_eq!(
+        controller.actual_memory(result_memory),
+        Some(CanonicalValue::I32(6)),
+        "restoring the two-scan snapshot must restore, then advance, the persisted FB state"
+    );
+    assert_eq!(report.call_boundaries.len(), 2);
+    assert!(
+        report
+            .call_boundaries
+            .iter()
+            .all(|boundary| boundary.instance.as_ref() == Some(&expected_instance))
+    );
 }

@@ -82,6 +82,15 @@ pub struct VirtualIoBoundary {
 }
 
 impl VirtualIoBoundary {
+    /// Hashes the complete canonical raw-input and delivered-output boundary,
+    /// including quality, suppression, delivery cause, and causal sequence.
+    #[must_use]
+    pub fn content_hash(&self) -> Hash32 {
+        let mut hasher = SemanticHasher::new("PES-VIRTUAL-IO-BOUNDARY-1");
+        self.encode(&mut hasher);
+        hasher.finish()
+    }
+
     pub(crate) fn configured(
         controller_id: VirtualControllerId,
         channels: &[ChannelDefinition],
