@@ -6,7 +6,10 @@ import path from "node:path";
 import { chromium } from "playwright-core";
 
 const projectRoot = path.resolve(import.meta.dirname, "../..");
-const artifactPath = path.join(projectRoot, "dist", "index.html");
+const stagingMode = process.argv.includes("--staging");
+const artifactPath = stagingMode
+  ? path.join(projectRoot, "dist", "foundation-staging", "index.html")
+  : path.join(projectRoot, "dist", "index.html");
 const evidenceDirectory = path.join(projectRoot, ".phase2-verification", "P2-02");
 const browserCandidates = [
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
@@ -17,8 +20,30 @@ const browserCandidates = [
 await access(artifactPath);
 await mkdir(evidenceDirectory, { recursive: true });
 const artifact = await readFile(artifactPath);
+const stagingAssets = stagingMode
+  ? new Map(await Promise.all([
+      ["/foundation.js", "text/javascript; charset=utf-8"],
+      ["/foundation.css", "text/css; charset=utf-8"],
+    ].map(async ([requestPath, contentType]) => [
+      requestPath,
+      {
+        bytes: await readFile(path.join(path.dirname(artifactPath), requestPath.slice(1))),
+        contentType,
+      },
+    ])))
+  : new Map();
 const server = createServer((request, response) => {
   const requestUrl = new URL(request.url ?? "/", "http://127.0.0.1");
+  const stagingAsset = stagingAssets.get(requestUrl.pathname);
+  if (stagingAsset !== undefined) {
+    response.writeHead(200, {
+      "Cache-Control": "no-store",
+      "Content-Length": String(stagingAsset.bytes.byteLength),
+      "Content-Type": stagingAsset.contentType,
+    });
+    response.end(stagingAsset.bytes);
+    return;
+  }
   if (requestUrl.pathname !== "/" && requestUrl.pathname !== "/index.html") {
     response.writeHead(404, { "Content-Type": "text/plain; charset=utf-8" });
     response.end("Not found");
@@ -151,12 +176,29 @@ try {
   await treeItem(page, "Controller").click();
   await addObject(page, "Global data block");
   await page.getByRole("heading", { level: 1, name: "GlobalData" }).waitFor();
+  await page.getByRole("button", { name: "Add member", exact: true }).click();
+  const globalMemberRows = page.locator(".member-editor__table tbody tr");
+  await globalMemberRows.nth(1).getByRole("textbox").fill("BatchCount");
+  await globalMemberRows.nth(1).getByRole("combobox").selectOption("DINT");
+  await globalMemberRows.nth(1).getByRole("checkbox").check();
+  await applyMemberChanges(page);
+  await page.getByText("2 members", { exact: true }).waitFor();
   await treeItem(page, "Controller").click();
   await addObject(page, "Instance data block");
   await page.getByRole("heading", { level: 1, name: "InstanceData" }).waitFor();
   await treeItem(page, "Controller").click();
   await addObject(page, "Named user structure");
   await page.getByRole("heading", { level: 1, name: "ProcessData" }).waitFor();
+  await page.getByRole("button", { name: "Add array", exact: true }).click();
+  const typeMemberRows = page.locator(".member-editor__table tbody tr");
+  await typeMemberRows.nth(1).getByRole("textbox").fill("Samples");
+  await typeMemberRows.nth(1).getByRole("combobox").selectOption("UINT");
+  await typeMemberRows.nth(1).getByLabel("Lower").fill("-2");
+  await typeMemberRows.nth(1).getByLabel("Upper").fill("12");
+  await applyMemberChanges(page);
+  await page.getByText("2 members", { exact: true }).waitFor();
+  const typeEditorScreenshot = path.join(evidenceDirectory, "workbench-type-editor.png");
+  await page.screenshot({ fullPage: true, path: typeEditorScreenshot });
 
   await treeItem(page, "Controller").click();
   await addObject(page, "Tag table");
@@ -444,6 +486,14 @@ try {
   await mobilePage.getByRole("status", { name: "Unsaved changes", exact: true }).waitFor();
   await addObject(mobilePage, "Controller");
   await mobilePage.getByRole("heading", { level: 1, name: "Controller" }).waitFor();
+  await addObject(mobilePage, "Named user structure");
+  await mobilePage.getByRole("heading", { level: 1, name: "ProcessData" }).waitFor();
+  await mobilePage.getByRole("button", { name: "Add array", exact: true }).click();
+  const mobileTypeRows = mobilePage.locator(".member-editor__table tbody tr");
+  await mobileTypeRows.nth(1).getByRole("textbox").fill("Samples");
+  await mobileTypeRows.nth(1).getByRole("combobox").selectOption("UINT");
+  await applyMemberChanges(mobilePage);
+  await mobilePage.getByText("2 members", { exact: true }).waitFor();
   if (!(await mobilePage.getByRole("button", { name: "Close", exact: true }).isVisible())) {
     throw new Error("mobile workbench does not expose the Close project action");
   }
@@ -466,6 +516,7 @@ try {
 
   console.log(JSON.stringify({
     browserPath,
+    artifactMode: stagingMode ? "staging" : "candidate-inline",
     commands: [
       "create-project",
       "create-network-controller-rack-digital-analog-io",
@@ -490,6 +541,7 @@ try {
     screenshotPaths: [
       ladderScreenshot,
       fbdScreenshot,
+      typeEditorScreenshot,
       runtimeScreenshot,
       reopenScreenshot,
       workbenchScreenshot,
@@ -519,6 +571,23 @@ async function findBrowser() {
 async function addObject(page, menuItemName) {
   await page.getByRole("button", { name: "Add engineering object" }).click();
   await page.getByRole("menuitem", { name: new RegExp(menuItemName, "u") }).click();
+}
+
+async function applyMemberChanges(page) {
+  const semanticRevision = page.locator(".navigator-foot span").nth(1);
+  const before = (await semanticRevision.innerText()).trim();
+  const applyButton = page.getByRole("button", { name: "Apply member changes", exact: true });
+  await applyButton.click();
+  await waitForLocatorText(
+    semanticRevision,
+    (value) => value.trim() !== before,
+    "member edit did not advance the canonical semantic revision",
+  );
+  await waitForEnabled(
+    applyButton,
+    false,
+    "member editor remained dirty after the canonical command committed",
+  );
 }
 
 function treeItem(page, text) {

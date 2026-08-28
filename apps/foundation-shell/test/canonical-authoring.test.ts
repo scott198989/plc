@@ -1,9 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createArrayTypeExpression,
   createDataBlockPayload,
   createFbdProgramPayload,
+  createInterfaceMemberPayload,
   createLadProgramPayload,
+  createNamedTypeMemberPayload,
   createNamedTypePayload,
   createSclProgramPayload,
   createTracePayload,
@@ -76,6 +79,41 @@ describe("canonical authoring payloads", () => {
     expect(traceChannels).toHaveLength(1);
     expect(traceChannels[0]).toMatchObject({ alias: "Channel 1", layer: "effective", targetTag: secondTag });
     expect(traceChannels[0]?.id).toMatch(UUID);
+  });
+
+  it("authors stable scalar and bounded-array member records for the functional type editor", () => {
+    const interfaceMember = record(createInterfaceMemberPayload("Velocity", "static", 3, "LREAL"));
+    expect(interfaceMember).toMatchObject({
+      name: "Velocity",
+      order: { $type: "u64", value: "3" },
+      requiredOutput: false,
+      retentive: false,
+      role: "static",
+      type: "LREAL",
+    });
+    expect(interfaceMember.id).toMatch(UUID);
+
+    const array = createArrayTypeExpression("UINT", -2, 12);
+    const namedMember = record(createNamedTypeMemberPayload("Samples", 1, array));
+    expect(namedMember).toMatchObject({
+      declaredOrder: { $type: "u64", value: "1" },
+      name: "Samples",
+      typeId: {
+        $type: "record",
+        value: {
+          dimensions: [{
+            $type: "record",
+            value: {
+              lower: { $type: "i64", value: "-2" },
+              upper: { $type: "i64", value: "12" },
+            },
+          }],
+          elementType: "UINT",
+          kind: "array",
+        },
+      },
+    });
+    expect(namedMember.id).toMatch(UUID);
   });
 
   it("authors a coordinate-free LAD rung with stable semantic references", () => {

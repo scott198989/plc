@@ -2,14 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 
 import {
   canonicalRecordFields,
+  createArrayTypeExpression,
   createDataBlockPayload,
   createFbdProgramPayload,
+  createInterfaceMemberPayload,
   createLadProgramPayload,
+  createNamedTypeMemberPayload,
   createNamedTypePayload,
   createSclProgramPayload,
   createTracePayload,
   createWatchPayload,
   interfaceMemberIdentity,
+  plcScalarTypeTokens,
   recordValue,
   unsignedValue,
   updateGraphNodeFields,
@@ -325,6 +329,13 @@ export const EngineeringWorkbench = ({
                 snapshot={snapshot}
                 tombstoneCount={tombstoneCount}
               />
+            ) : isEditableMemberContainer(selected) ? (
+              <MemberTableEditor
+                busy={busy}
+                object={selected}
+                onOperation={onOperation}
+                snapshot={snapshot}
+              />
             ) : isSclProgramBlock(selected) ? (
               <SclProgramEditor busy={busy} object={selected} onOperation={onOperation} />
             ) : isGraphicalProgramBlock(selected) ? (
@@ -571,6 +582,367 @@ const ObjectOverview = ({
       </section>
     </div>
   );
+};
+
+const isEditableMemberContainer = (object: WorkbenchObjectView): boolean =>
+  object.kind === "NamedType" || object.kind === "GlobalDB";
+
+type MemberTableEditorProps = Readonly<{
+  busy: boolean;
+  object: WorkbenchObjectView;
+  onOperation: (operation: WorkbenchOperation) => Promise<void>;
+  snapshot: WorkbenchSnapshot;
+}>;
+
+const PLC_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
+
+const MemberTableEditor = ({
+  busy,
+  object,
+  onOperation,
+  snapshot,
+}: MemberTableEditorProps): React.JSX.Element => {
+  const namedType = object.kind === "NamedType";
+  const canonicalMembers = Array.isArray(object.semanticPayload.members)
+    ? object.semanticPayload.members
+    : [];
+  const [members, setMembers] = useState<readonly ProjectPayloadValue[]>(canonicalMembers);
+  useEffect(() => setMembers(canonicalMembers), [object.id, object.semanticRevision]);
+
+  const namedTypeOptions = Object.values(snapshot.objects)
+    .filter((candidate) =>
+      candidate.lifecycle === "active" &&
+      candidate.kind === "NamedType" &&
+      candidate.id !== object.id
+    )
+    .sort((left, right) => left.displayName.localeCompare(right.displayName, "en-US"));
+  const recognized = members.map((member) => canonicalRecordFields(member));
+  const normalizedNames = recognized.flatMap((fields) =>
+    fields !== null && typeof fields.name === "string"
+      ? [fields.name.toLocaleLowerCase("en-US")]
+      : []
+  );
+  const duplicateNames = new Set(
+    normalizedNames.filter((name, index) => normalizedNames.indexOf(name) !== index),
+  );
+  const invalidNames = recognized.some((fields) =>
+    fields !== null &&
+    (typeof fields.name !== "string" ||
+      !PLC_IDENTIFIER.test(fields.name) ||
+      duplicateNames.has(fields.name.toLocaleLowerCase("en-US")))
+  );
+  const changed = JSON.stringify(members) !== JSON.stringify(canonicalMembers);
+
+  const updateMember = (index: number, patch: ProjectPayload): void => {
+    setMembers((current) => current.map((value, candidateIndex) => {
+      if (candidateIndex !== index) {
+        return value;
+      }
+      const fields = canonicalRecordFields(value);
+      return fields === null ? value : recordValue({ ...fields, ...patch });
+    }));
+  };
+
+  const addMember = (array: boolean): void => {
+    const name = nextMemberName(members);
+    const created = namedType
+      ? createNamedTypeMemberPayload(
+          name,
+          members.length,
+          array ? createArrayTypeExpression() : "DINT",
+        )
+      : createInterfaceMemberPayload(name, "static", members.length, "DINT");
+    setMembers((current) => [...current, created]);
+  };
+
+  const apply = (): void => {
+    if (busy || invalidNames || !changed) {
+      return;
+    }
+    const orderKey = namedType ? "declaredOrder" : "order";
+    const normalized = members.map((member, index) => {
+      const fields = canonicalRecordFields(member);
+      return fields === null
+        ? member
+        : recordValue({ ...fields, [orderKey]: unsignedValue(index) });
+    });
+    void onOperation({
+      key: "members",
+      kind: "project.set-semantic-field",
+      objectId: object.id,
+      value: normalized,
+    });
+  };
+
+  return (
+    <div className="member-editor">
+      <header className="member-editor__header">
+        <div>
+          <p className="action-kicker">Canonical type and memory editor</p>
+          <h1>{object.displayName}</h1>
+          <p>
+            {namedType
+              ? "Define reusable structure members and bounded array fields. Stable member identities survive edits and saves."
+              : "Define global memory members, PLC types, and retention policy on the canonical data block."}
+          </p>
+        </div>
+        <div className="member-editor__actions">
+          <button disabled={busy} onClick={() => addMember(false)} type="button">Add member</button>
+          {namedType && (
+            <button disabled={busy} onClick={() => addMember(true)} type="button">Add array</button>
+          )}
+        </div>
+      </header>
+
+      <div className="member-editor__table-wrap">
+        <table className="member-editor__table">
+          <thead>
+            <tr>
+              <th scope="col">Order</th>
+              <th scope="col">Name</th>
+              <th scope="col">Data type</th>
+              {!namedType && <th className="member-editor__retain" scope="col">Retain</th>}
+              <th scope="col"><span className="sr-only">Actions</span></th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.length === 0 && (
+              <tr className="member-editor__empty">
+                <td colSpan={namedType ? 4 : 5}>No members. Add one to define this object.</td>
+              </tr>
+            )}
+            {members.map((member, index) => {
+              const fields = recognized[index] ?? null;
+              if (fields === null) {
+                return (
+                  <tr data-invalid="true" key={`invalid-${index}`}>
+                    <td>{index + 1}</td>
+                    <td colSpan={namedType ? 2 : 3}>Unrecognized canonical member is retained unchanged.</td>
+                    <td><RemoveMemberButton busy={busy} index={index} setMembers={setMembers} /></td>
+                  </tr>
+                );
+              }
+              const memberId = typeof fields.id === "string" ? fields.id : `invalid-${index}`;
+              const name = typeof fields.name === "string" ? fields.name : "";
+              const duplicate = duplicateNames.has(name.toLocaleLowerCase("en-US"));
+              const typeKey = namedType ? "typeId" : "type";
+              const typeValue = fields[typeKey];
+              const typeRecord = canonicalRecordFields(typeValue);
+              const isArray = namedType && typeRecord?.kind === "array";
+              return (
+                <tr data-invalid={!PLC_IDENTIFIER.test(name) || duplicate} key={memberId}>
+                  <td><span className="member-editor__order">{index + 1}</span></td>
+                  <td>
+                    <label>
+                      <span className="sr-only">Member {index + 1} name</span>
+                      <input
+                        aria-invalid={!PLC_IDENTIFIER.test(name) || duplicate}
+                        disabled={busy}
+                        maxLength={128}
+                        onChange={(event) => updateMember(index, { name: event.target.value })}
+                        spellCheck="false"
+                        value={name}
+                      />
+                    </label>
+                    {duplicate && <small>Names must be unique.</small>}
+                    {!duplicate && name.length > 0 && !PLC_IDENTIFIER.test(name) && (
+                      <small>Use a PLC identifier: letters, digits, and underscores.</small>
+                    )}
+                  </td>
+                  <td>
+                    {isArray && typeRecord !== null ? (
+                      <ArrayTypeField
+                        busy={busy}
+                        namedTypeOptions={namedTypeOptions}
+                        onChange={(value) => updateMember(index, { [typeKey]: value })}
+                        typeRecord={typeRecord}
+                      />
+                    ) : (
+                      <div className="member-editor__type-field">
+                        <TypeSelect
+                          busy={busy}
+                          namedTypeOptions={namedTypeOptions}
+                          onChange={(value) => updateMember(index, { [typeKey]: value })}
+                          value={typeof typeValue === "string" ? typeValue : "DINT"}
+                        />
+                        {namedType && (
+                          <button
+                            className="member-editor__type-toggle"
+                            disabled={busy}
+                            onClick={() => updateMember(index, { [typeKey]: createArrayTypeExpression() })}
+                            type="button"
+                          >Array</button>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  {!namedType && (
+                    <td className="member-editor__retain">
+                      <input
+                        aria-label={`Retain ${name || `member ${index + 1}`}`}
+                        checked={fields.retentive === true}
+                        disabled={busy}
+                        onChange={(event) => updateMember(index, { retentive: event.target.checked })}
+                        type="checkbox"
+                      />
+                    </td>
+                  )}
+                  <td><RemoveMemberButton busy={busy} index={index} setMembers={setMembers} /></td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      <footer className="member-editor__footer">
+        <div>
+          <strong>{members.length} member{members.length === 1 ? "" : "s"}</strong>
+          <span>{invalidNames ? "Resolve invalid or duplicate names before applying." : "Build validation reports unsupported or incompatible type use."}</span>
+        </div>
+        <button disabled={busy || invalidNames || !changed} onClick={apply} type="button">
+          Apply member changes
+        </button>
+      </footer>
+    </div>
+  );
+};
+
+type TypeOptionObject = Pick<WorkbenchObjectView, "displayName" | "id">;
+
+const TypeSelect = ({
+  busy,
+  namedTypeOptions,
+  onChange,
+  value,
+}: Readonly<{
+  busy: boolean;
+  namedTypeOptions: readonly TypeOptionObject[];
+  onChange: (value: string) => void;
+  value: string;
+}>): React.JSX.Element => {
+  const admitted = new Set<string>([
+    ...plcScalarTypeTokens,
+    ...namedTypeOptions.map((candidate) => `TYPE:${candidate.id}`),
+  ]);
+  return (
+    <select disabled={busy} onChange={(event) => onChange(event.target.value)} value={value}>
+      {!admitted.has(value) && <option value={value}>{value} · unresolved</option>}
+      <optgroup label="PLC scalar types">
+        {plcScalarTypeTokens.map((token) => <option key={token} value={token}>{token}</option>)}
+      </optgroup>
+      {namedTypeOptions.length > 0 && (
+        <optgroup label="Named types">
+          {namedTypeOptions.map((candidate) => (
+            <option key={candidate.id} value={`TYPE:${candidate.id}`}>{candidate.displayName}</option>
+          ))}
+        </optgroup>
+      )}
+    </select>
+  );
+};
+
+const ArrayTypeField = ({
+  busy,
+  namedTypeOptions,
+  onChange,
+  typeRecord,
+}: Readonly<{
+  busy: boolean;
+  namedTypeOptions: readonly TypeOptionObject[];
+  onChange: (value: ProjectPayloadValue) => void;
+  typeRecord: Readonly<Record<string, ProjectPayloadValue>>;
+}>): React.JSX.Element => {
+  const dimensions = Array.isArray(typeRecord.dimensions) ? typeRecord.dimensions : [];
+  const bound = canonicalRecordFields(dimensions[0]);
+  const lower = readCanonicalInteger(bound?.lower, 0);
+  const upper = readCanonicalInteger(bound?.upper, 9);
+  const elementType = typeof typeRecord.elementType === "string" ? typeRecord.elementType : "DINT";
+  const update = (next: Readonly<{ elementType?: string; lower?: number; upper?: number }>): void => {
+    onChange(createArrayTypeExpression(
+      next.elementType ?? elementType,
+      next.lower ?? lower,
+      next.upper ?? upper,
+    ));
+  };
+  return (
+    <div className="member-editor__array-field">
+      <div>
+        <span>ARRAY</span>
+        <TypeSelect
+          busy={busy}
+          namedTypeOptions={namedTypeOptions}
+          onChange={(value) => update({ elementType: value })}
+          value={elementType}
+        />
+      </div>
+      <label>
+        <span>Lower</span>
+        <input disabled={busy} onChange={(event) => update({ lower: Number(event.target.value) })} type="number" value={lower} />
+      </label>
+      <label>
+        <span>Upper</span>
+        <input aria-invalid={upper < lower} disabled={busy} onChange={(event) => update({ upper: Number(event.target.value) })} type="number" value={upper} />
+      </label>
+      <button
+        className="member-editor__type-toggle"
+        disabled={busy}
+        onClick={() => onChange(elementType)}
+        type="button"
+      >Scalar</button>
+    </div>
+  );
+};
+
+const RemoveMemberButton = ({
+  busy,
+  index,
+  setMembers,
+}: Readonly<{
+  busy: boolean;
+  index: number;
+  setMembers: React.Dispatch<React.SetStateAction<readonly ProjectPayloadValue[]>>;
+}>): React.JSX.Element => (
+  <button
+    aria-label={`Remove member ${index + 1}`}
+    className="member-editor__remove"
+    disabled={busy}
+    onClick={() => setMembers((current) => current.filter((_, candidate) => candidate !== index))}
+    title="Remove member"
+    type="button"
+  >×</button>
+);
+
+const readCanonicalInteger = (value: ProjectPayloadValue | undefined, fallback: number): number => {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "$type" in value &&
+    (value.$type === "i64" || value.$type === "u64") &&
+    "value" in value &&
+    typeof value.value === "string"
+  ) {
+    const parsed = Number(value.value);
+    return Number.isSafeInteger(parsed) ? parsed : fallback;
+  }
+  return fallback;
+};
+
+const nextMemberName = (members: readonly ProjectPayloadValue[]): string => {
+  const names = new Set(members.flatMap((member) => {
+    const fields = canonicalRecordFields(member);
+    return fields !== null && typeof fields.name === "string"
+      ? [fields.name.toLocaleLowerCase("en-US")]
+      : [];
+  }));
+  for (let suffix = 1; suffix <= 9_999; suffix += 1) {
+    const candidate = suffix === 1 ? "Member" : `Member_${suffix}`;
+    if (!names.has(candidate.toLocaleLowerCase("en-US"))) {
+      return candidate;
+    }
+  }
+  return `Member_${crypto.randomUUID().slice(0, 8)}`;
 };
 
 const isSclProgramBlock = (object: WorkbenchObjectView): boolean =>

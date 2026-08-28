@@ -2,8 +2,37 @@ import type { ProjectPayload, ProjectPayloadValue } from "./workbench-types";
 
 export type SclProgramTemplate = "cyclic-ob" | "fc" | "fb";
 
+export const plcScalarTypeTokens = [
+  "BOOL",
+  "SINT",
+  "INT",
+  "DINT",
+  "LINT",
+  "USINT",
+  "UINT",
+  "UDINT",
+  "ULINT",
+  "BYTE",
+  "WORD",
+  "DWORD",
+  "LWORD",
+  "REAL",
+  "LREAL",
+  "CHAR",
+  "STRING[80]",
+  "TIME",
+] as const;
+
+export type PlcScalarTypeToken = typeof plcScalarTypeTokens[number];
+export type InterfaceMemberRole = "input" | "output" | "inout" | "static" | "temp" | "constant" | "return";
+
 export const unsignedValue = (value: number): Readonly<{ $type: "u64"; value: string }> => ({
   $type: "u64",
+  value: value.toString(10),
+});
+
+export const signedValue = (value: number): Readonly<{ $type: "i64"; value: string }> => ({
+  $type: "i64",
   value: value.toString(10),
 });
 
@@ -14,11 +43,11 @@ export const recordValue = (
   value: Readonly<Record<string, ProjectPayloadValue>>;
 }> => ({ $type: "record", value });
 
-const interfaceMember = (
+export const createInterfaceMemberPayload = (
   name: string,
-  role: "input" | "output" | "static" | "temp",
+  role: InterfaceMemberRole,
   order: number,
-  dataType: "BOOL" | "DINT" = "DINT",
+  dataType: string = "DINT",
 ): ProjectPayloadValue => recordValue({
   id: crypto.randomUUID(),
   name,
@@ -27,6 +56,29 @@ const interfaceMember = (
   retentive: false,
   role,
   type: dataType,
+});
+
+const interfaceMember = createInterfaceMemberPayload;
+
+export const createNamedTypeMemberPayload = (
+  name: string,
+  order: number,
+  dataType: ProjectPayloadValue = "DINT",
+): ProjectPayloadValue => recordValue({
+  declaredOrder: unsignedValue(order),
+  id: crypto.randomUUID(),
+  name,
+  typeId: dataType,
+});
+
+export const createArrayTypeExpression = (
+  elementType: ProjectPayloadValue = "DINT",
+  lower = 0,
+  upper = 9,
+): ProjectPayloadValue => recordValue({
+  dimensions: [recordValue({ lower: signedValue(lower), upper: signedValue(upper) })],
+  elementType,
+  kind: "array",
 });
 
 const graphNetwork = (
@@ -388,12 +440,7 @@ export const createDataBlockPayload = (
     };
 
 export const createNamedTypePayload = (): ProjectPayload => ({
-  members: [recordValue({
-    declaredOrder: unsignedValue(0),
-    id: crypto.randomUUID(),
-    name: "Ready",
-    typeId: "BOOL",
-  })],
+  members: [createNamedTypeMemberPayload("Ready", 0, "BOOL")],
 });
 
 export const createWatchPayload = (targetTagIds: readonly string[] = []): ProjectPayload => ({
