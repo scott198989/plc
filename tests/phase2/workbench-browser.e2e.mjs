@@ -90,27 +90,69 @@ try {
   await treeItem(page, "Local rack").click();
   await addObject(page, "Digital output module");
   await page.getByRole("heading", { level: 1, name: "VDO16" }).waitFor();
+  await treeItem(page, "Local rack").click();
+  await addObject(page, "Analog input module");
+  await page.getByRole("heading", { level: 1, name: "VAI4" }).waitFor();
+  await treeItem(page, "Local rack").click();
+  await addObject(page, "Analog output module");
+  await page.getByRole("heading", { level: 1, name: "VAO4" }).waitFor();
   await page.getByRole("status", {
     name: "Canonical project state has no diagnostics.",
     exact: true,
   }).waitFor();
 
   await treeItem(page, "Controller").click();
+  await addObject(page, "Ladder organization block");
+  await page.getByRole("heading", { level: 1, name: "Ladder cycle" }).waitFor();
+  await page.getByRole("region", { name: "LAD network 1" }).waitFor();
+  const contactMode = page.getByLabel("Contact");
+  await contactMode.selectOption("normally-closed");
+  await contactMode.selectOption("normally-open");
+  const ladderScreenshot = path.join(evidenceDirectory, "workbench-lad-editor.png");
+  await page.screenshot({ fullPage: true, path: ladderScreenshot });
+
+  await treeItem(page, "Controller").click();
+  await addObject(page, "Reusable SCL function");
+  await page.getByRole("heading", { level: 1, name: "Function" }).waitFor();
+  const sclSource = "Result := InputValue;";
+  await page.getByLabel("SCL source").fill(sclSource);
+  await page.getByRole("button", { name: "Apply SCL source" }).click();
+  if (await page.getByLabel("SCL source").inputValue() !== sclSource) {
+    throw new Error("canonical SCL source did not survive the production worker round trip");
+  }
+
+  await treeItem(page, "Controller").click();
+  await addObject(page, "FBD function");
+  await page.getByRole("heading", { level: 1, name: "FBD function" }).waitFor();
+  await page.getByRole("region", { name: "FBD network 1" }).waitFor();
+  await page.getByText("NOT", { exact: true }).waitFor();
+  const fbdScreenshot = path.join(evidenceDirectory, "workbench-fbd-editor.png");
+  await page.screenshot({ fullPage: true, path: fbdScreenshot });
+
+  await treeItem(page, "Controller").click();
+  await addObject(page, "State-owning SCL block");
+  await page.getByRole("heading", { level: 1, name: "Function block" }).waitFor();
+  await page.getByLabel("SCL source").fill("Accumulator := InputValue;\nResult := Accumulator;");
+  await page.getByRole("button", { name: "Apply SCL source" }).click();
+
+  await treeItem(page, "Controller").click();
+  await addObject(page, "Global data block");
+  await page.getByRole("heading", { level: 1, name: "Global data" }).waitFor();
+  await treeItem(page, "Controller").click();
+  await addObject(page, "Instance data block");
+  await page.getByRole("heading", { level: 1, name: "Instance data" }).waitFor();
+  await treeItem(page, "Controller").click();
+  await addObject(page, "Named user structure");
+  await page.getByRole("heading", { level: 1, name: "Process data" }).waitFor();
+
+  await treeItem(page, "Controller").click();
   await addObject(page, "Tag table");
   await page.getByRole("heading", { level: 1, name: "PLC tags" }).waitFor();
   await addObject(page, "Input tag");
   await page.getByRole("heading", { level: 1, name: "Input" }).waitFor();
-
-  await treeItem(page, "Controller").click();
-  await addObject(page, "Organization block");
-  await page.getByRole("heading", { level: 1, name: "Main cycle" }).waitFor();
-  const sclSource = "WorkingValue := 7;\nOutputValue := InputValue;";
-  await page.getByLabel("SCL source").fill(sclSource);
-  await page.getByRole("button", { name: "Apply SCL source" }).click();
-  await page.getByLabel("SCL source").waitFor();
-  if (await page.getByLabel("SCL source").inputValue() !== sclSource) {
-    throw new Error("canonical SCL source did not survive the production worker round trip");
-  }
+  await treeItem(page, "PLC tags").click();
+  await addObject(page, "Output tag");
+  await page.getByRole("heading", { level: 1, name: "Output" }).waitFor();
 
   await treeItem(page, "End-to-end cell").click();
   await addObject(page, "Folder");
@@ -202,7 +244,8 @@ try {
     browserPath,
     commands: [
       "create-project",
-      "create-network-controller-rack-io-tag-table-tag-scl-ob",
+      "create-network-controller-rack-digital-analog-io",
+      "author-lad-ob-fbd-fc-scl-fc-fb-db-types-and-bound-tags",
       "copy-with-new-identity",
       "delete",
       "undo",
@@ -212,7 +255,7 @@ try {
     ],
     isolatedLoopbackArtifact: true,
     networkRequests: 0,
-    screenshotPaths: [workbenchScreenshot, mobileScreenshot],
+    screenshotPaths: [ladderScreenshot, fbdScreenshot, workbenchScreenshot, mobileScreenshot],
     viewports: ["1586x920", "426x823"],
     wasmCore: "plc-engineering-core@0.2.0",
   }));

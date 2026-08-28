@@ -1297,7 +1297,10 @@ const nextEngineeringNumber = (
       continue;
     }
     const authoredKind = object.semanticPayload.blockKind ?? object.semanticPayload.dbKind;
-    if (authoredKind !== blockKind) {
+    const sameNumberingFamily = blockKind === "GlobalDB" || blockKind === "InstanceDB"
+      ? authoredKind === "GlobalDB" || authoredKind === "InstanceDB"
+      : authoredKind === blockKind;
+    if (!sameNumberingFamily) {
       continue;
     }
     const value = object.semanticPayload.engineeringNumber;
