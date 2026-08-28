@@ -14,6 +14,7 @@ const rustRoots = [
   resolveInProject("crates", "plc-core", "src"),
   resolveInProject("crates", "plc-engineering-wasm", "src"),
   resolveInProject("crates", "plc-hardware", "src"),
+  resolveInProject("crates", "plc-language-tools", "src"),
   resolveInProject("crates", "plc-program", "src"),
   resolveInProject("crates", "plc-runtime", "src"),
 ];

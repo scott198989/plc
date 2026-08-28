@@ -40,6 +40,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "plc-language-tools"
+version = "0.1.0"
+dependencies = [
+ "plc-compiler",
+ "plc-core",
+ "plc-program",
+]
+
+[[package]]
 name = "plc-program"
 version = "0.1.0"
 

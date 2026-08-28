@@ -1,0 +1,23 @@
+[package]
+name = "plc-language-tools"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+publish = false
+license = "UNLICENSED"
+description = "Capability-free FBD semantic editing and SCL language services"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+plc-compiler = { path = "../plc-compiler" }
+plc-core = { path = "../plc-core" }
+plc-program = { path = "../plc-program" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }
