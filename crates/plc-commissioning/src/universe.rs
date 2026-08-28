@@ -475,13 +475,7 @@ pub enum CommissioningError {
         cpu_state: CpuState,
     },
     LifecycleRequiresLoadedPackage,
-    RequiredVirtualHardwareInvalid {
-        controller_id: VirtualControllerId,
-        configured_fingerprint: Hash32,
-        actual_fingerprint: Hash32,
-        present: bool,
-        fault_state_hash: Hash32,
-    },
+    RequiredVirtualHardwareInvalid(VirtualControllerId),
     ReplacementInstanceIdentityUnchanged,
     ControllerEpochExhausted,
     LifecycleRolledBack {
@@ -1960,13 +1954,7 @@ impl VirtualUniverse {
                 || actual.fault_state_hash != Hash32::ZERO
                 || actual.fingerprint != configured_fingerprint
             {
-                return Err(CommissioningError::RequiredVirtualHardwareInvalid {
-                    controller_id: target,
-                    configured_fingerprint,
-                    actual_fingerprint: actual.fingerprint,
-                    present: actual.present,
-                    fault_state_hash: actual.fault_state_hash,
-                });
+                return Err(CommissioningError::RequiredVirtualHardwareInvalid(target));
             }
         }
         let instance = self

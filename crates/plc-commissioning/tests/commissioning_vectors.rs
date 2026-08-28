@@ -1510,15 +1510,7 @@ fn request_run_rejects_invalid_required_virtual_hardware_without_state_mutation(
         .unwrap_err();
     assert!(matches!(
         error,
-        CommissioningError::RequiredVirtualHardwareInvalid {
-            controller_id: CONTROLLER,
-            configured_fingerprint,
-            actual_fingerprint,
-            present: false,
-            fault_state_hash: actual_fault,
-        } if configured_fingerprint == base.hardware_fingerprint()
-            && actual_fingerprint == base.hardware_fingerprint()
-            && actual_fault == fault_state_hash
+        CommissioningError::RequiredVirtualHardwareInvalid(CONTROLLER)
     ));
     let controller = universe.controller(CONTROLLER).unwrap();
     assert_eq!(controller.runtime().cpu_state(), CpuState::Stop);
