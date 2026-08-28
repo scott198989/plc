@@ -4,8 +4,14 @@
     "lib": ["ES2022", "WebWorker"]
   },
   "include": [
+    "src/canonical-json.ts",
+    "src/engineering-worker-handler.ts",
     "src/foundation.worker.ts",
     "src/generated/foundation-wasm.ts",
+    "src/generated/plc-engineering-wasm.ts",
+    "src/project-receipt-projection.ts",
+    "src/wasm-kernel.ts",
+    "src/workbench-types.ts",
     "src/worker-handler.ts"
   ]
 }

@@ -5,3 +5,14 @@ version = 4
 [[package]]
 name = "foundation-wasm"
 version = "0.0.0"
+
+[[package]]
+name = "plc-core"
+version = "0.1.0"
+
+[[package]]
+name = "plc-engineering-wasm"
+version = "0.0.0"
+dependencies = [
+ "plc-core",
+]

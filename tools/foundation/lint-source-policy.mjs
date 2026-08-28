@@ -7,7 +7,11 @@ const sourceRoots = [
   resolveInProject("apps", "foundation-shell", "src"),
   resolveInProject("packages", "foundation-contract", "src"),
 ];
-const rustRoot = resolveInProject("crates", "foundation-wasm", "src");
+const rustRoots = [
+  resolveInProject("crates", "foundation-wasm", "src"),
+  resolveInProject("crates", "plc-core", "src"),
+  resolveInProject("crates", "plc-engineering-wasm", "src"),
+];
 const failures = [];
 
 const typescriptPatterns = [
@@ -61,11 +65,13 @@ for (const root of sourceRoots) {
 }
 
 const rustPattern = /std::(?:net|process)|TcpStream|UdpSocket|Command::new|extern\s+"system"|wasi|wasm_bindgen/iu;
-for (const file of await walk(rustRoot, new Set([".rs"]))) {
-  const source = await readFile(file, "utf8");
-  const match = rustPattern.exec(source);
-  if (match) {
-    failures.push(`${path.relative(resolveInProject(), file)} contains ${match[0]}`);
+for (const rustRoot of rustRoots) {
+  for (const file of await walk(rustRoot, new Set([".rs"]))) {
+    const source = await readFile(file, "utf8");
+    const match = rustPattern.exec(source);
+    if (match) {
+      failures.push(`${path.relative(resolveInProject(), file)} contains ${match[0]}`);
+    }
   }
 }
 

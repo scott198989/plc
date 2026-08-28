@@ -59,12 +59,12 @@ const html = `<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="color-scheme" content="light">
 <meta http-equiv="Content-Security-Policy" content="${csp}">
-<title>PLC Engineering Simulator — Foundation</title>
+<title>PLC Engineering Simulator</title>
 <style>${style}</style>
 </head>
 <body>
 <div id="root"></div>
-<noscript>This foundation check requires JavaScript.</noscript>
+<noscript>The PLC Engineering Simulator requires JavaScript.</noscript>
 <script type="module">${script}</script>
 </body>
 </html>

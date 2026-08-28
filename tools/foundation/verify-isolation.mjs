@@ -13,6 +13,13 @@ const generatedModulePath = resolveInProject(
   "generated",
   "foundation-wasm.ts",
 );
+const engineeringGeneratedModulePath = resolveInProject(
+  "apps",
+  "foundation-shell",
+  "src",
+  "generated",
+  "plc-engineering-wasm.ts",
+);
 
 const entries = await readdir(distDirectory, { withFileTypes: true });
 if (
@@ -89,6 +96,53 @@ if (!digestMatch || !base64Match) {
   }
   if (!html.includes(base64Match[1]) || !html.includes(digestMatch[1])) {
     failures.push("dist/index.html is not bound to the admitted embedded WASM");
+  }
+}
+
+const engineeringGenerated = await readFile(engineeringGeneratedModulePath, "utf8");
+const engineeringDigestMatch =
+  /ENGINEERING_WASM_SHA256 = "([A-F0-9]{64})"/u.exec(engineeringGenerated);
+const engineeringBase64Match =
+  /ENGINEERING_WASM_BASE64 = "([A-Za-z0-9+/=]+)"/u.exec(engineeringGenerated);
+if (!engineeringDigestMatch || !engineeringBase64Match) {
+  failures.push("generated engineering WASM module metadata is malformed");
+} else {
+  const bytes = Buffer.from(engineeringBase64Match[1], "base64");
+  const observed = createHash("sha256").update(bytes).digest("hex").toUpperCase();
+  if (observed !== engineeringDigestMatch[1]) {
+    failures.push("embedded engineering WASM SHA-256 does not match its bytes");
+  }
+  if (bytes.byteLength > 8 * 1024 * 1024) {
+    failures.push(`embedded engineering WASM exceeds its byte cap: ${bytes.byteLength}`);
+  }
+  try {
+    const module = new WebAssembly.Module(bytes);
+    const imports = WebAssembly.Module.imports(module);
+    if (imports.length !== 0) {
+      failures.push(`embedded engineering WASM has imports: ${JSON.stringify(imports)}`);
+    }
+    const exports = new Set(WebAssembly.Module.exports(module).map(({ name }) => name));
+    for (const required of [
+      "memory",
+      "plc_input_prepare",
+      "plc_output_length",
+      "plc_output_pointer",
+      "plc_session_abort_save",
+      "plc_session_commit_save",
+      "plc_session_create",
+      "plc_session_handle",
+      "plc_session_open",
+      "plc_session_prepare_save",
+    ]) {
+      if (!exports.has(required)) {
+        failures.push(`embedded engineering WASM is missing export: ${required}`);
+      }
+    }
+  } catch (error) {
+    failures.push(`embedded engineering WASM is invalid: ${error.message}`);
+  }
+  if (!html.includes(engineeringBase64Match[1]) || !html.includes(engineeringDigestMatch[1])) {
+    failures.push("dist/index.html is not bound to the admitted engineering WASM");
   }
 }
 

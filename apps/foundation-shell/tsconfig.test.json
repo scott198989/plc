@@ -1,8 +1,17 @@
 {
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "types": ["vitest/globals"]
   },
-  "include": ["src/ui-model.ts", "test/**/*.ts"]
+  "include": [
+    "src/canonical-json.ts",
+    "src/engineering-worker-handler.ts",
+    "src/file-access-broker.ts",
+    "src/project-receipt-projection.ts",
+    "src/ui-model.ts",
+    "src/wasm-kernel.ts",
+    "src/workbench-types.ts",
+    "test/**/*.ts"
+  ]
 }

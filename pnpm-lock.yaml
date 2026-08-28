@@ -53,6 +53,9 @@ importers:
       '@govs/foundation-contract':
         specifier: workspace:*
         version: link:../../packages/foundation-contract
+      '@govs/plc-contract':
+        specifier: workspace:*
+        version: link:../../packages/plc-contract
       react:
         specifier: 'catalog:'
         version: 19.2.8
@@ -77,6 +80,15 @@ importers:
         version: 4.1.10(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3))
 
   packages/foundation-contract:
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      vitest:
+        specifier: 'catalog:'
+        version: 4.1.10(@types/node@24.13.3)(vite@8.2.2(@types/node@24.13.3))
+
+  packages/plc-contract:
     devDependencies:
       typescript:
         specifier: 'catalog:'

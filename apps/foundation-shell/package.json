@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@govs/foundation-contract": "workspace:*",
+    "@govs/plc-contract": "workspace:*",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

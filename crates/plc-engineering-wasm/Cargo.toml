@@ -1,0 +1,19 @@
+[package]
+name = "plc-engineering-wasm"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+plc-core = { path = "../plc-core" }
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }

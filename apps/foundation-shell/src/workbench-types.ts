@@ -1,0 +1,64 @@
+import type { ProjectObjectKind } from "@govs/plc-contract";
+
+/** Hardware-only children join canonical project objects in the navigator projection. */
+export type WorkbenchObjectKind = ProjectObjectKind | "Rack" | "Channel";
+
+export type WorkbenchObjectView = Readonly<{
+  children: readonly string[];
+  creationOrdinal: string;
+  displayName: string;
+  id: string;
+  kind: WorkbenchObjectKind;
+  lifecycle: "active" | "tombstoned";
+  objectRevision: string;
+  parentId: string | null;
+  semanticRevision: string;
+}>;
+
+export type WorkbenchDiagnosticView = Readonly<{
+  blocking: boolean;
+  code: string;
+  diagnosticId: string;
+  message: string;
+  objectId: string | null;
+  phase: string;
+  severity: "Info" | "Warning" | "Error" | "Internal";
+}>;
+
+export type WorkbenchSnapshot = Readonly<{
+  buildState: "not-built" | "current" | "stale" | "blocked";
+  diagnostics: readonly WorkbenchDiagnosticView[];
+  dirtyState: "clean" | "presentation-dirty" | "semantic-dirty";
+  documentId: string;
+  documentRevision: string;
+  fileGrantId: string | null;
+  lastSavedProjectHash: string | null;
+  objects: Readonly<Record<string, WorkbenchObjectView>>;
+  projectHash: string;
+  projectName: string;
+  projectRootId: string;
+  semanticRevision: string;
+  undo: Readonly<{
+    canRedo: boolean;
+    canUndo: boolean;
+    redoLabel: string | null;
+    undoLabel: string | null;
+  }>;
+}>;
+
+export type WorkbenchOperation =
+  | Readonly<{ kind: "project.rename-object"; displayName: string; objectId: string }>
+  | Readonly<{ kind: "project.delete-object"; objectId: string }>
+  | Readonly<{
+      kind: "project.copy-objects";
+      sourceObjectIds: readonly string[];
+      targetParentId: string;
+    }>
+  | Readonly<{ kind: "project.undo" }>
+  | Readonly<{ kind: "project.redo" }>;
+
+export type WorkbenchOperationResult = Readonly<{
+  diagnostics: readonly WorkbenchDiagnosticView[];
+  outcome: "committed" | "rejected" | "blocked";
+  snapshot: WorkbenchSnapshot;
+}>;
