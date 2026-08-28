@@ -7,6 +7,16 @@ name = "foundation-wasm"
 version = "0.0.0"
 
 [[package]]
+name = "phase2-independent-replay-verifier"
+version = "0.1.0"
+dependencies = [
+ "plc-commissioning",
+ "plc-core",
+ "plc-hardware",
+ "plc-system",
+]
+
+[[package]]
 name = "plc-commissioning"
 version = "0.1.0"
 dependencies = [

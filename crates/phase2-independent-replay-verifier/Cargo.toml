@@ -1,0 +1,23 @@
+[package]
+name = "phase2-independent-replay-verifier"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+publish = false
+license = "UNLICENSED"
+description = "Independent exact-project Phase 2 replay evidence verifier"
+
+[dependencies]
+plc-commissioning = { path = "../plc-commissioning" }
+plc-core = { path = "../plc-core" }
+plc-system = { path = "../plc-system" }
+
+[dev-dependencies]
+plc-hardware = { path = "../plc-hardware" }
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[lints.clippy]
+all = { level = "deny", priority = -1 }
+pedantic = { level = "deny", priority = -1 }

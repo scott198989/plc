@@ -13,6 +13,7 @@ members = [
     "crates/plc-runtime",
     "crates/plc-system",
     "crates/plc-types",
+    "crates/phase2-independent-replay-verifier",
     "crates/windows-project-broker",
 ]
 resolver = "3"
