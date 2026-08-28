@@ -1,10 +1,18 @@
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  NATIVE_NODE_VERSION,
+  RENDERER_BUILD_RECIPE,
+  validatePinnedRendererToolchain,
+  validateRendererArtifactInventory,
+} from "./native_build_recipe.mjs";
+import { validateNativeShellImportText } from "./verify_native_shell_pe_imports.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+const rootRealPath = await realpath(root);
 const verificationRoot = path.join(root, ".phase2-verification", "native-build");
 const packageRoot = path.join(verificationRoot, "package");
 const objectRoot = path.join(verificationRoot, "obj");
@@ -18,6 +26,9 @@ const reviewedRequirementMapping = path.join(
 );
 const developmentDirty = process.argv.slice(2).length === 1 &&
   process.argv[2] === "--development-dirty";
+if (process.versions.node !== NATIVE_NODE_VERSION) {
+  throw new Error(`The strict native build requires Node ${NATIVE_NODE_VERSION}; observed ${process.versions.node}.`);
+}
 
 if (process.platform !== "win32") {
   throw new Error("The approved native shell build is Windows-only.");
@@ -38,23 +49,75 @@ const run = (command, args) => {
     throw result.error ?? new Error(`${command} exited ${result.status}`);
   }
 };
+const runCapture = (command, args) => {
+  const result = spawnSync(command, args, {
+    cwd: root, encoding: "utf8", shell: false, windowsHide: true,
+  });
+  if (result.error !== undefined || result.status !== 0) {
+    throw result.error ?? new Error(`${command} ${args.join(" ")} exited ${result.status}`);
+  }
+  return `${result.stdout}${result.stderr}`;
+};
 
 const hashBytes = (bytes) => createHash("sha256").update(bytes).digest("hex").toUpperCase();
 const hashFile = async (file) => hashBytes(await readFile(file));
+const isContained = (base, candidate) => {
+  const relation = path.relative(base, candidate);
+  return relation === "" || (!relation.startsWith(`..${path.sep}`) && relation !== "..");
+};
+const assertRegularFile = async (file, base = rootRealPath) => {
+  const info = await lstat(file);
+  if (!info.isFile() || info.isSymbolicLink()) {
+    throw new Error(`Candidate inventory rejects non-regular or linked file: ${file}`);
+  }
+  const resolved = await realpath(file);
+  const resolvedBase = base === null ? null : (base === rootRealPath ? rootRealPath : await realpath(base));
+  if (resolvedBase !== null && !isContained(resolvedBase, resolved)) {
+    throw new Error(`Candidate inventory escapes its approved root: ${file}`);
+  }
+  return resolved;
+};
+const resolvedPnpm = (() => {
+  const result = spawnSync("where.exe", ["pnpm.cmd"], {
+    cwd: root, encoding: "utf8", shell: false, windowsHide: true,
+  });
+  const candidate = result.stdout.split(/\r?\n/u).find((value) => value.trim() !== "")?.trim();
+  if (result.error !== undefined || result.status !== 0 || candidate === undefined) {
+    throw result.error ?? new Error("The pinned pnpm.cmd wrapper is unavailable.");
+  }
+  return path.resolve(candidate);
+})();
+const resolvePnpmEntry = async () => {
+  const wrapper = await readFile(resolvedPnpm, "utf8");
+  const match = /%~dp0([^"\r\n]+pnpm\.(?:mjs|cjs))/iu.exec(wrapper);
+  if (match === null) throw new Error("The resolved pnpm wrapper does not bind one pinned pnpm entry module.");
+  return path.resolve(path.dirname(resolvedPnpm), ...match[1].replaceAll("/", "\\").split("\\"));
+};
 const relative = (file) => path.relative(root, file).replaceAll("\\", "/");
 const fileRow = async (file) => {
+  await assertRegularFile(file);
   const bytes = await readFile(file);
   return { path: relative(file), bytes: bytes.byteLength, sha256: hashBytes(bytes) };
 };
 const stableJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
 const walkFiles = async (directory, accept) => {
   const output = [];
+  const directoryInfo = await lstat(directory);
+  if (!directoryInfo.isDirectory() || directoryInfo.isSymbolicLink()) {
+    throw new Error(`Candidate inventory rejects non-directory or linked directory: ${directory}`);
+  }
   for (const entry of await readdir(directory, { withFileTypes: true })) {
     const candidate = path.join(directory, entry.name);
-    if (entry.isDirectory()) {
+    const info = await lstat(candidate);
+    if (info.isSymbolicLink()) {
+      throw new Error(`Candidate inventory rejects linked entry: ${candidate}`);
+    }
+    if (info.isDirectory()) {
       output.push(...await walkFiles(candidate, accept));
-    } else if (entry.isFile() && accept(candidate)) {
+    } else if (info.isFile() && accept(candidate)) {
       output.push(candidate);
+    } else if (!info.isFile()) {
+      throw new Error(`Candidate inventory rejects special entry: ${candidate}`);
     }
   }
   return output;
@@ -81,23 +144,15 @@ const assertSortedUniqueRows = (rows, label) => {
 };
 const verifyRows = async (rows, base = root) => {
   for (const row of rows) {
-    const bytes = await readFile(path.resolve(base, ...row.path.split("/")));
+    const file = path.resolve(base, ...row.path.split("/"));
+    await assertRegularFile(file, base);
+    const bytes = await readFile(file);
     if (bytes.byteLength !== row.bytes || hashBytes(bytes) !== row.sha256) {
       throw new Error(`Candidate-bound input drifted: ${row.path}`);
     }
   }
 };
 
-run("cargo.exe", ["build", "-p", "windows-project-broker", "--release", "--locked"]);
-await rm(verificationRoot, { force: true, recursive: true });
-await Promise.all([
-  mkdir(path.join(packageRoot, "app"), { recursive: true }),
-  mkdir(path.join(packageRoot, "third-party"), { recursive: true }),
-  mkdir(objectRoot, { recursive: true }),
-]);
-
-const brokerHash = await hashFile(brokerSource);
-const appHash = await hashFile(appSource);
 const vendorFiles = [
   "include/WebView2.h",
   "include/WebView2EnvironmentOptions.h",
@@ -138,6 +193,7 @@ const nativeSources = [
   "crates/windows-project-broker/src/windows.rs",
   "Cargo.toml",
   "Cargo.lock",
+  "rust-toolchain.toml",
   "requirements/phase2-reviewed-requirement-mapping.json",
   "tools/phase2/build_windows_shell.mjs",
 ].map((entry) => path.join(root, ...entry.split("/")));
@@ -178,15 +234,23 @@ for (const entry of [
   "tools/foundation/build-wasm.mjs",
   "tools/foundation/embed-wasm.mjs",
   "tools/foundation/inline-shell.mjs",
+  "tools/foundation/assert-toolchain.mjs",
+  "tools/phase2/build_phase2_native.mjs",
+  "tools/phase2/build_native_e2e_launcher.mjs",
   "tools/phase2/build-engineering-wasm.mjs",
   "tools/phase2/embed-engineering-wasm.mjs",
+  "tools/phase2/finalize_native_e2e_evidence.mjs",
+  "tools/phase2/isolation-counterfactual-lib.mjs",
+  "tools/phase2/native_e2e_launcher.cpp",
+  "tools/phase2/native_build_recipe.mjs",
+  "tools/phase2/verify_native_shell_api_allowlist.mjs",
+  "tools/phase2/verify_native_shell_pe_imports.mjs",
 ]) {
   candidateSourceFiles.add(path.join(root, ...entry.split("/")));
 }
 const sourceInputFiles = [...new Set([
   ...candidateSourceFiles,
   ...vendorFiles,
-  appSource,
 ])];
 const sourceInputs = await Promise.all(sourceInputFiles.map(fileRow));
 sourceInputs.sort((left, right) => left.path.localeCompare(right.path, "en"));
@@ -218,6 +282,65 @@ if (!developmentDirty) {
   }
 }
 
+// Resolve and hash every renderer tool before any pnpm command can execute.
+// Neither PATH's node.exe nor a mutable wrapper/entry may receive candidate
+// credit merely because it reports a compatible version after the fact.
+const pnpmEntry = await resolvePnpmEntry();
+await Promise.all([
+  assertRegularFile(process.execPath, null),
+  assertRegularFile(resolvedPnpm, null),
+  assertRegularFile(pnpmEntry, null),
+]);
+const rendererToolchain = validatePinnedRendererToolchain({
+  nodeExecutableSha256: await hashFile(process.execPath),
+  nodeVersion: process.versions.node,
+  pnpmEntrySha256: await hashFile(pnpmEntry),
+  pnpmWrapperSha256: await hashFile(resolvedPnpm),
+  // pnpm's own version is checked immediately below, after its wrapper and
+  // entry have passed byte-for-byte admission.
+  pnpmVersion: "11.19.0",
+});
+
+// dist/index.html is deliberately generated and ignored. It is never an
+// admissible input: only this candidate-bound, offline recipe may create it.
+await rm(path.join(root, "dist"), { force: true, recursive: true });
+await mkdir(path.join(root, "dist"), { recursive: true });
+run(process.execPath, [path.join(root, "tools", "phase2", "verify_native_shell_api_allowlist.mjs")]);
+run(process.execPath, [path.join(root, "tools", "foundation", "assert-toolchain.mjs")]);
+const observedPnpmVersion = runCapture(resolvedPnpm, ["--version"]).trim();
+validatePinnedRendererToolchain({ ...rendererToolchain, pnpmVersion: observedPnpmVersion });
+const pnpmStoreStatus = runCapture(resolvedPnpm, ["store", "status"]);
+run(resolvedPnpm, ["--offline", "--frozen-lockfile", "run", "wasm:all:embed"]);
+run(resolvedPnpm, ["--offline", "--frozen-lockfile", "--filter", "@govs/foundation-shell", "build"]);
+run(process.execPath, [path.join(root, "tools", "foundation", "inline-shell.mjs")]);
+const generatedFiles = (await walkFiles(path.join(root, "dist"), () => true)).map(relative).sort((left, right) => left.localeCompare(right, "en"));
+const generatedRenderer = validateRendererArtifactInventory(await Promise.all(
+  generatedFiles.map((entry) => fileRow(path.join(root, ...entry.split("/")))),
+));
+const rendererBuild = {
+  ...RENDERER_BUILD_RECIPE,
+  nodeExecutableSha256: rendererToolchain.nodeExecutableSha256,
+  pnpmEntrySha256: rendererToolchain.pnpmEntrySha256,
+  pnpmStoreStatusSha256: hashBytes(Buffer.from(pnpmStoreStatus, "utf8")),
+  pnpmWrapperSha256: rendererToolchain.pnpmWrapperSha256,
+  generatedArtifact: generatedRenderer,
+  recipeSha256: hashBytes(Buffer.from(stableJson(RENDERER_BUILD_RECIPE), "utf8")),
+};
+
+run("rustup.exe", [
+  "run", "1.94.0-x86_64-pc-windows-msvc", "cargo.exe",
+  "build", "-p", "windows-project-broker", "--release", "--locked", "--offline",
+]);
+await rm(verificationRoot, { force: true, recursive: true });
+await Promise.all([
+  mkdir(path.join(packageRoot, "app"), { recursive: true }),
+  mkdir(path.join(packageRoot, "third-party"), { recursive: true }),
+  mkdir(objectRoot, { recursive: true }),
+]);
+
+const brokerHash = await hashFile(brokerSource);
+const appHash = await hashFile(appSource);
+
 const packageContract = {
   schemaVersion: "1.0",
   contract: "govs.windows-fixed-local-shell-package",
@@ -234,6 +357,7 @@ const packageContract = {
     nugetSha256: "D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2",
     loaderSha256: "482F24196B20E784C4D29B752EA760946CB54E22C2532A29699EF538D2D5C28C",
   },
+  rendererBuild,
   sourceInputs,
   sourceInputManifestSha256: hashBytes(Buffer.from(stableJson(sourceInputs), "utf8")),
   prohibitedCapabilities: [
@@ -278,6 +402,7 @@ const commands = [
   `call \"${vcvars}\" >nul`,
   "if errorlevel 1 exit /b %errorlevel%",
 ];
+const importInventoryPath = path.join(verificationRoot, "GovsPLC.imports.txt");
 for (const source of sources) {
   const stem = path.parse(source).name;
   commands.push(
@@ -293,11 +418,15 @@ const libraries = [
 ].map((entry) => entry.endsWith(".lib") && path.isAbsolute(entry) ? `\"${entry}\"` : entry).join(" ");
 commands.push(
   `link.exe /nologo /Brepro /guard:cf /DYNAMICBASE /NXCOMPAT /HIGHENTROPYVA /CETCOMPAT /SUBSYSTEM:WINDOWS /OUT:\"${path.join(packageRoot, "GovsPLC.exe")}\" ${objects} ${libraries}`,
+  "if errorlevel 1 exit /b %errorlevel%",
+  `dumpbin.exe /imports \"${path.join(packageRoot, "GovsPLC.exe")}\" > \"${importInventoryPath}\"`,
+  "if errorlevel 1 exit /b %errorlevel%",
   "exit /b %errorlevel%",
 );
 const commandPath = path.join(verificationRoot, "compile-native-shell.cmd");
 await writeFile(commandPath, `${commands.join("\r\n")}\r\n`, { encoding: "utf8", flag: "wx" });
 run("cmd.exe", ["/d", "/c", commandPath]);
+validateNativeShellImportText(await readFile(importInventoryPath, "utf8"));
 
 const packageFiles = [
   "GovsPLC.exe",
@@ -325,6 +454,7 @@ const candidateManifest = {
   packageContractSha256: contractHash,
   reviewedRequirementMappingSha256,
   packageFiles: packageRows,
+  rendererBuild,
   sourceInputs,
 };
 const candidatePath = path.join(packageRoot, "candidate-package-manifest.json");

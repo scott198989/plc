@@ -291,6 +291,30 @@ std::wstring bridge_bootstrap_script(
   const pending = new Map();
   let verificationGrant = null;
   let verificationResponses = 0;
+  const verificationUuidVersion = "govs-p2-native-verification-uuid-v1";
+  const verificationUuidSeed = "2B42B846-54D0-4C61-9B72-4CD3AFC50001";
+  const verificationUuidOrdinalContract = "after-saved-document:build=4,power=5,preview=6,commit=7,online=8,run=9,scan=10,stop=11,capture=12";
+  let verificationUuidSequence = 1n;
+  if ()JS" + std::string(verification_mode ? "true" : "false") + R"JS() {
+    const deterministicUuid = () => {
+      const tail = verificationUuidSequence.toString(16).padStart(12, "0");
+      verificationUuidSequence += 1n;
+      if (verificationUuidSequence > 0xffffffffffffffffn) throw new Error("verification UUID sequence exhausted");
+      return `2b42b846-54d0-4c61-9b72-${tail}`;
+    };
+    Object.defineProperty(globalThis.crypto, "randomUUID", {
+      configurable: false,
+      enumerable: false,
+      value: deterministicUuid,
+      writable: false,
+    });
+    Object.defineProperty(globalThis, "govsP2VerificationUuidV1", {
+      configurable: false,
+      enumerable: false,
+      value: Object.freeze({ ordinalContract: verificationUuidOrdinalContract, seed: verificationUuidSeed, version: verificationUuidVersion }),
+      writable: false,
+    });
+  }
   const hex = value => value.toString(16).padStart(16, "0");
   const bytesToBase64 = bytes => {
     if (!(bytes instanceof Uint8Array) || bytes.byteLength < 1 || bytes.byteLength > 33554432) throw Object.freeze({ code: "PROJECT_TOO_LARGE" });
@@ -444,6 +468,8 @@ std::wstring bridge_bootstrap_script(
       const waitFor = async (predicate, label) => {
         const deadline = performance.now() + 30000;
         while (performance.now() < deadline) {
+          const alert = document.querySelector('[role="alert"]');
+          if (alert !== null) throw new Error(`verification UI alert during ${label}: ${alert.textContent?.trim() ?? "unknown"}`);
           const value = predicate();
           if (value) return value;
           await new Promise(resolve => setTimeout(resolve, 25));
@@ -452,6 +478,13 @@ std::wstring bridge_bootstrap_script(
       };
       const buttonWithText = text => [...document.querySelectorAll("button")]
         .find(button => button.textContent?.trim() === text && !button.disabled);
+      const settled = predicate => !document.querySelector(".status-segment--busy") && predicate();
+      const cpuIs = state => document.querySelector(`.runtime-summary__state[data-state="${state}"]`) !== null;
+      const scanSequenceIs = value => [...document.querySelectorAll(".runtime-summary dl > div")]
+        .some(entry => entry.querySelector("dt")?.textContent?.trim() === "Scan sequence" &&
+          entry.querySelector("dd")?.textContent?.trim() === String(value));
+      const buildIsCurrent = () => [...document.querySelectorAll(".status-segment")]
+        .some(segment => segment.textContent?.trim() === "Build current");
       const name = await waitFor(
         () => [...document.querySelectorAll("input")]
           .find(input => input.previousElementSibling?.textContent?.trim() === "Project name" && !input.disabled),
@@ -459,10 +492,39 @@ std::wstring bridge_bootstrap_script(
       );
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
       if (typeof setter !== "function") throw new Error("input setter unavailable");
-      setter.call(name, "Phase 2 Native Verification");
-      name.dispatchEvent(new Event("input", { bubbles: true }));
-      (await waitFor(() => buttonWithText("Create"), "create")).click();
-      (await waitFor(
+       setter.call(name, "Phase 2 Native Verification");
+       name.dispatchEvent(new Event("input", { bubbles: true }));
+       (await waitFor(() => buttonWithText("Create"), "create")).click();
+       const selectedTreeItem = label => [...document.querySelectorAll('button[role="treeitem"]')]
+         .find(button => button.getAttribute("aria-selected") === "true" &&
+           button.querySelector(".tree-label")?.textContent?.trim() === label);
+       const selectTreeItem = async label => {
+         const item = await waitFor(() => [...document.querySelectorAll('button[role="treeitem"]')]
+           .find(button => button.querySelector(".tree-label")?.textContent?.trim() === label), `tree item ${label}`);
+         item.click();
+         await waitFor(() => selectedTreeItem(label) && !document.querySelector(".status-segment--busy"), `selected ${label}`);
+       };
+       const createChild = async (label, expectedName) => {
+         (await waitFor(() => {
+           const button = document.querySelector('button[aria-label="Add engineering object"]');
+           return button && !button.disabled ? button : null;
+         }, `add ${label}`)).click();
+         (await waitFor(() => [...document.querySelectorAll('[role="menuitem"]')]
+           .find(button => button.querySelector("strong")?.textContent?.trim() === label && !button.disabled), `menu ${label}`)).click();
+         await waitFor(() => selectedTreeItem(expectedName) && !document.querySelector(".status-segment--busy") &&
+           document.querySelector(".diagnostics-summary") !== null, `created ${label} with diagnostics settled`);
+       };
+       await createChild("Virtual network", "Virtual network");
+       await selectTreeItem("Phase 2 Native Verification");
+       await createChild("Controller", "Controller");
+       await createChild("Rack", "Local rack");
+       await selectTreeItem("Local rack");
+       await createChild("VDI16", "VDI16");
+       await selectTreeItem("Local rack");
+       await createChild("VDO16", "VDO16");
+       await selectTreeItem("Controller");
+       await createChild("Organization block", "Main_cycle");
+       (await waitFor(
         () => [...document.querySelectorAll("button")]
           .find(button => button.getAttribute("title") === "Save as" && !button.disabled),
         "save as",
@@ -470,16 +532,25 @@ std::wstring bridge_bootstrap_script(
       await waitFor(() => verificationResponses >= 1, "native create response");
       (await waitFor(() => buttonWithText("Close"), "close after create")).click();
       (await waitFor(() => buttonWithText("Choose project file"), "open project")).click();
-      await waitFor(() => verificationResponses >= 2, "native open response");
-      (await waitFor(() => buttonWithText("Build"), "runtime build")).click();
-      (await waitFor(() => buttonWithText("Preview load"), "runtime load preview")).click();
-      (await waitFor(() => buttonWithText("Commit load"), "runtime commit load")).click();
-      (await waitFor(() => buttonWithText("Power on"), "runtime power on")).click();
+       await waitFor(() => verificationResponses >= 2, "native open response");
+       (await waitFor(() => buttonWithText("Build"), "runtime build")).click();
+       await waitFor(() => settled(buildIsCurrent), "Build current");
+       (await waitFor(() => buttonWithText("Power on"), "runtime power on")).click();
+       await waitFor(() => settled(() => cpuIs("STOP") && buttonWithText("Power off") !== undefined), "power on STOP state");
+       (await waitFor(() => buttonWithText("Preview load"), "runtime load preview")).click();
+       await waitFor(() => settled(() => buttonWithText("Commit load") !== undefined), "preview load ready to commit");
+       (await waitFor(() => buttonWithText("Commit load"), "runtime commit load")).click();
+       await waitFor(() => settled(() => buttonWithText("Go online") !== undefined), "committed load ready for online");
       (await waitFor(() => buttonWithText("Go online"), "runtime go online")).click();
+      await waitFor(() => settled(() => buttonWithText("RUN") !== undefined), "online STOP state");
       (await waitFor(() => buttonWithText("RUN"), "runtime run")).click();
+      await waitFor(() => settled(() => cpuIs("RUN") && buttonWithText("STOP") !== undefined), "RUN state");
       (await waitFor(() => buttonWithText("Scan +1"), "runtime scan")).click();
+      await waitFor(() => settled(() => scanSequenceIs(1)), "scan sequence 1");
       (await waitFor(() => buttonWithText("STOP"), "runtime stop for replay snapshot")).click();
+      await waitFor(() => settled(() => cpuIs("STOP")), "STOP state before capture");
       (await waitFor(() => buttonWithText("Capture snapshot"), "capture replay snapshot")).click();
+      await waitFor(() => settled(() => buttonWithText("Verify replay") !== undefined), "captured replay snapshot");
       (await waitFor(() => buttonWithText("Verify replay"), "closed replay verification")).click();
       const verifiedReplay = await waitFor(() => {
         const receipt = document.querySelector('[aria-label="Replay verified"]');

@@ -151,6 +151,7 @@ unsafe extern "system" {
     fn GetVolumeInformationW(root: *const u16, name: *mut u16, size: u32, serial: *mut u32, maximum: *mut u32, flags: *mut u32, fs: *mut u16, fs_size: u32) -> i32;
     fn MoveFileExW(from: *const u16, to: *const u16, flags: u32) -> i32;
     fn ReplaceFileW(target: *const u16, replacement: *const u16, backup: *const u16, flags: u32, exclude: *mut c_void, reserved: *mut c_void) -> i32;
+    fn SetFileInformationByHandle(file: *mut c_void, kind: i32, info: *mut c_void, size: u32) -> i32;
 }
 #[link(name = "shell32")]
 unsafe extern "system" {

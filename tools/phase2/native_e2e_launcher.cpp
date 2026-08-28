@@ -849,6 +849,13 @@ int run_native_e2e() {
         source_manifest, evidence_root / L"candidate-package-manifest.json");
     copy_evidence_file(raw_source, evidence_root / L"native-run-raw.json");
     copy_evidence_file(netlog_source, evidence_root / L"native-netlog.json");
+    // Preserve the exact post-replace project before scoped cleanup. The raw
+    // DOM receipt is diagnostic only; an independent verifier needs these
+    // committed bytes to recompute the replay rather than trusting the host.
+    copy_evidence_file(
+        staged->application_root / L"Projects" /
+            std::filesystem::path(project_name).wstring(),
+        evidence_root / L"native-committed-project.vlabproj");
     write_text_file(
         evidence_root / L"native-process-endpoints.json",
         process_evidence_json(observation));
@@ -876,8 +883,9 @@ int run_native_e2e() {
         evidence_root / L"native-launcher-transcript.log",
         transcript_output.str());
 
-    std::array<EvidenceFile, 5> files{
+    std::array<EvidenceFile, 6> files{
         evidence_file(evidence_root, "candidate-package-manifest.json"),
+        evidence_file(evidence_root, "native-committed-project.vlabproj"),
         evidence_file(evidence_root, "native-launcher-transcript.log"),
         evidence_file(evidence_root, "native-netlog.json"),
         evidence_file(evidence_root, "native-process-endpoints.json"),
@@ -1487,7 +1495,7 @@ bool valid_sha256_ascii(std::string_view value) {
 }
 
 VerifiedReplayEvidence validate_raw_manifest(std::string_view raw) {
-  const std::array<std::string_view, 13> required{
+  const std::array<std::string_view, 18> required{
       "\"schemaVersion\": \"1.0\"",
       "\"evidenceKind\": \"WINDOWS_NATIVE_BRIDGE_RAW_RUN\"",
       "\"result\": \"PASS\"",
@@ -1501,6 +1509,11 @@ VerifiedReplayEvidence validate_raw_manifest(std::string_view raw) {
       "\"selectedByteIoBeforeAcceptance\": false",
       "\"verificationStage\": 4",
       "\"operations\": [\"create\", \"open\", \"replace\"]",
+      "\"verificationJourneyId\": \"govs.native-runnable-hardware-replay/v4\"",
+      "\"verificationUuidVersion\": \"govs-p2-native-verification-uuid-v1\"",
+      "\"verificationUuidSeed\": \"2B42B846-54D0-4C61-9B72-4CD3AFC50001\"",
+      "\"verificationUuidOrdinalStart\": 1",
+      "\"verificationUuidOrdinalContract\": \"after-saved-document:build=4,power=5,preview=6,commit=7,online=8,run=9,scan=10,stop=11,capture=12\"",
   };
   if (std::ranges::any_of(required, [raw](std::string_view value) {
         return raw.find(value) == std::string_view::npos;

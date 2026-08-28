@@ -28,7 +28,7 @@ Phase 2 may implement and verify one Windows-first shell with these exact proper
 4. The root, target, package, helper, and applicable runtime/profile locations fail closed unless authoritative Windows inspection proves a fixed native-local, non-remote, non-removable, non-hotplug, non-provider, non-redirected, non-reparse, non-special backing. Metadata inspection precedes user acceptance; selected bytes are read only after acceptance.
 5. The browser-only picker path receives no production or verification credit. When the exact native bridge is absent or malformed, product-file access fails closed and explicitly requires the native broker.
 6. The shell and broker expose no arbitrary filesystem traversal, raw path, generic method invocation, shell, process-launch surface, network, endpoint, device, PLC, industrial communication, vendor-tool interoperability, plugin, executable-content, or deployable-export capability.
-7. Packaged assets, the helper, the bridge contract, native source/ABI inventory, WebView2 input, and the observed runtime identity are hash-bound to the exact candidate. Evidence must exercise the real packaged renderer-to-broker path and independently substantiate zero external attempts; mocks and self-asserted manifests are non-credit.
+7. Packaged assets, the helper, the bridge contract, native source/ABI inventory, WebView2 input, renderer build recipe/toolchain, generated renderer artifact, and the observed runtime identity are hash-bound to the exact candidate. Evidence must exercise the real packaged renderer-to-broker path and independently substantiate zero external attempts; mocks and self-asserted manifests are non-credit.
 
 ## Supported boundary
 
@@ -46,6 +46,8 @@ The helper is not a public service and the private transport is not a general IP
 - Browser navigation, downloads, external resources, file ingress/drop, browser pickers, printing, device APIs, and background endpoint attempts are disabled or rejected.
 - Grant exhaustion, collision, stale identity, concurrent replacement, failed revoke acknowledgement, broker loss, and shutdown fail closed.
 - Missing or inconclusive external isolation evidence is failure, not a waiver.
+- Chromium NetLog and periodic endpoint snapshots are diagnostic only. A zero-attempt runtime claim requires a separately captured, gap-free Windows-native event interval covering process ancestry, DNS/resolver, endpoint/socket, and packet observations, hash-bound to the exact candidate and preserved committed project bytes.
+- Renderer-visible replay text is diagnostic only. Credit requires an independent verifier to recompute the recorded replay hashes and counts from the preserved committed project artifact; equality with a host or DOM receipt is insufficient.
 
 ## Consequences
 
@@ -69,7 +71,8 @@ The exact candidate must provide, at minimum:
 - focused positive and exhaustive negative broker/adapter/protocol tests;
 - a real packaged WebView2 create/open/conditional-replace/revoke run using a valid canonical `.vlabproj` and production workbench path;
 - root/target/package/profile/helper/runtime attestation captured before admitted I/O;
-- externally observed process, file, endpoint-resolution, DNS, and packet evidence proving zero external attempts for the supported configuration;
+- a hash-bound, gap-free independently captured Windows-native process-ancestry, endpoint/socket, DNS/resolver, and packet event interval proving zero external attempts for the supported configuration;
+- preserved post-replace project bytes and independent replay recomputation evidence; a renderer or host assertion alone earns no replay credit;
 - candidate commit/tree, evidence-manifest, input/output, canonical replay, WebView2 product/version/executable, and artifact hashes;
 - fail-closed evidence for unavailable, redirected, provider-backed, remote, removable, hotplug, virtual, special, stale, malformed, and browser-only cases.
 

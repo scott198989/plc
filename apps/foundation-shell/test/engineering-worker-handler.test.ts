@@ -157,7 +157,7 @@ describe("real engineering worker and WASM kernel", () => {
     const programCreated = operationValue(await executeEngineeringRequest({
       kind: "engineering.project.command",
       operation: {
-        displayName: "Main cycle",
+        displayName: "Main_cycle",
         kind: "project.create-object",
         objectId: IDS.program,
         objectKind: "program-block",

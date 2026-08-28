@@ -128,6 +128,7 @@ requireExactKeys(manifest, [
   "packageContractSha256",
   "reviewedRequirementMappingSha256",
   "packageFiles",
+  "rendererBuild",
   "sourceInputs",
 ], "Native candidate package manifest");
 if (
@@ -137,6 +138,16 @@ if (
   typeof manifest.developmentDirty !== "boolean" ||
   !isSha256(manifest.packageContractSha256) ||
   !isSha256(manifest.reviewedRequirementMappingSha256) ||
+  manifest.rendererBuild?.schemaVersion !== "1.0" ||
+  manifest.rendererBuild?.generatedArtifact?.path !== "dist/index.html" ||
+  !isSha256(manifest.rendererBuild?.generatedArtifact?.sha256) ||
+  !Number.isSafeInteger(manifest.rendererBuild?.generatedArtifact?.bytes) ||
+  manifest.rendererBuild.generatedArtifact.bytes < 1 ||
+  !isSha256(manifest.rendererBuild?.nodeExecutableSha256) ||
+  !isSha256(manifest.rendererBuild?.pnpmEntrySha256) ||
+  !isSha256(manifest.rendererBuild?.pnpmStoreStatusSha256) ||
+  !isSha256(manifest.rendererBuild?.pnpmWrapperSha256) ||
+  !isSha256(manifest.rendererBuild?.recipeSha256) ||
   !Array.isArray(manifest.packageFiles) || !Array.isArray(manifest.sourceInputs) ||
   manifest.sourceInputs.length === 0
 ) {
@@ -203,6 +214,7 @@ requireExactKeys(packageContract, [
   "reviewedRequirementMappingSha256",
   "admittedFiles",
   "webView2Sdk",
+  "rendererBuild",
   "sourceInputs",
   "sourceInputManifestSha256",
   "prohibitedCapabilities",
@@ -252,6 +264,9 @@ if (
     "D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2" ||
   packageContract.webView2Sdk.loaderSha256 !==
     "482F24196B20E784C4D29B752EA760946CB54E22C2532A29699EF538D2D5C28C" ||
+  JSON.stringify(packageContract.rendererBuild) !== JSON.stringify(manifest.rendererBuild) ||
+  packageContract.rendererBuild.generatedArtifact.sha256 !==
+    packageRowsByPath.get("app/index.html").sha256 ||
   !Array.isArray(packageContract.sourceInputs) ||
   JSON.stringify(packageContract.sourceInputs) !== JSON.stringify(sourceRows) ||
   packageContract.sourceInputManifestSha256 !==

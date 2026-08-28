@@ -19,6 +19,8 @@ const evidenceRoot = path.join(root, ".phase2-verification", "native-e2e");
 const observerPath = path.join(evidenceRoot, "native-platform-observer-manifest.json");
 const finalPath = path.join(evidenceRoot, "native-platform-evidence-manifest.json");
 const networkAnalysisPath = path.join(evidenceRoot, "native-network-analysis.json");
+const externalCapturePath = path.join(evidenceRoot, "native-gap-free-external-capture.json");
+const committedProjectPath = path.join(evidenceRoot, "native-committed-project.vlabproj");
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex").toUpperCase();
 const stableJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
 const SHA256 = /^[A-F0-9]{64}$/u;
@@ -76,6 +78,11 @@ export function validateRawHostManifest(raw) {
     raw.metadataOnlyBeforeAcceptance === true &&
     raw.selectedByteIoBeforeAcceptance === false && raw.verificationStage === 4 &&
     JSON.stringify(raw.operations) === JSON.stringify(["create", "open", "replace"]) &&
+    raw.verificationJourneyId === "govs.native-runnable-hardware-replay/v4" &&
+    raw.verificationUuidVersion === "govs-p2-native-verification-uuid-v1" &&
+    raw.verificationUuidSeed === "2B42B846-54D0-4C61-9B72-4CD3AFC50001" &&
+    raw.verificationUuidOrdinalStart === 1 &&
+    raw.verificationUuidOrdinalContract === "after-saved-document:build=4,power=5,preview=6,commit=7,online=8,run=9,scan=10,stop=11,capture=12" &&
     raw.instrumentationStatus === "REQUIRES_EXTERNAL_HARNESS" &&
     SHA256.test(raw.controlledInputSha256) && SHA256.test(raw.deterministicOutputSha256) &&
     SHA256.test(raw.runtimeReplaySha256) && SHA256.test(raw.canonicalReplaySha256) &&
@@ -86,6 +93,11 @@ export function validateRawHostManifest(raw) {
     "The raw host manifest did not complete the native bridge and verified replay journey",
   );
   return {
+    verificationJourneyId: raw.verificationJourneyId,
+    verificationUuidOrdinalContract: raw.verificationUuidOrdinalContract,
+    verificationUuidOrdinalStart: raw.verificationUuidOrdinalStart,
+    verificationUuidSeed: raw.verificationUuidSeed,
+    verificationUuidVersion: raw.verificationUuidVersion,
     controlledInputSha256: raw.controlledInputSha256,
     deterministicOutputSha256: raw.deterministicOutputSha256,
     runtimeReplaySha256: raw.runtimeReplaySha256,
@@ -93,6 +105,64 @@ export function validateRawHostManifest(raw) {
     verifiedReplayEventCount: raw.verifiedReplayEventCount,
     verifiedReplayBoundaryCount: raw.verifiedReplayBoundaryCount,
   };
+}
+
+const exactKeys = (value, keys) => value !== null && typeof value === "object" &&
+  !Array.isArray(value) && Object.keys(value).sort().join("\0") === [...keys].sort().join("\0");
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
+
+/**
+ * The launcher and Chromium NetLog are useful diagnostics, not a gap-free
+ * external observation stream. A creditable zero-attempt claim therefore
+ * requires a separately produced capture that binds its event interval, the
+ * preserved project, and an independently recomputed replay receipt.
+ */
+export function validateIndependentExternalCapture(capture, eventBytes, rawHostManifestSha256, projectSha256, replay) {
+  requireCondition(
+    exactKeys(capture, [
+      "candidateCommit", "candidateManifestSha256", "candidateTree", "committedProjectSha256",
+      "coverage", "evidenceKind", "eventInterval", "processAncestry", "rawHostManifestSha256",
+      "replayVerification", "schemaVersion",
+    ]) &&
+    capture.schemaVersion === "1.0" &&
+    capture.evidenceKind === "WINDOWS_NATIVE_GAP_FREE_EXTERNAL_CAPTURE" &&
+    SHA256.test(capture.candidateManifestSha256) && GIT_OBJECT.test(capture.candidateCommit) &&
+    GIT_OBJECT.test(capture.candidateTree) && capture.rawHostManifestSha256 === rawHostManifestSha256 &&
+    capture.committedProjectSha256 === projectSha256 &&
+    exactKeys(capture.eventInterval, ["endedAtUtc", "eventCount", "eventStreamSha256", "startedAtUtc"]) &&
+    ISO_UTC.test(capture.eventInterval.startedAtUtc) && ISO_UTC.test(capture.eventInterval.endedAtUtc) &&
+    capture.eventInterval.startedAtUtc < capture.eventInterval.endedAtUtc &&
+    Number.isSafeInteger(capture.eventInterval.eventCount) && capture.eventInterval.eventCount > 0 &&
+    capture.eventInterval.eventStreamSha256 === sha256(eventBytes) &&
+    exactKeys(capture.coverage, ["dnsResolver", "endpointSocket", "gapFree", "packet", "processAncestry"]) &&
+    Object.values(capture.coverage).every((value) => value === true) &&
+    Array.isArray(capture.processAncestry) && capture.processAncestry.length > 0 &&
+    capture.processAncestry.every((row) => exactKeys(row, ["imageSha256", "parentProcessId", "processId"]) &&
+      Number.isSafeInteger(row.processId) && row.processId > 0 &&
+      Number.isSafeInteger(row.parentProcessId) && row.parentProcessId >= 0 && SHA256.test(row.imageSha256)) &&
+    exactKeys(capture.replayVerification, [
+      "canonicalReplaySha256", "committedProjectSha256", "controlledInputSha256",
+      "deterministicOutputSha256", "rawHostManifestSha256", "runtimeReplaySha256",
+      "verificationJourneyId", "verificationUuidOrdinalContract", "verificationUuidOrdinalStart",
+      "verificationUuidSeed", "verificationUuidVersion", "verifiedReplayBoundaryCount",
+      "verifiedReplayEventCount", "verifierSha256",
+    ]) && SHA256.test(capture.replayVerification.verifierSha256) &&
+    capture.replayVerification.rawHostManifestSha256 === rawHostManifestSha256 &&
+    capture.replayVerification.committedProjectSha256 === projectSha256 &&
+    capture.replayVerification.runtimeReplaySha256 === replay.runtimeReplaySha256 &&
+    capture.replayVerification.canonicalReplaySha256 === replay.canonicalReplaySha256 &&
+    capture.replayVerification.controlledInputSha256 === replay.controlledInputSha256 &&
+    capture.replayVerification.deterministicOutputSha256 === replay.deterministicOutputSha256 &&
+    capture.replayVerification.verificationJourneyId === replay.verificationJourneyId &&
+    capture.replayVerification.verificationUuidOrdinalContract === replay.verificationUuidOrdinalContract &&
+    capture.replayVerification.verificationUuidOrdinalStart === replay.verificationUuidOrdinalStart &&
+    capture.replayVerification.verificationUuidSeed === replay.verificationUuidSeed &&
+    capture.replayVerification.verificationUuidVersion === replay.verificationUuidVersion &&
+    capture.replayVerification.verifiedReplayEventCount === replay.verifiedReplayEventCount &&
+    capture.replayVerification.verifiedReplayBoundaryCount === replay.verifiedReplayBoundaryCount,
+    "Independent gap-free external capture or replay recomputation is incomplete",
+  );
+  return true;
 }
 
 function reverseNumericMap(record) {
@@ -358,6 +428,15 @@ async function main() {
   );
   const raw = JSON.parse(files.get("native-run-raw.json").toString("utf8"));
   const replay = validateRawHostManifest(raw);
+  const committedProject = await readBoundedRegularFile(committedProjectPath, 32 * 1024 * 1024);
+  const externalCaptureBytes = await readBoundedRegularFile(externalCapturePath, 32 * 1024 * 1024);
+  const externalEvents = await readBoundedRegularFile(
+    path.join(evidenceRoot, "native-gap-free-external-events.jsonl"), 256 * 1024 * 1024,
+  );
+  files.set("native-committed-project.vlabproj", committedProject);
+  files.set("native-gap-free-external-capture.json", externalCaptureBytes);
+  files.set("native-gap-free-external-events.jsonl", externalEvents);
+  const externalCapture = JSON.parse(externalCaptureBytes.toString("utf8"));
   requireCondition(
     sha256(files.get("native-run-raw.json")) === observer.rawHostManifestSha256 &&
     sha256(files.get("native-netlog.json")) === observer.chromiumNetLogSha256 &&
@@ -371,6 +450,19 @@ async function main() {
     replay.verifiedReplayBoundaryCount === observer.verifiedReplayBoundaryCount,
     "The immutable observer is not bound to its raw host and verified replay evidence",
   );
+  validateIndependentExternalCapture(
+    externalCapture,
+    externalEvents,
+    sha256(files.get("native-run-raw.json")),
+    sha256(committedProject),
+    replay,
+  );
+  requireCondition(
+    externalCapture.candidateCommit === observer.candidateCommit &&
+    externalCapture.candidateTree === observer.candidateTree &&
+    externalCapture.candidateManifestSha256 === observer.candidateManifestSha256,
+    "Independent external capture is not bound to the exact candidate",
+  );
   const netLogAnalysis = parseBoundNetLogText(files.get("native-netlog.json").toString("utf8"));
   const processEvidence = JSON.parse(files.get("native-process-endpoints.json").toString("utf8"));
   const processAnalysis = analyzeProcessEvidence(processEvidence, observer.browserExecutableSha256);
@@ -379,10 +471,11 @@ async function main() {
     ...processAnalysis.externalEndpoints.map((target) => ({ channel: "windows-process-endpoint", ...target })),
   ];
   const unknownTargets = netLogAnalysis.unknownTargets;
-  const instrumentationComplete =
-    netLogAnalysis.relevantEventCount > 0 && netLogAnalysis.actionableEventCount > 0 &&
-    processEvidence.captureComplete === true && processEvidence.snapshotCount > 0 &&
-    observer.runtimeBackingAttested === true;
+  // No tracked ETW/WFP/packet collector and no tracked independent replay
+  // executor exist yet. Shape-valid external sidecars are retained only as
+  // operator input; they cannot upgrade raw DOM or polling diagnostics into
+  // a PASS until a concrete producer/parser and verifier are implemented.
+  const instrumentationComplete = false;
   const zeroExternalAttempts =
     instrumentationComplete && externalAttempts.length === 0 && unknownTargets.length === 0;
   const networkAnalysis = {
@@ -395,6 +488,11 @@ async function main() {
     chromiumNetLogSha256: sha256(files.get("native-netlog.json")),
     processEndpointEvidenceSha256: sha256(files.get("native-process-endpoints.json")),
     runtimeReplaySha256: replay.runtimeReplaySha256,
+    verificationJourneyId: replay.verificationJourneyId,
+    verificationUuidOrdinalContract: replay.verificationUuidOrdinalContract,
+    verificationUuidOrdinalStart: replay.verificationUuidOrdinalStart,
+    verificationUuidSeed: replay.verificationUuidSeed,
+    verificationUuidVersion: replay.verificationUuidVersion,
     canonicalReplaySha256: replay.canonicalReplaySha256,
     controlledInputSha256: replay.controlledInputSha256,
     deterministicOutputSha256: replay.deterministicOutputSha256,
@@ -403,9 +501,7 @@ async function main() {
     analyzerSourceSha256: sha256(scriptBytes),
     isolationAnalysisLibrarySha256: sha256(libraryBytes),
     instrumentationComplete,
-    instrumentationStatus: instrumentationComplete
-      ? "COMPLETE_BOUND_NETLOG_AND_PROCESS_ENDPOINT_ANALYSIS"
-      : "INCOMPLETE_REQUIRES_EXTERNAL_HARNESS",
+    instrumentationStatus: "BLOCKED_REQUIRES_TRACKED_GAP_FREE_COLLECTOR_AND_INDEPENDENT_REPLAY_EXECUTOR",
     netLog: netLogAnalysis,
     processEndpoints: processAnalysis,
     externalAttemptCount: externalAttempts.length,
@@ -421,6 +517,9 @@ async function main() {
     "native-netlog.json",
     "native-network-analysis.json",
     "native-platform-observer-manifest.json",
+    "native-gap-free-external-capture.json",
+    "native-gap-free-external-events.jsonl",
+    "native-committed-project.vlabproj",
     "native-process-endpoints.json",
     "native-run-raw.json",
   ];
@@ -450,6 +549,11 @@ async function main() {
     netLogExternalTargetCount: netLogAnalysis.externalTargets.length,
     netLogUnknownTargetCount: unknownTargets.length,
     runtimeReplaySha256: replay.runtimeReplaySha256,
+    verificationJourneyId: replay.verificationJourneyId,
+    verificationUuidOrdinalContract: replay.verificationUuidOrdinalContract,
+    verificationUuidOrdinalStart: replay.verificationUuidOrdinalStart,
+    verificationUuidSeed: replay.verificationUuidSeed,
+    verificationUuidVersion: replay.verificationUuidVersion,
     canonicalReplaySha256: replay.canonicalReplaySha256,
     controlledInputSha256: replay.controlledInputSha256,
     deterministicOutputSha256: replay.deterministicOutputSha256,

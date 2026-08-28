@@ -186,6 +186,7 @@ WINDOWS_PROJECT_BROKER_ABI = {
         "GetVolumeInformationW",
         "MoveFileExW",
         "ReplaceFileW",
+        "SetFileInformationByHandle",
     },
     "ole32": {"CoTaskMemFree"},
     "shell32": {"SHGetKnownFolderPath"},

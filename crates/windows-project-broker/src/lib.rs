@@ -16,6 +16,9 @@ pub use windows::WindowsProjectStorage;
 pub const BROKER_PROTOCOL_VERSION: u16 = 1;
 pub const PROJECT_EXTENSION: &str = ".vlabproj";
 pub const MAX_PROJECT_BYTES: usize = 32 * 1024 * 1024;
+/// Bound retained opaque grants; a renderer can otherwise create unbounded
+/// broker-resident authority by repeatedly opening the same project.
+pub const MAX_ACTIVE_GRANTS: usize = 256;
 const MAX_PROJECT_NAME_CODE_UNITS: usize = 255;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -386,6 +389,12 @@ impl<Storage: ProjectStorage> ProjectFileBroker<Storage> {
         name: ProjectFileName,
         token: Storage::Token,
     ) -> Result<GrantId, BrokerError> {
+        if self.grants.len() >= MAX_ACTIVE_GRANTS {
+            return Err(BrokerError::new(
+                BrokerErrorCode::AccessUnavailable,
+                "The native broker has reached its fixed active-grant limit.",
+            ));
+        }
         let id = self.next_grant_id;
         if id == 0 || self.grants.contains_key(&id) {
             return Err(BrokerError::new(
@@ -681,5 +690,49 @@ mod tests {
             BrokerErrorCode::AccessUnavailable
         );
         assert_eq!(broker.grants.len(), 1);
+    }
+
+    #[test]
+    fn active_grant_limit_fails_closed_without_retaining_unbounded_authority() {
+        let storage = FakeStorage::safe();
+        let mut broker = ProjectFileBroker::initialize(storage).unwrap();
+        let mut first_grant = None;
+        for _ in 0..MAX_ACTIVE_GRANTS {
+            let response = broker.execute(request(BrokerRequest::Open {
+                name: "cell-a.vlabproj".into(),
+            }));
+            let Ok(BrokerResponse::Opened { grant_id, .. }) = response.response else {
+                panic!("expected bounded grant allocation")
+            };
+            first_grant.get_or_insert(grant_id);
+        }
+        let rejected = broker.execute(request(BrokerRequest::Open {
+            name: "cell-a.vlabproj".into(),
+        }));
+        assert_eq!(
+            rejected.response.unwrap_err().code,
+            BrokerErrorCode::AccessUnavailable
+        );
+        assert_eq!(broker.grants.len(), MAX_ACTIVE_GRANTS);
+        let revoked = first_grant.expect("first grant must exist");
+        assert!(matches!(
+            broker.execute(request(BrokerRequest::Revoke { grant_id: revoked })).response,
+            Ok(BrokerResponse::Revoked)
+        ));
+        assert!(matches!(
+            broker.execute(request(BrokerRequest::Open {
+                name: "cell-a.vlabproj".into(),
+            }))
+            .response,
+            Ok(BrokerResponse::Opened { .. })
+        ));
+        assert_eq!(broker.grants.len(), MAX_ACTIVE_GRANTS);
+        assert_eq!(
+            broker.execute(request(BrokerRequest::Save {
+                grant_id: revoked,
+                bytes: vec![9],
+            })).response.unwrap_err().code,
+            BrokerErrorCode::UnknownGrant
+        );
     }
 }

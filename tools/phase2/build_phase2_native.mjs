@@ -4,6 +4,9 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const arguments_ = process.argv.slice(2);
+if (process.versions.node !== "24.19.0") {
+  throw new Error(`The strict Phase 2 native build requires Node 24.19.0; observed ${process.versions.node}.`);
+}
 if (process.platform !== "win32") {
   throw new Error("The strict Phase 2 native build is Windows-only.");
 }

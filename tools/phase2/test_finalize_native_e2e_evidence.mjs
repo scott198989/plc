@@ -6,6 +6,7 @@ import {
   analyzeBoundNetLogObject,
   analyzeProcessEvidence,
   parseBoundNetLogText,
+  validateIndependentExternalCapture,
   validateEvidenceRows,
   validateRawHostManifest,
 } from "./finalize_native_e2e_evidence.mjs";
@@ -27,6 +28,11 @@ const completeRawHostManifest = {
   selectedByteIoBeforeAcceptance: false,
   verificationStage: 4,
   operations: ["create", "open", "replace"],
+  verificationJourneyId: "govs.native-runnable-hardware-replay/v4",
+  verificationUuidVersion: "govs-p2-native-verification-uuid-v1",
+  verificationUuidSeed: "2B42B846-54D0-4C61-9B72-4CD3AFC50001",
+  verificationUuidOrdinalStart: 1,
+  verificationUuidOrdinalContract: "after-saved-document:build=4,power=5,preview=6,commit=7,online=8,run=9,scan=10,stop=11,capture=12",
   instrumentationStatus: "REQUIRES_EXTERNAL_HARNESS",
   controlledInputSha256: "D".repeat(64),
   deterministicOutputSha256: "E".repeat(64),
@@ -107,6 +113,11 @@ test("tampered observer evidence hash is rejected", () => {
 
 test("complete verified replay receipt is bound from the raw host manifest", () => {
   assert.deepEqual(validateRawHostManifest(completeRawHostManifest), {
+    verificationJourneyId: "govs.native-runnable-hardware-replay/v4",
+    verificationUuidOrdinalContract: "after-saved-document:build=4,power=5,preview=6,commit=7,online=8,run=9,scan=10,stop=11,capture=12",
+    verificationUuidOrdinalStart: 1,
+    verificationUuidSeed: "2B42B846-54D0-4C61-9B72-4CD3AFC50001",
+    verificationUuidVersion: "govs-p2-native-verification-uuid-v1",
     controlledInputSha256: "D".repeat(64),
     deterministicOutputSha256: "E".repeat(64),
     runtimeReplaySha256: "B".repeat(64),
@@ -137,6 +148,36 @@ test("missing or nonpositive verified replay receipt fields are rejected", () =>
       verifiedReplayBoundaryCount: 0,
     }),
     /verified replay journey/u,
+  );
+});
+
+test("typed external capture inputs are validated but do not trust self-reported replay diagnostics", () => {
+  const rawHash = "A".repeat(64);
+  const projectHash = "B".repeat(64);
+  const eventBytes = Buffer.from('{"event":"kernel-network"}\n', "utf8");
+  const replay = validateRawHostManifest(completeRawHostManifest);
+  const capture = {
+    schemaVersion: "1.0",
+    evidenceKind: "WINDOWS_NATIVE_GAP_FREE_EXTERNAL_CAPTURE",
+    candidateCommit: "c".repeat(40),
+    candidateTree: "d".repeat(40),
+    candidateManifestSha256: "E".repeat(64),
+    rawHostManifestSha256: rawHash,
+    committedProjectSha256: projectHash,
+    eventInterval: {
+      startedAtUtc: "2026-08-28T12:00:00.000Z",
+      endedAtUtc: "2026-08-28T12:00:01.000Z",
+      eventCount: 1,
+      eventStreamSha256: sha256(eventBytes),
+    },
+    coverage: { dnsResolver: true, endpointSocket: true, gapFree: true, packet: true, processAncestry: true },
+    processAncestry: [{ processId: 10, parentProcessId: 1, imageSha256: "F".repeat(64) }],
+    replayVerification: { ...replay, rawHostManifestSha256: rawHash, committedProjectSha256: projectHash, verifierSha256: "0".repeat(64) },
+  };
+  assert.equal(validateIndependentExternalCapture(capture, eventBytes, rawHash, projectHash, replay), true);
+  assert.throws(
+    () => validateIndependentExternalCapture({ ...capture, coverage: { ...capture.coverage, gapFree: false } }, eventBytes, rawHash, projectHash, replay),
+    /Independent gap-free/u,
   );
 });
 

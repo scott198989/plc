@@ -34,6 +34,8 @@ const UNSAFE_BACKING_ATTRIBUTES: u32 = FILE_ATTRIBUTE_DEVICE
 const FILE_SHARE_READ: u32 = 0x0000_0001;
 const FILE_SHARE_WRITE: u32 = 0x0000_0002;
 const FILE_SHARE_DELETE: u32 = 0x0000_0004;
+const GENERIC_READ: u32 = 0x8000_0000;
+const DELETE: u32 = 0x0001_0000;
 const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
 const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
 const FILE_FLAG_WRITE_THROUGH: u32 = 0x8000_0000;
@@ -49,6 +51,7 @@ const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002d_1400;
 const IOCTL_STORAGE_GET_HOTPLUG_INFO: u32 = 0x002d_0c14;
 const STORAGE_DEVICE_PROPERTY: u32 = 0;
 const PROPERTY_STANDARD_QUERY: u32 = 0;
+const FILE_RENAME_INFO_CLASS: i32 = 3;
 
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
 
@@ -67,6 +70,24 @@ impl WindowsFileToken {
             && self.file_index == other.file_index
             && self.size == other.size
             && self.last_write_time == other.last_write_time
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum ReplaceReconciliation {
+    Finalize,
+    RestoreHeldOriginal,
+}
+
+fn plan_replace_reconciliation(
+    displaced: Option<&WindowsFileToken>,
+    original: &WindowsFileToken,
+    commit_verified: bool,
+) -> ReplaceReconciliation {
+    if displaced != Some(original) || !commit_verified {
+        ReplaceReconciliation::RestoreHeldOriginal
+    } else {
+        ReplaceReconciliation::Finalize
     }
 }
 
@@ -253,44 +274,66 @@ impl WindowsProjectStorage {
         Ok(())
     }
 
-    fn rollback_atomic_replace(
+    fn restore_held_original(
         &self,
+        original: &File,
         target: &Path,
-        backup: &Path,
-        desired: &WindowsFileToken,
+        expected: &WindowsFileToken,
     ) -> Result<(), BrokerError> {
-        let quarantine = self.root.join(format!(
-            ".p2-native-rollback-{}.tmp",
-            TEMP_SEQUENCE.fetch_add(1, Ordering::Relaxed)
-        ));
-        if fs::symlink_metadata(&quarantine).is_ok() {
-            return Err(attestation_failed());
+        let file_name = null_terminated(target.as_os_str());
+        let file_name_bytes = u32::try_from((file_name.len() - 1) * std::mem::size_of::<u16>())
+            .map_err(|_| attestation_failed())?;
+        let byte_count = std::mem::offset_of!(FileRenameInfo, file_name) +
+            ((file_name.len() - 1) * std::mem::size_of::<u16>());
+        let mut storage = vec![0_u64; byte_count.div_ceil(std::mem::size_of::<u64>())];
+        let info = storage.as_mut_ptr().cast::<FileRenameInfo>();
+        unsafe {
+            (*info).replace_if_exists = 1;
+            (*info).root_directory = std::ptr::null_mut();
+            (*info).file_name_length = file_name_bytes;
+            std::ptr::copy_nonoverlapping(
+                file_name.as_ptr(),
+                (*info).file_name.as_mut_ptr(),
+                file_name.len() - 1,
+            );
         }
-        let target_wide = null_terminated(target.as_os_str());
-        let backup_wide = null_terminated(backup.as_os_str());
-        let quarantine_wide = null_terminated(quarantine.as_os_str());
-        let restored = unsafe {
-            ReplaceFileW(
-                target_wide.as_ptr(),
-                backup_wide.as_ptr(),
-                quarantine_wide.as_ptr(),
-                REPLACEFILE_WRITE_THROUGH,
-                std::ptr::null_mut(),
-                std::ptr::null_mut(),
+        if unsafe {
+            SetFileInformationByHandle(
+                original.as_raw_handle().cast::<c_void>(),
+                FILE_RENAME_INFO_CLASS,
+                info.cast::<c_void>(),
+                u32::try_from(byte_count).map_err(|_| attestation_failed())?,
             )
-        };
-        if restored == 0 {
+        } == 0 {
             return Err(attestation_failed());
         }
-        let mut restored_handle = open_for_read(target)?;
-        let (_, restored_token) =
-            read_content_bound(&mut restored_handle, target, self.volume_serial)?;
-        drop(restored_handle);
-        let _ = fs::remove_file(quarantine);
-        if &restored_token != desired {
+        let mut restored = open_for_read(target)?;
+        let (_, restored_token) = read_content_bound(&mut restored, target, self.volume_serial)?;
+        if &restored_token != expected {
             return Err(attestation_failed());
         }
         Ok(())
+    }
+
+    fn ensure_restored_backup_is_absent(&self, backup: &Path) -> Result<(), BrokerError> {
+        match fs::symlink_metadata(backup) {
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            // A held-handle rename moves the exact original from backup back
+            // to target. Any surviving name is unproven (and may be attacker
+            // supplied), so never delete it by path; fail hard instead.
+            Ok(_) | Err(_) => Err(attestation_failed()),
+        }
+    }
+
+    fn recover_held_original_after_replace(
+        &self,
+        original: &File,
+        target: &Path,
+        expected: &WindowsFileToken,
+        backup: &Path,
+    ) -> Result<(), BrokerError> {
+        self.restore_held_original(original, target, expected)?;
+        self.ensure_restored_backup_is_absent(backup)
     }
 
     fn overwrite_attested(
@@ -303,7 +346,7 @@ impl WindowsProjectStorage {
         let path = self.root.join(name.as_str());
         let mut options = OpenOptions::new();
         options
-            .read(true)
+            .access_mode(GENERIC_READ | DELETE)
             .share_mode(FILE_SHARE_READ | FILE_SHARE_DELETE)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
         let mut handle = options.open(&path).map_err(|_| {
@@ -363,16 +406,38 @@ impl WindowsProjectStorage {
             let _ = fs::remove_file(temp);
             return Err(write_failed());
         }
-        let mut displaced_handle = open_for_read(&backup)?;
-        let (_, displaced_token) =
-            read_content_bound(&mut displaced_handle, &backup, self.volume_serial)?;
-        if displaced_token != current {
+        let mut displaced_handle = match open_for_read(&backup) {
+            Ok(handle) => handle,
+            Err(_) => {
+                drop(temp_handle);
+                self.recover_held_original_after_replace(&handle, &path, &current, &backup)?;
+                return Err(BrokerError::new(
+                    BrokerErrorCode::StaleGrant,
+                    "The displaced original could not be reopened; the held original was restored.",
+                ));
+            }
+        };
+        let displaced_token = match read_content_bound(&mut displaced_handle, &backup, self.volume_serial) {
+            Ok((_, token)) => token,
+            Err(_) => {
+                drop(displaced_handle);
+                drop(temp_handle);
+                self.recover_held_original_after_replace(&handle, &path, &current, &backup)?;
+                return Err(BrokerError::new(
+                    BrokerErrorCode::StaleGrant,
+                    "The displaced original could not be content-bound; the held original was restored.",
+                ));
+            }
+        };
+        if plan_replace_reconciliation(Some(&displaced_token), &current, true)
+            == ReplaceReconciliation::RestoreHeldOriginal
+        {
             drop(displaced_handle);
             drop(temp_handle);
-            self.rollback_atomic_replace(&path, &backup, &displaced_token)?;
+            self.recover_held_original_after_replace(&handle, &path, &current, &backup)?;
             return Err(BrokerError::new(
                 BrokerErrorCode::StaleGrant,
-                "A different target identity was atomically displaced; it was restored.",
+                "A different target identity was atomically displaced; the held original was restored.",
             ));
         }
         let committed_token = attest_open_handle(
@@ -390,10 +455,15 @@ impl WindowsProjectStorage {
                     && file.token == temp_token
                     && file.size == bytes.len()
         );
-        if !valid {
+        if plan_replace_reconciliation(Some(&displaced_token), &current, valid)
+            == ReplaceReconciliation::RestoreHeldOriginal
+        {
             drop(displaced_handle);
             drop(temp_handle);
-            self.rollback_atomic_replace(&path, &backup, &current)?;
+            // ReplaceFileW names its backup by path. Restore through the
+            // exact original file object held across commit, never via that
+            // attacker-displaceable backup path.
+            self.recover_held_original_after_replace(&handle, &path, &current, &backup)?;
             return Err(write_failed());
         }
         drop(displaced_handle);
@@ -1113,6 +1183,15 @@ struct StorageHotplugInfo {
     write_cache_enable_override: u8,
 }
 
+#[repr(C)]
+struct FileRenameInfo {
+    replace_if_exists: u8,
+    _reserved: [u8; 7],
+    root_directory: *mut c_void,
+    file_name_length: u32,
+    file_name: [u16; 1],
+}
+
 const FOLDER_ID_LOCAL_APP_DATA: Guid = Guid {
     data1: 0xf1b3_2785,
     data2: 0x6fba,
@@ -1165,6 +1244,12 @@ unsafe extern "system" {
         replace_flags: u32,
         exclude: *mut c_void,
         reserved: *mut c_void,
+    ) -> i32;
+    fn SetFileInformationByHandle(
+        file: *mut c_void,
+        file_information_class: i32,
+        file_information: *mut c_void,
+        buffer_size: u32,
     ) -> i32;
     fn DeviceIoControl(
         device: *mut c_void,
@@ -1277,5 +1362,43 @@ mod tests {
             Path::new(r"D:\Projects\cell.vlabproj"),
             root
         ));
+    }
+
+    #[test]
+    fn replacement_reconciliation_requires_held_original_recovery_for_every_untrusted_state() {
+        let original = WindowsFileToken {
+            volume_serial: 1,
+            file_index: 2,
+            size: 3,
+            last_write_time: 4,
+            content_sha256: [5; 32],
+        };
+        let attacker = WindowsFileToken { file_index: 99, ..original.clone() };
+        let content_changed = WindowsFileToken { content_sha256: [6; 32], ..original.clone() };
+
+        assert_eq!(
+            plan_replace_reconciliation(Some(&original), &original, true),
+            ReplaceReconciliation::Finalize
+        );
+        // An attacker rename/replacement changes identity even if the byte
+        // count and timestamp are copied. A failed post-commit attestation is
+        // equally untrusted, so neither condition may leave backup-path
+        // authority in the transaction.
+        assert_eq!(
+            plan_replace_reconciliation(Some(&attacker), &original, true),
+            ReplaceReconciliation::RestoreHeldOriginal
+        );
+        assert_eq!(
+            plan_replace_reconciliation(Some(&content_changed), &original, true),
+            ReplaceReconciliation::RestoreHeldOriginal
+        );
+        assert_eq!(
+            plan_replace_reconciliation(Some(&original), &original, false),
+            ReplaceReconciliation::RestoreHeldOriginal
+        );
+        assert_eq!(
+            plan_replace_reconciliation(None, &original, true),
+            ReplaceReconciliation::RestoreHeldOriginal
+        );
     }
 }

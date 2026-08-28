@@ -1550,7 +1550,7 @@ const creationOptions = (
           semanticPayload: createNamedTypePayload,
         },
         {
-          baseName: "Main cycle",
+          baseName: "Main_cycle",
           description: "Cyclic SCL organization block",
           glyph: "OB",
           label: "Organization block",
