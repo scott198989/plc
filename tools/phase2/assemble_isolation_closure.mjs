@@ -19,11 +19,13 @@ import {
   assessIsolationClosureEvidence,
   stableJson,
 } from "./isolation-counterfactual-lib.mjs";
+import { validateSnapshot } from "./collect_live_lan_topology.mjs";
 
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SHA256 = /^[A-F0-9]{64}$/u;
 const GIT_OBJECT = /^[a-f0-9]{40}$/u;
 const REQUIRED_COMMAND_LOG_FIELDS = ["candidateCommit", "candidateTree", "commandSha256", "logSha256", "productionPathExercised", "zeroExternalAttempts"];
+const FIXED_PRODUCER_COMMAND_IDS = new Set(["foundation-isolation-boundary-fuzz", "plc-core-isolation-boundary-fuzz", "plc-compiler-isolation-boundary-fuzz", "plc-observability-isolation-boundary-fuzz", "plc-system-replay-rejection", "windows-broker-isolation-fuzz", "plc-core-persistence-adversarial"]);
 const sha256 = (value) => createHash("sha256").update(value).digest("hex").toUpperCase();
 
 export function assembleIsolationClosure({ candidate, adaptersOff, boundary, exportRejection, nativeBacking, scenarios }) {
@@ -149,7 +151,7 @@ function validateLiveLanScenarios(values, candidate, nativeRuntime) {
   let backing = null;
   for (const value of values) {
     requireExactFields(value, ["evidenceKind", "nativeBackingReceipt", "nativeEvidenceBundle", "scenario", "schemaVersion", "snapshots"], "Live-LAN scenario evidence");
-    if (value.evidenceKind !== "WINDOWS_LIVE_LAN_SCENARIO_EVIDENCE" || value.schemaVersion !== "1.0" || !Array.isArray(value.nativeEvidenceBundle) || value.nativeEvidenceBundle.length !== 7) throw new Error("Live-LAN scenario evidence is malformed.");
+    if (value.evidenceKind !== "WINDOWS_LIVE_LAN_SCENARIO_EVIDENCE" || value.schemaVersion !== "1.0" || !Array.isArray(value.nativeEvidenceBundle) || value.nativeEvidenceBundle.length === 0) throw new Error("Live-LAN scenario evidence is malformed.");
     const scenario = value.scenario;
     if (!scenario || scenario.candidateCommit !== candidate.commit || scenario.candidateTree !== candidate.tree || scenario.configurationId !== "windows-x64-chromium-native-broker-adapters-on" ||
         scenario.platform !== "windows" || scenario.architecture !== "x64" || scenario.completeLogs !== true || scenario.externalAttemptCount !== 0 || scenario.productionPathExercised !== true || scenario.result !== "PASS" ||
@@ -174,13 +176,54 @@ function validateLiveLanScenarios(values, candidate, nativeRuntime) {
 function requireRows(value, required, key, label) { if (!Array.isArray(value) || value.length !== required.length) throw new Error(`${label} must provide exactly ${required.length} rows.`); const ids = value.map((row) => row?.[key]); if (new Set(ids).size !== ids.length || required.some((id) => !ids.includes(id))) throw new Error(`${label} does not exactly enumerate required rows.`); return value; }
 function requireExactFields(value, expected, label) { const observed = value && typeof value === "object" && !Array.isArray(value) ? Object.keys(value).sort() : []; const wanted = [...expected].sort(); if (observed.length !== wanted.length || observed.some((key, index) => key !== wanted[index])) throw new Error(`${label} contains missing or unrecognized fields.`); }
 
-async function readEvidence(file) {
+export async function readEvidence(file) {
   const absolute = path.resolve(file); const status = await lstat(absolute);
   if (!status.isFile() || status.isSymbolicLink() || status.size < 1 || status.size > 64 * 1024 * 1024) throw new Error(`Evidence is not a bounded regular file: ${absolute}`);
   const bytes = await readFile(absolute); let value;
   try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); } catch { throw new Error(`Evidence JSON is malformed: ${absolute}`); }
+  if (/^PHASE2_(?:ADAPTERS_OFF|BOUNDARY_FUZZ|NATIVE_BACKING|VENDOR_EXPORT_REJECTION)_RUNTIME_EVIDENCE$/u.test(String(value?.evidenceKind ?? ""))) {
+    throw new Error("Runtime closure assembly is blocked: no approved external observer currently produces these raw proof records.");
+  }
   if (String(value?.evidenceKind ?? "").startsWith("PHASE2_")) await validateContentBundle(`${absolute}.bundle.json`, path.dirname(absolute), value);
+  if (value?.evidenceKind === "WINDOWS_LIVE_LAN_SCENARIO_EVIDENCE") await validateScenarioBundle(`${absolute}.bundle.json`, `${absolute}.bundle`, value);
   return { path: absolute, sha256: sha256(bytes), value };
+}
+
+export async function validateScenarioBundle(sidecarPath, bundleRoot, record) {
+  let sidecarStatus; try { sidecarStatus = await lstat(sidecarPath); } catch { throw new Error("Live-LAN scenario content sidecar is missing."); }
+  if (!sidecarStatus.isFile() || sidecarStatus.isSymbolicLink() || sidecarStatus.size < 1 || sidecarStatus.size > 2 * 1024 * 1024) throw new Error("Live-LAN scenario content sidecar is missing.");
+  let sidecar; try { sidecar = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readFile(sidecarPath))); } catch { throw new Error("Live-LAN scenario content sidecar is malformed."); }
+  requireExactFields(sidecar, ["collectorSourceSha256", "evidenceKind", "files", "schemaVersion"], "Live-LAN scenario content sidecar");
+  if (sidecar.schemaVersion !== "1.0" || sidecar.evidenceKind !== "WINDOWS_LIVE_LAN_SCENARIO_CONTENT_BUNDLE" || !SHA256.test(String(sidecar.collectorSourceSha256)) || !Array.isArray(sidecar.files) || sidecar.files.length < 5) throw new Error("Live-LAN scenario content inventory is incomplete.");
+  const byPath = new Map();
+  for (const row of sidecar.files) {
+    requireExactFields(row, ["bytes", "path", "sha256"], "Live-LAN scenario content file");
+    if (typeof row.path !== "string" || !/^(?:collector-source\.mjs|(?:pre|post)-snapshot\.json|native\/[A-Za-z0-9][A-Za-z0-9._-]{0,127})$/u.test(row.path) || !Number.isSafeInteger(row.bytes) || row.bytes < 1 || !SHA256.test(String(row.sha256)) || byPath.has(row.path)) throw new Error("Live-LAN scenario content inventory is invalid.");
+    const file = path.join(bundleRoot, ...row.path.split("/")); const status = await lstat(file); if (!status.isFile() || status.isSymbolicLink() || status.size !== row.bytes) throw new Error(`Live-LAN scenario content file is invalid: ${row.path}`);
+    const bytes = await readFile(file); if (sha256(bytes) !== row.sha256) throw new Error(`Live-LAN scenario content hash drifted: ${row.path}`); byPath.set(row.path, { bytes, row });
+  }
+  for (const name of ["collector-source.mjs", "pre-snapshot.json", "post-snapshot.json", "native/native-platform-evidence-manifest.json", "native/native-run-raw.json"]) if (!byPath.has(name)) throw new Error(`Live-LAN scenario content is missing ${name}.`);
+  const sourceSha256 = sha256(byPath.get("collector-source.mjs").bytes);
+  if (sourceSha256 !== sidecar.collectorSourceSha256) throw new Error("Live-LAN collector source hash drifted.");
+  const snapshots = {};
+  for (const [name, boundary] of [["pre-snapshot.json", "pre"], ["post-snapshot.json", "post"]]) {
+    let snapshot; try { snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(byPath.get(name).bytes)); } catch { throw new Error(`Live-LAN ${boundary} snapshot is malformed.`); }
+    try { validateSnapshot(snapshot, boundary, sourceSha256); } catch (error) { throw new Error(`Live-LAN ${boundary} snapshot does not bind a canonical source-verified Windows capture: ${error instanceof Error ? error.message : String(error)}`); }
+    snapshots[boundary] = snapshot;
+  }
+  let finalManifest; let raw;
+  try { finalManifest = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(byPath.get("native/native-platform-evidence-manifest.json").bytes)); raw = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(byPath.get("native/native-run-raw.json").bytes)); } catch { throw new Error("Live-LAN native bundle JSON is malformed."); }
+  const finalSha = sha256(byPath.get("native/native-platform-evidence-manifest.json").bytes); const rawSha = sha256(byPath.get("native/native-run-raw.json").bytes);
+  const inventory = Array.isArray(finalManifest?.evidenceFiles) ? finalManifest.evidenceFiles : [];
+  if (inventory.length === 0 || new Set(inventory.map((row) => row?.path)).size !== inventory.length) throw new Error("Finalized native manifest inventory is malformed.");
+  const expectedBundle = inventory.map((row) => ({ bytes: row?.bytes, path: row?.path, sha256: row?.sha256 }));
+  const recordedBundle = record?.nativeEvidenceBundle;
+  if (JSON.stringify(recordedBundle) !== JSON.stringify(expectedBundle)) throw new Error("Live-LAN scenario native evidence inventory does not exactly match the finalized manifest.");
+  if (record?.scenario?.evidenceManifestSha256 !== finalSha || record?.nativeBackingReceipt?.evidenceManifestSha256 !== finalSha || record?.nativeBackingReceipt?.rawHostManifestSha256 !== rawSha || record?.scenario?.preTopologyFingerprint !== snapshots.pre.topologyFingerprint || record?.scenario?.postTopologyFingerprint !== snapshots.post.topologyFingerprint || finalManifest?.candidateCommit !== record?.scenario?.candidateCommit || finalManifest?.candidateTree !== record?.scenario?.candidateTree || finalManifest?.controlledInputSha256 !== record?.scenario?.controlledInputSha256 || finalManifest?.deterministicOutputSha256 !== record?.scenario?.deterministicOutputSha256 || raw?.verificationStage !== 4 || raw?.instrumentationStatus !== "REQUIRES_EXTERNAL_HARNESS") throw new Error("Live-LAN scenario record is not bound to copied snapshots and finalized native bytes.");
+  for (const row of expectedBundle) {
+    if (typeof row.path !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(row.path) || !Number.isSafeInteger(row.bytes) || row.bytes < 1 || !SHA256.test(String(row.sha256))) throw new Error("Finalized native manifest has an unsafe evidence row.");
+    const copied = byPath.get(`native/${row.path}`); if (!copied || copied.row.bytes !== row.bytes || copied.row.sha256 !== row.sha256) throw new Error(`Live-LAN scenario content omits or changes native log ${row.path}.`);
+  }
 }
 
 async function validateContentBundle(bundlePath, root, proof) {
@@ -202,11 +245,15 @@ async function validateContentBundle(bundlePath, root, proof) {
     const pointer = bundle[field]; requireExactFields(pointer, ["path", "sha256"], `Runtime proof ${field} pointer`);
     const row = byPath.get(pointer.path); if (!row || row.sha256 !== pointer.sha256 || pointer.sha256 !== proof[`${field}Sha256`]) throw new Error(`Runtime proof ${field} is not content-addressed by its manifest.`);
   }
+  let descriptor; let result;
+  try { descriptor = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode((await readFile(path.join(root, bundle.command.path))))); result = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode((await readFile(path.join(root, bundle.log.path))))); } catch { throw new Error("Runtime proof command descriptor or structured result is malformed."); }
+  if (descriptor?.schemaVersion !== "1.0" || descriptor?.evidenceKind !== "PHASE2_FIXED_COMMAND_DESCRIPTOR" || !FIXED_PRODUCER_COMMAND_IDS.has(descriptor?.commandId) || result?.schemaVersion !== "1.0" || result?.evidenceKind !== "PHASE2_FIXED_COMMAND_RESULT" || result?.result !== "PASS" || result?.exitCode !== 0 || result?.commandId !== descriptor.commandId || !Array.isArray(result?.testIds) || !result.testIds.includes(descriptor.commandId) || !SHA256.test(String(result?.transcriptSha256))) throw new Error("Runtime proof bundle lacks an expected fixed-command structured PASS result.");
   if (proof.evidenceKind === "PHASE2_ADAPTERS_OFF_RUNTIME_EVIDENCE") {
     for (const name of ["pre-adapters.json", "post-adapters.json"]) {
       const row = byPath.get(name); if (!row) throw new Error(`Adapters-off proof is missing measured ${name}.`);
       let snapshot; try { snapshot = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await readFile(path.join(root, name)))); } catch { throw new Error(`Adapters-off snapshot is malformed: ${name}`); }
-      if (snapshot?.schemaVersion !== "1.0" || snapshot?.evidenceKind !== "WINDOWS_LIVE_ADAPTER_SNAPSHOT" || !Array.isArray(snapshot?.topology?.adapters) || snapshot.topology.adapters.some((adapter) => /^(up|connected)$/iu.test(String(adapter?.status)) || /^(connected|1)$/iu.test(String(adapter?.mediaState)))) throw new Error(`Adapters-off snapshot does not prove every adapter disabled or absent: ${name}`);
+      const observed = snapshot?.topology?.adapters ?? snapshot?.adapters;
+      if (!Array.isArray(observed) || observed.some((adapter) => /^(up|connected)$/iu.test(String(adapter?.status ?? adapter?.Status)) || /^(connected|1)$/iu.test(String(adapter?.mediaState ?? adapter?.MediaConnectionState)))) throw new Error(`Adapters-off snapshot does not prove every adapter disabled or absent: ${name}`);
     }
   }
 }

@@ -314,6 +314,7 @@ const reviewedRequirementMappingSha256 = hash(reviewedMapping);
         sources.update({
             "tools/phase2/assemble_isolation_closure.mjs": 'import "node:child_process";\n',
             "tools/phase2/collect_live_lan_topology.mjs": 'import "node:child_process";\n',
+            "tools/phase2/finalize_external_isolation_proofs.mjs": 'import "node:child_process";\n',
         })
         selected = source_policy.production_paths(sources, crates)
         self.assertFalse(

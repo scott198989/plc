@@ -5,7 +5,7 @@
 
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
-import { lstat, readFile, writeFile } from "node:fs/promises";
+import { copyFile, lstat, mkdir, readFile, writeFile } from "node:fs/promises";
 import { arch, platform } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,15 +17,6 @@ const execFileAsync = promisify(execFile);
 const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const SHA256 = /^[A-F0-9]{64}$/u;
 const GIT_OBJECT = /^[a-f0-9]{40}$/u;
-const REQUIRED_NATIVE_FILES = Object.freeze([
-  "candidate-package-manifest.json",
-  "native-launcher-transcript.log",
-  "native-netlog.json",
-  "native-network-analysis.json",
-  "native-platform-observer-manifest.json",
-  "native-process-endpoints.json",
-  "native-run-raw.json",
-]);
 
 const sha256 = (value) => createHash("sha256").update(value).digest("hex").toUpperCase();
 
@@ -116,7 +107,7 @@ export function assembleLiveLanScenario({ scenarioId, preSnapshot, postSnapshot,
   };
 }
 
-function validateSnapshot(snapshot, boundary, collectorSourceSha256) {
+export function validateSnapshot(snapshot, boundary, collectorSourceSha256) {
   const required = ["architecture", "captureBoundary", "collectorSourceSha256", "evidenceKind", "platform", "schemaVersion", "topology", "topologyFingerprint", "topologySource"].sort();
   const observed = snapshot !== null && typeof snapshot === "object" && !Array.isArray(snapshot) ? Object.keys(snapshot).sort() : [];
   if (observed.length !== required.length || observed.some((key, index) => key !== required[index]) ||
@@ -142,20 +133,59 @@ async function readBoundedJson(file, maximum = 32 * 1024 * 1024) {
 async function readNativeBundle(directory) {
   const root = path.resolve(directory);
   const { bytes: manifestBytes, value: manifest } = await readBoundedJson(path.join(root, "native-platform-evidence-manifest.json"));
-  const { bytes: rawBytes, value: raw } = await readBoundedJson(path.join(root, "native-run-raw.json"));
   const rows = manifest.evidenceFiles;
-  if (!Array.isArray(rows) || rows.length !== REQUIRED_NATIVE_FILES.length || new Set(rows.map((row) => row?.path)).size !== rows.length) throw new Error("Finalized native bundle has an incomplete log inventory.");
+  if (!Array.isArray(rows) || rows.length === 0 || new Set(rows.map((row) => row?.path)).size !== rows.length) throw new Error("Finalized native bundle has an incomplete log inventory.");
   const files = [];
-  for (const name of REQUIRED_NATIVE_FILES) {
-    const row = rows.find((candidate) => candidate?.path === name);
-    if (!row || !SHA256.test(String(row.sha256)) || !Number.isSafeInteger(row.bytes) || row.bytes < 1) throw new Error(`Finalized native bundle is missing a valid ${name} row.`);
+  for (const row of rows) {
+    const name = row?.path;
+    if (typeof name !== "string" || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u.test(name) || !SHA256.test(String(row.sha256)) || !Number.isSafeInteger(row.bytes) || row.bytes < 1) throw new Error("Finalized native bundle contains an unsafe or invalid evidence row.");
     const status = await lstat(path.join(root, name));
     if (!status.isFile() || status.isSymbolicLink() || status.size !== row.bytes) throw new Error(`Finalized native bundle log is invalid: ${name}`);
     const bytes = await readFile(path.join(root, name));
     if (sha256(bytes) !== row.sha256) throw new Error(`Finalized native bundle log hash drifted: ${name}`);
     files.push({ bytes: row.bytes, path: name, sha256: row.sha256 });
   }
+  const rawEntry = files.find(({ path: name }) => name === "native-run-raw.json");
+  if (!rawEntry) throw new Error("Finalized native bundle does not include native-run-raw.json.");
+  const { bytes: rawBytes, value: raw } = await readBoundedJson(path.join(root, "native-run-raw.json"));
+  if (sha256(rawBytes) !== rawEntry.sha256) throw new Error("Finalized native raw receipt hash drifted.");
   return { files, manifest, manifestSha256: sha256(manifestBytes), raw, rawBytes };
+}
+
+async function writeScenarioBundle(output, record, prePath, postPath, nativeDirectory) {
+  const outputPath = path.resolve(output);
+  const bundleDirectory = `${outputPath}.bundle`;
+  await mkdir(bundleDirectory, { recursive: false });
+  const entries = [
+    { source: prePath, target: "pre-snapshot.json" },
+    { source: postPath, target: "post-snapshot.json" },
+    { source: SCRIPT_PATH, target: "collector-source.mjs" },
+    { source: path.join(nativeDirectory, "native-platform-evidence-manifest.json"), target: "native/native-platform-evidence-manifest.json" },
+    ...record.nativeEvidenceBundle.map(({ path: name }) => ({ source: path.join(nativeDirectory, name), target: `native/${name}` })),
+  ];
+  const files = [];
+  for (const entry of entries) {
+    const target = path.join(bundleDirectory, ...entry.target.split("/"));
+    await mkdir(path.dirname(target), { recursive: true });
+    const source = await readBoundedRegularFile(entry.source);
+    await copyFile(entry.source, target, 0);
+    const copied = await readBoundedRegularFile(target);
+    if (!source.equals(copied)) throw new Error(`Scenario evidence copy drifted: ${entry.target}`);
+    files.push({ bytes: copied.byteLength, path: entry.target, sha256: sha256(copied) });
+  }
+  const sidecar = {
+    collectorSourceSha256: record.snapshots.pre.collectorSourceSha256,
+    evidenceKind: "WINDOWS_LIVE_LAN_SCENARIO_CONTENT_BUNDLE",
+    files: files.sort((a, b) => a.path.localeCompare(b.path, "en")),
+    schemaVersion: "1.0",
+  };
+  await writeFile(`${outputPath}.bundle.json`, stableJson(sidecar), { encoding: "utf8", flag: "wx" });
+}
+
+async function readBoundedRegularFile(file, maximum = 256 * 1024 * 1024) {
+  const status = await lstat(file);
+  if (!status.isFile() || status.isSymbolicLink() || status.size < 1 || status.size > maximum) throw new Error(`Scenario evidence input is not a bounded regular file: ${file}`);
+  return readFile(file);
 }
 
 async function captureWindowsTopology() {
@@ -180,9 +210,12 @@ async function main() {
     return;
   }
   if (command === "assemble-scenario") {
-    const [pre, post] = await Promise.all([readBoundedJson(requireOption(options, "pre")), readBoundedJson(requireOption(options, "post"))]);
-    const record = assembleLiveLanScenario({ scenarioId: requireOption(options, "scenarioId"), preSnapshot: pre.value, postSnapshot: post.value, nativeBundle: await readNativeBundle(requireOption(options, "nativeBundle")), collectorSourceSha256: sha256(await readFile(SCRIPT_PATH)) });
-    await writeExclusive(requireOption(options, "output"), record);
+    const prePath = requireOption(options, "pre"); const postPath = requireOption(options, "post"); const nativeDirectory = requireOption(options, "nativeBundle"); const output = requireOption(options, "output");
+    try { await lstat(path.resolve(output)); throw new Error("Scenario output already exists."); } catch (error) { if (!(error && typeof error === "object" && error.code === "ENOENT")) { if (error instanceof Error && error.message === "Scenario output already exists.") throw error; throw error; } }
+    const [pre, post] = await Promise.all([readBoundedJson(prePath), readBoundedJson(postPath)]);
+    const record = assembleLiveLanScenario({ scenarioId: requireOption(options, "scenarioId"), preSnapshot: pre.value, postSnapshot: post.value, nativeBundle: await readNativeBundle(nativeDirectory), collectorSourceSha256: sha256(await readFile(SCRIPT_PATH)) });
+    try { await writeScenarioBundle(output, record, prePath, postPath, nativeDirectory); } catch (error) { throw new Error(`Scenario bundle creation failed; no scenario record was published: ${error instanceof Error ? error.message : String(error)}`); }
+    await writeExclusive(output, record);
     console.log(stableJson({ evidenceManifestSha256: record.scenario.evidenceManifestSha256, scenarioId: record.scenario.scenarioId, topologyFingerprint: record.scenario.topologyFingerprint }).trim());
     return;
   }

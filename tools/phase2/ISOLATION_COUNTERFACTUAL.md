@@ -138,6 +138,23 @@ the aggregate manifest that will itself hash the closure, so no circular hash
 is introduced. Unit-test fixtures model field validation only and cannot be
 passed to this command without real content bundles.
 
+Use the fixed proof collector to preserve command descriptors, full
+stdout/stderr transcripts, and exact candidate bindings. It accepts no caller
+provided executable or argument list and uses only its published command
+matrix. It remains `BLOCKED_EXTERNAL_OBSERVER_REQUIRED`: test exit status does
+not prove zero external attempts, product-path execution, or row-specific
+export coverage. Its test seam is explicitly `NON_CREDIT_TEST_SEAM` and is
+rejected by the production assembler.
+
+Accordingly, production closure assembly currently rejects all hand-authored
+`PHASE2_*_RUNTIME_EVIDENCE` files before considering their fields or sidecars.
+That gate can be opened only alongside an approved observer that binds every
+claimed row to its raw network, adapter, command, and product-path evidence.
+
+```powershell
+pnpm finalize:phase2:isolation-proofs -- --output .phase2-verification\external-contract
+```
+
 During implementation, `--development-run` permits an explicitly inconclusive
 run. It never turns dirty-worktree output into candidate evidence:
 

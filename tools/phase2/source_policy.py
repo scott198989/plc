@@ -47,6 +47,7 @@ WINDOWS_SHELL_TEXT_PATHS = WINDOWS_SHELL_SOURCES | {WINDOWS_SHELL_BUILD_PATH}
 EXTERNAL_EVIDENCE_TOOL_PATHS = {
     "tools/phase2/assemble_isolation_closure.mjs",
     "tools/phase2/collect_live_lan_topology.mjs",
+    "tools/phase2/finalize_external_isolation_proofs.mjs",
 }
 
 # These are capability-bearing production dependencies, not merely strings

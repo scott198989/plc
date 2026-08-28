@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 
 import { DEFAULT_FUZZ_CASES, FUZZ_CASE_IDS_SHA256, FUZZ_CORPUS_SHA256, REQUIRED_EXPORT_SURFACE_IDS, REQUIRED_FUZZ_BOUNDARY_IDS } from "../../tools/phase2/isolation-counterfactual-lib.mjs";
-import { assembleLiveLanScenario, canonicalTopology, topologySnapshotRecord } from "../../tools/phase2/collect_live_lan_topology.mjs";
-import { assembleIsolationClosure } from "../../tools/phase2/assemble_isolation_closure.mjs";
+import { assembleLiveLanScenario, canonicalTopology, topologySnapshotRecord, validateSnapshot } from "../../tools/phase2/collect_live_lan_topology.mjs";
+import { assembleIsolationClosure, readEvidence, validateScenarioBundle } from "../../tools/phase2/assemble_isolation_closure.mjs";
+import { fixedCommandDescriptors, nonCreditTestSeamProof } from "../../tools/phase2/finalize_external_isolation_proofs.mjs";
 
 const digest = "A".repeat(64);
 const candidate = { approvalDecisionId: "P2-DEC-ISO-NATIVE-001", approvalSha256: digest, commit: "1".repeat(40), tree: "2".repeat(40) };
@@ -16,6 +20,7 @@ test("topology canonicalization is stable across ordering and excludes volatile 
   assert.deepEqual(canonicalTopology(one), canonicalTopology(two));
   assert.equal(topologySnapshotRecord("pre", one, digest).topologyFingerprint, topologySnapshotRecord("pre", two, digest).topologyFingerprint);
   assert.throws(() => topologySnapshotRecord("PRE!", one, digest));
+  assert.throws(() => validateSnapshot({ ...topologySnapshotRecord("pre", one, digest), injected: true }, "pre", digest), /source-bound/u);
 });
 
 test("closure assembly accepts only independently shaped runtime records and rejects synthetic closure-shaped input", () => {
@@ -28,6 +33,7 @@ test("closure assembly accepts only independently shaped runtime records and rej
   assert.throws(() => assembleIsolationClosure({ candidate, adaptersOff: { value: adaptersOff() }, boundary: { value: { ...boundary(), evidenceKind: "PHASE2_ISOLATION_CLOSURE_INPUT" } }, exportRejection: { value: exportsProof() }, nativeBacking: { value: backing() }, scenarios }), /runtime evidence/u);
   assert.throws(() => assembleIsolationClosure({ candidate, adaptersOff: { value: adaptersOff() }, boundary: { value: { ...boundary(), boundaries: boundary().boundaries.slice(1) } }, exportRejection: { value: exportsProof() }, nativeBacking: { value: backing() }, scenarios }), /exactly 10 rows/u);
   assert.throws(() => assembleIsolationClosure({ candidate, adaptersOff: { value: adaptersOff() }, boundary: { value: boundary() }, exportRejection: { value: { ...exportsProof(), surfaces: exportsProof().surfaces.slice(1) } }, nativeBacking: { value: backing() }, scenarios }), /exactly 4 rows/u);
+  assert.throws(() => assembleIsolationClosure({ candidate, adaptersOff: { value: adaptersOff() }, boundary: { value: boundary() }, exportRejection: { value: exportsProof() }, nativeBacking: { value: backing() }, scenarios: [{ value: scenario("A", "E".repeat(64), digest) }, { value: scenario("B", "F".repeat(64), digest) }] }), /independently finalized/u);
 });
 
 test("scenario assembly rejects unstable topology and incomplete finalized native bundles", () => {
@@ -36,6 +42,36 @@ test("scenario assembly rejects unstable topology and incomplete finalized nativ
   assert.throws(() => assembleLiveLanScenario({ scenarioId: "A", preSnapshot: pre, postSnapshot: post, nativeBundle: bundle(), collectorSourceSha256: digest }), /fingerprint/u);
   const stablePost = topologySnapshotRecord("post", capturedTopology(), digest);
   assert.throws(() => assembleLiveLanScenario({ scenarioId: "A", preSnapshot: pre, postSnapshot: stablePost, nativeBundle: { ...bundle(), manifest: { ...bundle().manifest, zeroExternalAttempts: false } }, collectorSourceSha256: digest }), /zero-attempt/u);
+});
+
+test("scenario evidence without an emitted sidecar cannot receive runtime credit", async () => {
+  const missing = path.join(tmpdir(), `missing-scenario-sidecar-${process.pid}.json`);
+  await assert.rejects(validateScenarioBundle(missing, `${missing}.bundle`, scenario("A", "E".repeat(64), digest)), /sidecar is missing/u);
+});
+
+test("fixed producer exposes no caller-authored command seam and test output is non-credit", () => {
+  assert.ok(fixedCommandDescriptors().every((descriptor) => descriptor.executable && descriptor.args.length > 0));
+  const seam = nonCreditTestSeamProof("PHASE2_BOUNDARY_FUZZ_RUNTIME_EVIDENCE", candidate);
+  assert.equal(seam.result, "NON_CREDIT_TEST_SEAM");
+  assert.equal(seam.completeLogs, false);
+  const invalid = {
+    candidate,
+    adaptersOff: { value: adaptersOff() },
+    boundary: { value: seam },
+    exportRejection: { value: exportsProof() },
+    nativeBacking: { value: backing() },
+    scenarios: [{ value: scenario("A", "E".repeat(64), digest) }, { value: scenario("B", "F".repeat(64), "9".repeat(64)) }],
+  };
+  assert.throws(() => assembleIsolationClosure(invalid), /runtime evidence/u);
+});
+
+test("production reader blocks forged runtime PASS records before sidecar claims are considered", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "phase2-forged-runtime-"));
+  const proof = path.join(directory, "forged.json");
+  try {
+    writeFileSync(proof, JSON.stringify({ evidenceKind: "PHASE2_BOUNDARY_FUZZ_RUNTIME_EVIDENCE", result: "PASS", commandSha256: digest, logSha256: digest }), "utf8");
+    await assert.rejects(readEvidence(proof), /blocked/u);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
 function envelope(kind) { return { candidateCommit: candidate.commit, candidateTree: candidate.tree, commandSha256: command, completeLogs: true, evidenceKind: kind, evidenceManifestSha256: digest, logSha256: log, productionPathExercised: true, result: "PASS", schemaVersion: "1.0", zeroExternalAttempts: true }; }

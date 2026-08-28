@@ -29,6 +29,7 @@
     "test:e2e:phase2:native": "node tools/phase2/finalize_native_e2e_evidence.mjs",
     "collect:phase2:live-lan": "node tools/phase2/collect_live_lan_topology.mjs",
     "assemble:phase2:isolation": "node tools/phase2/assemble_isolation_closure.mjs",
+    "finalize:phase2:isolation-proofs": "node tools/phase2/finalize_external_isolation_proofs.mjs",
     "test:phase2:gate": "node tools/phase2/run_pinned_python.mjs -B -m unittest discover -s tools/phase2 -p test_*.py -v",
     "test:unit:phase2:native": "node --test tools/phase2/test_finalize_native_e2e_evidence.mjs",
     "test:unit:phase2:external-evidence": "node --test tests/phase2/external-isolation-evidence.unit.mjs",
