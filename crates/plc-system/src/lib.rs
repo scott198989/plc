@@ -10,6 +10,7 @@
 mod build_product;
 mod graph_projection;
 mod hardware_projection;
+mod replay_package;
 mod session;
 mod software_projection;
 
@@ -23,12 +24,18 @@ pub use graph_projection::{
 };
 pub use session::{
     DiagnosticReadModel, EngineeringReadModel, EngineeringSession, EngineeringSessionSnapshot,
-    EngineeringSnapshotHashes, EngineeringStatus, ProbeReadModel, ProjectRefresh,
-    SystemCommandIdentity, SystemError, TraceReadModel, WatchTableReadModel,
+    EngineeringSnapshotHashes, EngineeringStatus, ProbeReadModel, ProjectRefresh, RestoreApproval,
+    RestorePreview, SystemCommandIdentity, SystemError, TraceReadModel, WatchTableReadModel,
 };
 
 pub use hardware_projection::{
     CanonicalHardwareProjection, ProjectDiagnostic, ProjectDiagnosticPhase, project_hardware,
+};
+pub use replay_package::{
+    ActorKind, CanonicalReplayPlcValue, ReplayActorProvenance, ReplayBoundaryHash,
+    ReplayBoundaryKind, ReplayCommandResult, ReplayDecodeLimits, ReplayDivergence, ReplayMemberRef,
+    ReplayPackage, ReplayPackageError, ReplayPackageEvent, ReplayPackageSpec, ReplayPayloadValue,
+    ReplayPriorityClass, ReplayResultStatus, ReplayStateRegion, ReplayTypedPayload,
 };
 pub use software_projection::{
     AuthoredLanguage, CanonicalAddressArea, CanonicalAddressIntent, CanonicalDisplayBase,

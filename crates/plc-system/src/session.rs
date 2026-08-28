@@ -1,31 +1,43 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use plc_commissioning::{
-    CommissionedScanReceipt, CommissioningError, ConfiguredController, ControllerInstanceId,
-    CreateInstanceCommand, ForceId as CommissioningForceId, ForceRegistryProjection, LoadExecution,
-    LoadPreview, LoadRequest, LoadResult, MatchComparison, OfflineControllerId,
-    OfflineEngineeringState, OfflineSourceBuild, PostLoadMode, PreviewApproval,
-    SessionCommandBinding, VirtualLoadPackage, VirtualOnlineSessionId, VirtualUniverse,
+    ActualHardwareFaultCommand, CommissionedHardwareBoundaryReceipt, CommissionedScanReceipt,
+    CommissioningError, ConfiguredController, ControllerInstanceId, CreateInstanceCommand,
+    ForceId as CommissioningForceId, ForceRegistryProjection, LoadExecution, LoadPreview,
+    LoadRequest, LoadResult, MatchComparison, OfflineControllerId, OfflineEngineeringState,
+    OfflineSourceBuild, PostLoadMode, PreviewApproval, SessionCommandBinding, VirtualLoadPackage,
+    VirtualOnlineSessionId, VirtualUniverse,
 };
-use plc_core::{Lifecycle, ObjectId, Project, Sha256Digest, sha256};
+use plc_core::{Lifecycle, ObjectId, Project, Sha256Digest, Uuid, sha256};
+use plc_hardware::{
+    ChannelConditionProjection, ChannelDirection as HardwareChannelDirection,
+    ChannelId as HardwareChannelId, ChannelQuality as HardwareChannelQuality, ChannelRawValue,
+    ConditionLifecycle, HardwareConditionEngine, HardwareConditionKey, HardwareConditionSnapshot,
+    HardwareFaultAction, HardwareFaultCommand, HardwareFaultReceipt, InstalledOccupant,
+    ModuleRuntimeState, NaturalChannelSample, RuntimeDeviceRole, RuntimeHardwareConfiguration,
+    RuntimeModuleConfiguration,
+};
 use plc_observability::{
     ActiveCondition, ArtifactSide, DiagnosticEvent as ObservationDiagnosticEvent, DiagnosticLedger,
     DiagnosticLedgerSnapshot, DiagnosticLimits, DiagnosticRegistry, DisplayBase, ForceAuditRecord,
-    ForceCommand, ForceCommandKind, ForceExecutionReceipt, ForceId, ForceProvenance, ForceRegistry,
-    ForceRegistrySnapshot, GlobalForceProjection, ModifyCommand, ModifyExecutionReceipt,
-    ModifyItem, ModifyScheduler, MonitorSample, MonitorState, MonitoringEngine, MonitoringLimits,
-    MonitoringPersistence, NavigationAnchor, NavigationIndex, NavigationIndexBuilder,
-    NavigationKind, NavigationResult, ObservationContext, ProbeLayer, PublicationBoundary,
-    PublishedTargetValue, Quality, RuntimeDiagnosticBridge, RuntimeIoState, RuntimeTarget,
-    SemanticIdentity, StableTargetId, TargetReference, TraceCadence, TraceCapture, TraceCaptureId,
-    TraceChannel, TraceChannelId, TraceConfig, TraceConfigId, TraceEngine, TraceEngineSnapshot,
+    ForceCommand, ForceCommandKind, ForceEntry, ForceExecutionReceipt, ForceId, ForceProvenance,
+    ForceRegistry, ForceRegistrySnapshot, GlobalForceProjection, HardwareDiagnosticBridge,
+    LoadedArtifactBinding, ModifyCommand, ModifyExecutionReceipt, ModifyItem, ModifyScheduler,
+    MonitorSample, MonitorState, MonitoringEngine, MonitoringLimits, MonitoringPersistence,
+    NavigationAnchor, NavigationDomainProjection, NavigationIndex, NavigationIndexBuilder,
+    NavigationKind, NavigationRelationshipKind, NavigationResult, NavigationValidity,
+    ObservationContext, ProbeLayer, PublicationBoundary, PublishedTargetValue, Quality,
+    RuntimeDiagnosticBridge, RuntimeIoState, RuntimeTarget, SemanticIdentity, StableTargetId,
+    TargetReference, TraceCadence, TraceCapture, TraceCaptureId, TraceChannel, TraceChannelId,
+    TraceConfig, TraceConfigId, TraceDiagnosticEvent, TraceEngine, TraceEngineSnapshot,
     TraceEventKey, TraceLimits, TraceProbeKind, TraceRuntimePublication, TraceState, TraceTrigger,
     TraceTriggerId, WatchRow, WatchRowId, WatchTable, WatchTableId,
     execute_force_command_with_io_state, publish_modify_plan,
 };
 use plc_runtime::{
     CanonicalValue, CommandId, ControllerSnapshot, CpuState, Hash32, InputCommand, InputReceipt,
-    RestartKind, RuntimeBoundaryCommand, RuntimeScanCommand, RuntimeValueTarget, ValueType,
+    RestartKind, RuntimeBoundaryCommand, RuntimeHardwareBoundaryCommand,
+    RuntimeOutputDeliveryOverride, RuntimeScanCommand, RuntimeValueTarget, ValueType,
     VirtualControllerId, canonical_force_overlay_hash,
 };
 
@@ -61,6 +73,7 @@ pub enum SystemError {
     Force(String),
     Trace(String),
     Diagnostics(String),
+    Hardware(String),
     Navigation(String),
     Snapshot(String),
 }
@@ -111,6 +124,10 @@ pub struct EngineeringSnapshotHashes {
     pub diagnostic_snapshot_hash: Hash32,
     pub diagnostic_replay_hash: Hash32,
     pub diagnostic_bridge_replay_hash: Hash32,
+    pub hardware_condition_hash: Hash32,
+    pub hardware_command_hash: Hash32,
+    pub hardware_input_hash: Hash32,
+    pub hardware_diagnostic_bridge_hash: Hash32,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -194,6 +211,10 @@ pub struct EngineeringSessionSnapshot {
     pub trace_snapshot_hash: Hash32,
     pub diagnostic_snapshot_hash: Hash32,
     pub runtime_bridge_hash: Hash32,
+    pub hardware_condition_hash: Hash32,
+    pub hardware_command_hash: Hash32,
+    pub hardware_input_hash: Hash32,
+    pub hardware_diagnostic_bridge_hash: Hash32,
     pub content_hash: Hash32,
     runtime: ControllerSnapshot,
     monitoring_persistence: MonitoringPersistence,
@@ -201,7 +222,79 @@ pub struct EngineeringSessionSnapshot {
     traces: TraceEngineSnapshot,
     diagnostics: DiagnosticLedgerSnapshot,
     runtime_diagnostics: RuntimeDiagnosticBridge,
+    hardware_conditions: HardwareConditionSnapshot,
+    hardware_commands: Vec<HardwareFaultCommand>,
+    hardware_natural_inputs: BTreeMap<HardwareChannelId, ChannelRawValue>,
+    hardware_diagnostics: HardwareDiagnosticBridge,
     trace_capture_ids: BTreeSet<TraceCaptureId>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(u8)]
+pub enum ForceRestoreClassification {
+    Retained = 1,
+    Added = 2,
+    Removed = 3,
+    Replaced = 4,
+    Reordered = 5,
+    EpochRebound = 6,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForceRestoreDelta {
+    pub force_id: ForceId,
+    pub classifications: Vec<ForceRestoreClassification>,
+    pub before_ordinal: Option<u64>,
+    pub after_ordinal: Option<u64>,
+    pub before: Option<ForceEntry>,
+    pub after: Option<ForceEntry>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RestorePreview {
+    pub snapshot_content_hash: Hash32,
+    pub expected_universe_epoch: u64,
+    pub expected_controller_epoch: u64,
+    pub expected_current_state_hash: Hash32,
+    pub current_force_registry_hash: Hash32,
+    pub snapshot_force_registry_hash: Hash32,
+    pub planned_force_registry_hash: Hash32,
+    pub force_delta_hash: Hash32,
+    pub force_deltas: Vec<ForceRestoreDelta>,
+    pub planned_universe_epoch: u64,
+    pub planned_controller_epoch: u64,
+    pub safe_mode: CpuState,
+    pub preview_hash: Hash32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RestoreApproval {
+    snapshot_content_hash: Hash32,
+    expected_universe_epoch: u64,
+    expected_controller_epoch: u64,
+    expected_current_state_hash: Hash32,
+    current_force_registry_hash: Hash32,
+    snapshot_force_registry_hash: Hash32,
+    planned_force_registry_hash: Hash32,
+    force_delta_hash: Hash32,
+    preview_hash: Hash32,
+}
+
+impl RestoreApproval {
+    #[must_use]
+    pub const fn approve(preview: &RestorePreview) -> Self {
+        Self {
+            snapshot_content_hash: preview.snapshot_content_hash,
+            expected_universe_epoch: preview.expected_universe_epoch,
+            expected_controller_epoch: preview.expected_controller_epoch,
+            expected_current_state_hash: preview.expected_current_state_hash,
+            current_force_registry_hash: preview.current_force_registry_hash,
+            snapshot_force_registry_hash: preview.snapshot_force_registry_hash,
+            planned_force_registry_hash: preview.planned_force_registry_hash,
+            force_delta_hash: preview.force_delta_hash,
+            preview_hash: preview.preview_hash,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -242,6 +335,10 @@ pub struct EngineeringSession {
     traces: TraceEngine,
     diagnostics: DiagnosticLedger,
     runtime_diagnostics: RuntimeDiagnosticBridge,
+    hardware_conditions: HardwareConditionEngine,
+    hardware_diagnostics: HardwareDiagnosticBridge,
+    hardware_commands: Vec<HardwareFaultCommand>,
+    hardware_natural_inputs: BTreeMap<HardwareChannelId, ChannelRawValue>,
     trace_capture_ids: BTreeSet<TraceCaptureId>,
     navigation: Option<NavigationIndex>,
     navigation_revision: u64,
@@ -294,6 +391,20 @@ impl EngineeringSession {
                 deterministic_seed: identity_seed(object_u128(controller_object_id)),
             })
             .map_err(commissioning_error)?;
+        let controller_epoch = universe
+            .controller(ids.controller)
+            .ok_or_else(|| {
+                SystemError::Commissioning("runtime controller was not created".to_owned())
+            })?
+            .runtime()
+            .controller_epoch();
+        let hardware_conditions = build_hardware_condition_engine(
+            &hardware,
+            controller_object_id,
+            controller_epoch,
+            &[],
+        )?;
+        let hardware_natural_inputs = initial_hardware_inputs(&hardware_conditions);
         Ok(Self {
             project,
             controller_object_id,
@@ -314,6 +425,10 @@ impl EngineeringSession {
             )
             .map_err(|error| SystemError::Diagnostics(format!("{error:?}")))?,
             runtime_diagnostics: RuntimeDiagnosticBridge::default(),
+            hardware_conditions,
+            hardware_diagnostics: HardwareDiagnosticBridge::default(),
+            hardware_commands: Vec::new(),
+            hardware_natural_inputs,
             trace_capture_ids: BTreeSet::new(),
             navigation: None,
             navigation_revision: 0,
@@ -469,7 +584,8 @@ impl EngineeringSession {
             .ok_or(SystemError::NoCurrentBuild)?
             .load_package()
             .clone();
-        let result = self
+        let mut staged = self.clone();
+        let result = staged
             .universe
             .commit_load(
                 preview,
@@ -478,32 +594,73 @@ impl EngineeringSession {
                 LoadExecution::default(),
             )
             .map_err(commissioning_error)?;
-        self.refresh_online_comparison()?;
-        self.rebuild_navigation()?;
+        staged.synchronize_hardware_epoch()?;
+        staged.refresh_online_comparison()?;
+        staged.rebuild_navigation()?;
+        *self = staged;
         Ok(result)
     }
 
     pub fn go_online(&mut self) -> Result<(), SystemError> {
-        self.universe
-            .begin_go_online(self.ids.online, self.ids.offline, self.ids.controller)
+        let mut candidate = self.clone();
+        candidate
+            .universe
+            .begin_go_online(
+                candidate.ids.online,
+                candidate.ids.offline,
+                candidate.ids.controller,
+            )
             .map_err(commissioning_error)?;
-        self.universe
-            .complete_go_online(self.ids.online)
-            .map_err(commissioning_error)
+        candidate
+            .universe
+            .complete_go_online(candidate.ids.online)
+            .map_err(commissioning_error)?;
+        candidate.synchronize_hardware_epoch()?;
+        let boundary = u128::from(candidate.universe.event_sequence());
+        candidate.project_actual_hardware_state(derived_identity(
+            boundary,
+            b"go-online-hardware-state",
+        ))?;
+        candidate.apply_hardware_input_projection(derived_identity(
+            boundary,
+            b"go-online-hardware-inputs",
+        ))?;
+        let _hardware_receipt = candidate.apply_hardware_output_projection(derived_identity(
+            boundary,
+            b"go-online-hardware-outputs",
+        ))?;
+        *self = candidate;
+        Ok(())
     }
 
     pub fn request_run(&mut self) -> Result<(), SystemError> {
-        let binding = self.binding()?;
-        self.universe
+        let mut candidate = self.clone();
+        let binding = candidate.binding()?;
+        candidate
+            .universe
             .request_run(binding, RestartKind::Resume)
-            .map_err(commissioning_error)
+            .map_err(commissioning_error)?;
+        let _hardware_receipt = candidate.apply_hardware_output_projection(derived_identity(
+            u128::from(candidate.universe.event_sequence()),
+            b"run-hardware-outputs",
+        ))?;
+        *self = candidate;
+        Ok(())
     }
 
     pub fn request_stop(&mut self) -> Result<(), SystemError> {
-        let binding = self.binding()?;
-        self.universe
+        let mut candidate = self.clone();
+        let binding = candidate.binding()?;
+        candidate
+            .universe
             .request_stop(binding)
-            .map_err(commissioning_error)
+            .map_err(commissioning_error)?;
+        let _hardware_receipt = candidate.apply_hardware_output_projection(derived_identity(
+            u128::from(candidate.universe.event_sequence()),
+            b"stop-hardware-outputs",
+        ))?;
+        *self = candidate;
+        Ok(())
     }
 
     pub fn set_raw_virtual_input(
@@ -512,27 +669,137 @@ impl EngineeringSession {
         target: StableTargetId,
         value: CanonicalValue,
     ) -> Result<InputReceipt, SystemError> {
-        let build = self.build.as_ref().ok_or(SystemError::NoCurrentBuild)?;
-        let definition = build
-            .probe_catalog()
-            .definition(target)
-            .ok_or(SystemError::UnknownTarget(target))?;
-        let RuntimeTarget::Input(channel_id) = definition.runtime_target else {
-            return Err(SystemError::TargetIsNotInput(target));
+        let mut candidate = self.clone();
+        candidate.synchronize_hardware_epoch()?;
+        let (channel_id, hardware_channel_id) = {
+            let build = candidate
+                .build
+                .as_ref()
+                .ok_or(SystemError::NoCurrentBuild)?;
+            let definition = build
+                .probe_catalog()
+                .definition(target)
+                .ok_or(SystemError::UnknownTarget(target))?;
+            let RuntimeTarget::Input(channel_id) = definition.runtime_target else {
+                return Err(SystemError::TargetIsNotInput(target));
+            };
+            let hardware_channel_id = build
+                .channel_bindings()
+                .iter()
+                .find(|binding| binding.runtime_channel_id == channel_id)
+                .map(|binding| binding.hardware_channel_id)
+                .ok_or_else(|| {
+                    SystemError::Hardware(
+                        "runtime input has no canonical hardware binding".to_owned(),
+                    )
+                })?;
+            (channel_id, hardware_channel_id)
         };
-        let binding = self.binding()?;
+        let raw = hardware_raw_from_runtime(value).ok_or_else(|| {
+            SystemError::Hardware("raw input value is not an EDU-21 channel type".to_owned())
+        })?;
+        candidate
+            .hardware_natural_inputs
+            .insert(hardware_channel_id, raw);
+        let projected = candidate
+            .hardware_conditions
+            .project_channel(
+                hardware_channel_id,
+                NaturalChannelSample {
+                    raw_value: raw,
+                    provider_quality: HardwareChannelQuality::Good,
+                    force_overlay_active: candidate
+                        .runtime()?
+                        .force_overlay(RuntimeValueTarget::Input(channel_id))
+                        .is_some(),
+                },
+            )
+            .map_err(|error| SystemError::Hardware(format!("{error:?}")))?;
+        if projected.direction != HardwareChannelDirection::Input {
+            return Err(SystemError::TargetIsNotInput(target));
+        }
+        let binding = candidate.binding()?;
         let command = InputCommand {
             command_id: CommandId(identity.command_id),
             idempotency_key: identity.idempotency_key,
-            controller_id: self.ids.controller,
+            controller_id: candidate.ids.controller,
             expected_controller_epoch: binding.expected_controller_epoch,
             channel_id,
-            value,
+            value: runtime_value_from_hardware(projected.cpu_value),
             audit_provenance_hash: audit_hash(identity, b"raw-input"),
         };
-        self.universe
+        let receipt = candidate
+            .universe
             .set_virtual_input_raw(binding, command)
-            .map_err(commissioning_error)
+            .map_err(commissioning_error)?;
+        *self = candidate;
+        Ok(receipt)
+    }
+
+    pub fn apply_hardware_fault(
+        &mut self,
+        identity: SystemCommandIdentity,
+        action: HardwareFaultAction,
+    ) -> Result<HardwareFaultReceipt, SystemError> {
+        let mut candidate = self.clone();
+        candidate.synchronize_hardware_epoch()?;
+        let command = HardwareFaultCommand {
+            idempotency_key: Uuid::from_bytes(identity.idempotency_key.to_be_bytes()),
+            expected_controller_epoch: candidate.runtime()?.controller_epoch(),
+            action,
+        };
+        let already_applied = candidate
+            .hardware_commands
+            .iter()
+            .any(|prior| prior.idempotency_key == command.idempotency_key);
+        let receipt = candidate
+            .hardware_conditions
+            .apply(command.clone())
+            .map_err(|error| SystemError::Hardware(format!("{error:?}")))?;
+        if already_applied {
+            return Ok(receipt);
+        }
+        candidate.hardware_commands.push(command);
+        candidate.project_actual_hardware_state(identity.command_id)?;
+        candidate.apply_hardware_input_projection(identity.command_id)?;
+        let _hardware_receipt = candidate.apply_hardware_output_projection(identity.command_id)?;
+        let context = candidate.context(PublicationBoundary::SerializedCommand)?;
+        let diagnostic_receipts = candidate
+            .hardware_diagnostics
+            .ingest_events(&mut candidate.diagnostics, context, &receipt.events)
+            .map_err(|error| SystemError::Diagnostics(format!("{error:?}")))?;
+        let mut diagnostic_events = Vec::new();
+        for diagnostic_receipt in diagnostic_receipts
+            .iter()
+            .filter(|diagnostic_receipt| !diagnostic_receipt.duplicate)
+        {
+            let event = candidate
+                .diagnostics
+                .retained_events()
+                .into_iter()
+                .find(|event| event.occurrence_id == diagnostic_receipt.ledger_occurrence_id)
+                .ok_or_else(|| {
+                    SystemError::Diagnostics(
+                        "hardware diagnostic receipt does not resolve to a retained event"
+                            .to_owned(),
+                    )
+                })?;
+            diagnostic_events.push(
+                TraceDiagnosticEvent::from_authoritative(event, candidate.diagnostics.registry())
+                    .ok_or_else(|| {
+                    SystemError::Diagnostics(
+                        "hardware diagnostic event does not resolve through the fixed registry"
+                            .to_owned(),
+                    )
+                })?,
+            );
+        }
+        candidate.publish_current_with_diagnostics(
+            PublicationBoundary::SerializedCommand,
+            diagnostic_events,
+        )?;
+        *self = candidate;
+        Ok(receipt)
     }
 
     pub fn run_scan(
@@ -565,7 +832,17 @@ impl EngineeringSession {
             .universe
             .run_scan_with_observation(binding, &command, &projection)
             .map_err(commissioning_error)?;
-        self.publish_after_scan(&receipt)?;
+        let hardware_receipt = self
+            .apply_hardware_output_projection(derived_identity(
+                identity.command_id,
+                b"scan-hardware-boundary",
+            ))?
+            .ok_or_else(|| {
+                SystemError::Hardware(
+                    "RUN scan did not produce a virtual-hardware delivery boundary".to_owned(),
+                )
+            })?;
+        self.publish_after_scan(&receipt, &hardware_receipt)?;
         Ok(receipt)
     }
 
@@ -644,6 +921,10 @@ impl EngineeringSession {
             &plan,
         )
         .map_err(|error| SystemError::Modify(format!("{error:?}")))?;
+        let _hardware_receipt = self.apply_hardware_output_projection(derived_identity(
+            identity.command_id,
+            b"modify-hardware-outputs",
+        ))?;
         self.publish_current(boundary)?;
         Ok(receipt)
     }
@@ -768,6 +1049,7 @@ impl EngineeringSession {
         let forces = self.forces.snapshot(context);
         let traces = self.traces.capture_snapshot(context);
         let diagnostics = self.diagnostics.capture_snapshot(context);
+        let hardware_conditions = self.hardware_conditions.snapshot();
         Ok(EngineeringSnapshotHashes {
             document_hash: self.project.document_hash(),
             semantic_fingerprint: self.project.semantic_fingerprint(),
@@ -785,6 +1067,13 @@ impl EngineeringSession {
                 .map_err(|error| SystemError::Snapshot(format!("{error:?}")))?,
             diagnostic_bridge_replay_hash: self
                 .runtime_diagnostics
+                .replay_hash()
+                .map_err(|error| SystemError::Snapshot(format!("{error:?}")))?,
+            hardware_condition_hash: hardware_condition_snapshot_hash(&hardware_conditions),
+            hardware_command_hash: hardware_command_log_hash(&self.hardware_commands),
+            hardware_input_hash: hardware_natural_input_hash(&self.hardware_natural_inputs),
+            hardware_diagnostic_bridge_hash: self
+                .hardware_diagnostics
                 .replay_hash()
                 .map_err(|error| SystemError::Snapshot(format!("{error:?}")))?,
         })
@@ -810,6 +1099,14 @@ impl EngineeringSession {
             .runtime_diagnostics
             .replay_hash()
             .map_err(|error| SystemError::Snapshot(format!("{error:?}")))?;
+        let hardware_conditions = self.hardware_conditions.snapshot();
+        let hardware_condition_hash = hardware_condition_snapshot_hash(&hardware_conditions);
+        let hardware_command_hash = hardware_command_log_hash(&self.hardware_commands);
+        let hardware_input_hash = hardware_natural_input_hash(&self.hardware_natural_inputs);
+        let hardware_diagnostic_bridge_hash = self
+            .hardware_diagnostics
+            .replay_hash()
+            .map_err(|error| SystemError::Snapshot(format!("{error:?}")))?;
         let mut snapshot = EngineeringSessionSnapshot {
             schema_version: 1,
             document_hash: self.project.document_hash(),
@@ -827,6 +1124,10 @@ impl EngineeringSession {
             trace_snapshot_hash: traces.content_hash,
             diagnostic_snapshot_hash: diagnostics.content_hash,
             runtime_bridge_hash,
+            hardware_condition_hash,
+            hardware_command_hash,
+            hardware_input_hash,
+            hardware_diagnostic_bridge_hash,
             content_hash: Hash32::ZERO,
             runtime,
             monitoring_persistence,
@@ -834,17 +1135,106 @@ impl EngineeringSession {
             traces,
             diagnostics,
             runtime_diagnostics: self.runtime_diagnostics.clone(),
+            hardware_conditions,
+            hardware_commands: self.hardware_commands.clone(),
+            hardware_natural_inputs: self.hardware_natural_inputs.clone(),
+            hardware_diagnostics: self.hardware_diagnostics.clone(),
             trace_capture_ids: self.trace_capture_ids.clone(),
         };
         snapshot.content_hash = engineering_snapshot_hash(&snapshot);
         Ok(snapshot)
     }
 
-    /// Atomically restores the runtime and every dependent observation model.
-    /// The live session is replaced only after all integrity, identity,
-    /// runtime, force, monitor, trace, diagnostic, and navigation gates pass.
+    /// Produces an immutable restore plan without changing the live session.
+    /// The plan binds the complete current/snapshot force registries, their
+    /// exact per-force delta, current epochs/state, and the planned rebound.
+    pub fn preview_restore(
+        &self,
+        snapshot: &EngineeringSessionSnapshot,
+    ) -> Result<RestorePreview, SystemError> {
+        let safe_mode = self.runtime()?.cpu_state();
+        if !matches!(safe_mode, CpuState::Stop | CpuState::PausedEducational) {
+            return Err(SystemError::Snapshot(format!(
+                "restore requires STOP or PAUSED_EDUCATIONAL, found {safe_mode:?}"
+            )));
+        }
+        let expected_universe_epoch = self.universe.universe_epoch();
+        let expected_controller_epoch = self.runtime()?.controller_epoch();
+        let expected_current_state_hash = self.universe.semantic_state_hash();
+        let current_force_registry_hash = self.forces.registry_hash();
+        let snapshot_force_registry_hash = snapshot.forces.registry_hash;
+
+        // Exercise the complete restore path on an isolated clone. This makes
+        // preview a real validation/rebind pass rather than an optimistic diff.
+        let mut simulated = self.clone();
+        simulated.apply_snapshot(snapshot)?;
+        if simulated.runtime()?.cpu_state() != safe_mode {
+            return Err(SystemError::Snapshot(
+                "snapshot restore changed the approved safe CPU mode".to_owned(),
+            ));
+        }
+        let planned_universe_epoch = simulated.universe.universe_epoch();
+        let planned_controller_epoch = simulated.runtime()?.controller_epoch();
+        let planned_force_registry_hash = simulated.forces.registry_hash();
+        let force_deltas = force_restore_deltas(&self.forces, &simulated.forces);
+        let force_delta_hash = hash_force_restore_deltas(
+            current_force_registry_hash,
+            snapshot_force_registry_hash,
+            planned_force_registry_hash,
+            &force_deltas,
+        );
+        let mut preview = RestorePreview {
+            snapshot_content_hash: snapshot.content_hash,
+            expected_universe_epoch,
+            expected_controller_epoch,
+            expected_current_state_hash,
+            current_force_registry_hash,
+            snapshot_force_registry_hash,
+            planned_force_registry_hash,
+            force_delta_hash,
+            force_deltas,
+            planned_universe_epoch,
+            planned_controller_epoch,
+            safe_mode,
+            preview_hash: Hash32::ZERO,
+        };
+        preview.preview_hash = hash_restore_preview(&preview);
+        Ok(preview)
+    }
+
+    /// Atomically restores the runtime and every dependent observation model
+    /// only after an exact, still-current preview is explicitly approved.
+    pub fn commit_restore(
+        &mut self,
+        snapshot: &EngineeringSessionSnapshot,
+        preview: &RestorePreview,
+        approval: RestoreApproval,
+    ) -> Result<Hash32, SystemError> {
+        let current = self.preview_restore(snapshot)?;
+        if &current != preview || approval != RestoreApproval::approve(&current) {
+            return Err(SystemError::Snapshot(
+                "restore approval no longer matches the exact current preview".to_owned(),
+            ));
+        }
+        let mut candidate = self.clone();
+        let restored_hash = candidate.apply_snapshot(snapshot)?;
+        if candidate.universe.universe_epoch() != preview.planned_universe_epoch
+            || candidate.runtime()?.controller_epoch() != preview.planned_controller_epoch
+            || candidate.runtime()?.cpu_state() != preview.safe_mode
+            || candidate.forces.registry_hash() != preview.planned_force_registry_hash
+        {
+            return Err(SystemError::Snapshot(
+                "restore result diverged from its approved plan".to_owned(),
+            ));
+        }
+        *self = candidate;
+        Ok(restored_hash)
+    }
+
+    /// Applies to an isolated candidate only. Callers must use the public
+    /// preview/approval/commit protocol so no live restore bypass exists.
     #[allow(clippy::too_many_lines)]
-    pub fn restore_snapshot(
+    fn apply_snapshot(
         &mut self,
         snapshot: &EngineeringSessionSnapshot,
     ) -> Result<Hash32, SystemError> {
@@ -859,6 +1249,14 @@ impl EngineeringSession {
             || !snapshot.traces.verify()
             || !snapshot.diagnostics.verify()
             || snapshot.runtime_diagnostics.replay_hash().ok() != Some(snapshot.runtime_bridge_hash)
+            || snapshot.hardware_condition_hash
+                != hardware_condition_snapshot_hash(&snapshot.hardware_conditions)
+            || snapshot.hardware_command_hash
+                != hardware_command_log_hash(&snapshot.hardware_commands)
+            || snapshot.hardware_input_hash
+                != hardware_natural_input_hash(&snapshot.hardware_natural_inputs)
+            || snapshot.hardware_diagnostics.replay_hash().ok()
+                != Some(snapshot.hardware_diagnostic_bridge_hash)
         {
             return Err(SystemError::Snapshot(
                 "aggregate snapshot integrity verification failed".to_owned(),
@@ -869,6 +1267,20 @@ impl EngineeringSession {
         {
             return Err(SystemError::Snapshot(
                 "snapshot canonical project identity does not match this session".to_owned(),
+            ));
+        }
+        let captured_hardware = build_hardware_condition_engine(
+            &self.hardware,
+            self.controller_object_id,
+            snapshot.hardware_conditions.controller_epoch,
+            &snapshot.hardware_commands,
+        )
+        .map_err(|error| SystemError::Snapshot(format!("hardware replay failed: {error:?}")))?;
+        if captured_hardware.snapshot() != snapshot.hardware_conditions
+            || !hardware_input_shape_valid(&captured_hardware, &snapshot.hardware_natural_inputs)
+        {
+            return Err(SystemError::Snapshot(
+                "snapshot hardware condition replay or input shape is inconsistent".to_owned(),
             ));
         }
         let build = self.build.as_ref().ok_or(SystemError::NoCurrentBuild)?;
@@ -895,6 +1307,35 @@ impl EngineeringSession {
             .universe
             .complete_reconnect(candidate.ids.online)
             .map_err(commissioning_error)?;
+        let rebound_hardware_epoch = candidate.runtime()?.controller_epoch();
+        let rebound_hardware_commands = snapshot
+            .hardware_commands
+            .iter()
+            .cloned()
+            .map(|mut command| {
+                command.expected_controller_epoch = rebound_hardware_epoch;
+                command
+            })
+            .collect::<Vec<_>>();
+        candidate.hardware_conditions = build_hardware_condition_engine(
+            &candidate.hardware,
+            candidate.controller_object_id,
+            rebound_hardware_epoch,
+            &rebound_hardware_commands,
+        )?;
+        candidate.hardware_commands = rebound_hardware_commands;
+        candidate
+            .hardware_natural_inputs
+            .clone_from(&snapshot.hardware_natural_inputs);
+        candidate.hardware_diagnostics = snapshot.hardware_diagnostics.clone();
+        candidate.project_actual_hardware_state(derived_identity(
+            identity_from_hash(snapshot.content_hash),
+            b"snapshot-hardware-state",
+        ))?;
+        candidate.apply_hardware_input_projection(derived_identity(
+            identity_from_hash(snapshot.content_hash),
+            b"snapshot-hardware-inputs",
+        ))?;
 
         let rebound_context = candidate.context(PublicationBoundary::SnapshotReplay)?;
         let (forces, _) =
@@ -940,6 +1381,10 @@ impl EngineeringSession {
             .universe
             .apply_observation_boundary(binding, &synchronization, &projection)
             .map_err(commissioning_error)?;
+        let _hardware_receipt = candidate.apply_hardware_output_projection(derived_identity(
+            identity_from_hash(snapshot.content_hash),
+            b"snapshot-hardware-outputs",
+        ))?;
         let context = candidate.context(PublicationBoundary::SnapshotReplay)?;
 
         let mut monitoring = MonitoringEngine::new(MonitoringLimits::edu21())
@@ -1233,13 +1678,243 @@ impl EngineeringSession {
             &io_states,
         )
         .map_err(|error| SystemError::Force(format!("{error:?}")))?;
+        let _hardware_receipt = self.apply_hardware_output_projection(derived_identity(
+            command.command_id,
+            b"force-hardware-outputs",
+        ))?;
         self.publish_current(boundary)?;
         Ok(receipt)
     }
 
-    fn publish_after_scan(&mut self, receipt: &CommissionedScanReceipt) -> Result<(), SystemError> {
+    fn synchronize_hardware_epoch(&mut self) -> Result<(), SystemError> {
+        let epoch = self.runtime()?.controller_epoch();
+        if self.hardware_conditions.controller_epoch() != epoch {
+            self.hardware_conditions = build_hardware_condition_engine(
+                &self.hardware,
+                self.controller_object_id,
+                epoch,
+                &self.hardware_commands,
+            )?;
+            let defaults = initial_hardware_inputs(&self.hardware_conditions);
+            self.hardware_natural_inputs
+                .retain(|id, _| defaults.contains_key(id));
+            for (id, value) in defaults {
+                self.hardware_natural_inputs.entry(id).or_insert(value);
+            }
+        }
+        Ok(())
+    }
+
+    fn project_actual_hardware_state(&mut self, command_id: u128) -> Result<(), SystemError> {
+        let snapshot = self.hardware_conditions.snapshot();
+        let present = !snapshot
+            .active_conditions
+            .iter()
+            .any(|condition| matches!(condition, HardwareConditionKey::ControllerUnpowered(_)));
+        let fault_state_hash = if snapshot.active_conditions.is_empty() {
+            Hash32::ZERO
+        } else {
+            hash32(snapshot.state_fingerprint)
+        };
+        let instance = self
+            .universe
+            .controller(self.ids.controller)
+            .ok_or_else(|| {
+                SystemError::Commissioning("runtime controller disappeared".to_owned())
+            })?;
+        self.universe
+            .apply_actual_hardware_fault(ActualHardwareFaultCommand {
+                command_id,
+                target_controller_id: self.ids.controller,
+                expected_universe_epoch: self.universe.universe_epoch(),
+                expected_controller_epoch: instance.runtime().controller_epoch(),
+                expected_target_state_hash: instance.semantic_state_hash(),
+                present,
+                fault_state_hash,
+            })
+            .map_err(commissioning_error)
+    }
+
+    fn apply_hardware_input_projection(&mut self, command_id: u128) -> Result<(), SystemError> {
+        let mappings = self
+            .build
+            .as_ref()
+            .ok_or(SystemError::NoCurrentBuild)?
+            .channel_bindings()
+            .iter()
+            .filter(|binding| binding.hardware.direction == HardwareChannelDirection::Input)
+            .cloned()
+            .collect::<Vec<_>>();
+        for mapping in mappings {
+            let natural = self
+                .hardware_natural_inputs
+                .get(&mapping.hardware_channel_id)
+                .copied()
+                .or_else(|| ChannelRawValue::canonical_default(mapping.hardware.raw_type))
+                .ok_or_else(|| {
+                    SystemError::Hardware(
+                        "configured input has no canonical raw default".to_owned(),
+                    )
+                })?;
+            let runtime_target = RuntimeValueTarget::Input(mapping.runtime_channel_id);
+            let projection = self
+                .hardware_conditions
+                .project_channel(
+                    mapping.hardware_channel_id,
+                    NaturalChannelSample {
+                        raw_value: natural,
+                        provider_quality: HardwareChannelQuality::Good,
+                        force_overlay_active: self
+                            .runtime()?
+                            .force_overlay(runtime_target)
+                            .is_some(),
+                    },
+                )
+                .map_err(|error| SystemError::Hardware(format!("{error:?}")))?;
+            let binding = self.binding()?;
+            let projected_identity =
+                hardware_projection_identity(command_id, mapping.hardware_channel_id, b"input");
+            self.universe
+                .set_virtual_input_raw(
+                    binding,
+                    InputCommand {
+                        command_id: CommandId(projected_identity),
+                        idempotency_key: projected_identity,
+                        controller_id: self.ids.controller,
+                        expected_controller_epoch: binding.expected_controller_epoch,
+                        channel_id: mapping.runtime_channel_id,
+                        value: runtime_value_from_hardware(projection.cpu_value),
+                        audit_provenance_hash: hash32(projection.causal_fingerprint),
+                    },
+                )
+                .map_err(commissioning_error)?;
+        }
+        Ok(())
+    }
+
+    fn apply_hardware_output_projection(
+        &mut self,
+        command_id: u128,
+    ) -> Result<Option<CommissionedHardwareBoundaryReceipt>, SystemError> {
+        if !matches!(
+            self.runtime()?.cpu_state(),
+            CpuState::Run | CpuState::Stop | CpuState::PausedEducational | CpuState::Faulted
+        ) {
+            return Ok(None);
+        }
+        let mappings = self
+            .build
+            .as_ref()
+            .ok_or(SystemError::NoCurrentBuild)?
+            .channel_bindings()
+            .iter()
+            .filter(|binding| binding.hardware.direction == HardwareChannelDirection::Output)
+            .cloned()
+            .collect::<Vec<_>>();
+        let mut overrides = Vec::new();
+        let mut causal_hashes = Vec::new();
+        for mapping in mappings {
+            let target = RuntimeValueTarget::Output(mapping.runtime_channel_id);
+            let value = self.runtime()?.effective_value(target).ok_or(
+                SystemError::TargetValueUnavailable(StableTargetId(u128::from_be_bytes(
+                    mapping.hardware_channel_id.uuid().into_bytes(),
+                ))),
+            )?;
+            let raw = hardware_raw_from_runtime(value).ok_or_else(|| {
+                SystemError::Hardware(
+                    "configured output value is not an EDU-21 channel type".to_owned(),
+                )
+            })?;
+            let projection = self
+                .hardware_conditions
+                .project_channel(
+                    mapping.hardware_channel_id,
+                    NaturalChannelSample {
+                        raw_value: raw,
+                        provider_quality: HardwareChannelQuality::Good,
+                        force_overlay_active: self.runtime()?.force_overlay(target).is_some(),
+                    },
+                )
+                .map_err(|error| SystemError::Hardware(format!("{error:?}")))?;
+            causal_hashes.push(projection.causal_fingerprint);
+            if projection.delivery_suppressed || projection.quality != HardwareChannelQuality::Good
+            {
+                overrides.push(RuntimeOutputDeliveryOverride {
+                    channel_id: mapping.runtime_channel_id,
+                    delivered_value: runtime_value_from_hardware(projection.delivered_value),
+                    quality: runtime_quality_from_hardware(projection.quality),
+                    suppressed: projection.delivery_suppressed,
+                });
+            }
+        }
+        let binding = self.binding()?;
+        let runtime = self.runtime()?;
+        let artifact = runtime
+            .loaded_fingerprint()
+            .ok_or(SystemError::NoLoadedArtifact)?;
+        let audit_context_hash = hash_hardware_projection_set(&causal_hashes);
+        let command = RuntimeHardwareBoundaryCommand {
+            command_id,
+            controller_id: self.ids.controller,
+            expected_universe_epoch: runtime.universe_epoch(),
+            expected_controller_epoch: runtime.controller_epoch(),
+            expected_artifact_fingerprint: artifact,
+            expected_state_hash: runtime.semantic_state_hash(),
+            output_overrides: overrides,
+            audit_context_hash,
+        };
+        let receipt = self
+            .universe
+            .apply_hardware_boundary(binding, &command)
+            .map_err(commissioning_error)?;
+        Ok(Some(receipt))
+    }
+
+    fn hardware_projection_for_target(
+        &self,
+        target: RuntimeTarget,
+    ) -> Option<ChannelConditionProjection> {
+        let build = self.build.as_ref()?;
+        let runtime_channel = runtime_channel_id(target)?;
+        let mapping = build
+            .channel_bindings()
+            .iter()
+            .find(|binding| binding.runtime_channel_id == runtime_channel)?;
+        let runtime_target = runtime_value_target(target);
+        let raw_value = match target {
+            RuntimeTarget::Input(_) => self
+                .hardware_natural_inputs
+                .get(&mapping.hardware_channel_id)
+                .copied()?,
+            RuntimeTarget::Output(_) => {
+                hardware_raw_from_runtime(self.runtime().ok()?.effective_value(runtime_target)?)?
+            }
+            RuntimeTarget::Memory(_) => return None,
+        };
+        self.hardware_conditions
+            .project_channel(
+                mapping.hardware_channel_id,
+                NaturalChannelSample {
+                    raw_value,
+                    provider_quality: HardwareChannelQuality::Good,
+                    force_overlay_active: self
+                        .runtime()
+                        .ok()?
+                        .force_overlay(runtime_target)
+                        .is_some(),
+                },
+            )
+            .ok()
+    }
+
+    fn publish_after_scan(
+        &mut self,
+        receipt: &CommissionedScanReceipt,
+        hardware_receipt: &CommissionedHardwareBoundaryReceipt,
+    ) -> Result<(), SystemError> {
         let context = self.context(PublicationBoundary::ScanEnd)?;
         let values = self.published_values()?;
+        let diagnostic_events = self.ingest_runtime_diagnostics()?;
         if matches!(
             self.monitoring.state(),
             MonitorState::Active | MonitorState::Degraded
@@ -1248,20 +1923,35 @@ impl EngineeringSession {
                 .publish(context, &values)
                 .map_err(|error| SystemError::Monitoring(format!("{error:?}")))?;
         }
-        let runtime_publication = TraceRuntimePublication::from_commissioned_scan(context, receipt)
+        let runtime_publication =
+            TraceRuntimePublication::from_commissioned_scan_after_hardware_boundary(
+                context,
+                receipt,
+                hardware_receipt,
+            )
             .map_err(|error| SystemError::Trace(format!("{error:?}")))?;
         let captures = self
             .traces
-            .publish_with_runtime(context, &values, &[], &runtime_publication)
+            .publish_with_runtime(context, &values, &diagnostic_events, &runtime_publication)
             .map_err(|error| SystemError::Trace(format!("{error:?}")))?;
         self.trace_capture_ids.extend(captures);
-        self.ingest_runtime_diagnostics()?;
         Ok(())
     }
 
     fn publish_current(&mut self, boundary: PublicationBoundary) -> Result<(), SystemError> {
+        self.publish_current_with_diagnostics(boundary, Vec::new())
+    }
+
+    fn publish_current_with_diagnostics(
+        &mut self,
+        boundary: PublicationBoundary,
+        mut diagnostic_events: Vec<TraceDiagnosticEvent>,
+    ) -> Result<(), SystemError> {
         let context = self.context(boundary)?;
         let values = self.published_values()?;
+        diagnostic_events.extend(self.ingest_runtime_diagnostics()?);
+        diagnostic_events.sort_by_key(|event| (event.key, event.occurrence_id));
+        diagnostic_events.dedup_by_key(|event| event.occurrence_id);
         if matches!(
             self.monitoring.state(),
             MonitorState::Active | MonitorState::Degraded
@@ -1272,18 +1962,42 @@ impl EngineeringSession {
         }
         let captures = self
             .traces
-            .publish(context, &values, &[])
+            .publish(context, &values, &diagnostic_events)
             .map_err(|error| SystemError::Trace(format!("{error:?}")))?;
         self.trace_capture_ids.extend(captures);
-        self.ingest_runtime_diagnostics()
+        Ok(())
     }
 
-    fn ingest_runtime_diagnostics(&mut self) -> Result<(), SystemError> {
+    fn ingest_runtime_diagnostics(&mut self) -> Result<Vec<TraceDiagnosticEvent>, SystemError> {
         let binding = self.binding()?;
-        self.runtime_diagnostics
+        let receipts = self
+            .runtime_diagnostics
             .ingest_from_virtual_universe(&mut self.diagnostics, &self.universe, binding)
-            .map(|_| ())
-            .map_err(|error| SystemError::Diagnostics(format!("{error:?}")))
+            .map_err(|error| SystemError::Diagnostics(format!("{error:?}")))?;
+        let mut events = Vec::new();
+        for receipt in receipts.iter().filter(|receipt| !receipt.duplicate) {
+            let event = self
+                .diagnostics
+                .retained_events()
+                .into_iter()
+                .find(|event| event.occurrence_id == receipt.ledger_occurrence_id)
+                .ok_or_else(|| {
+                    SystemError::Diagnostics(
+                        "runtime diagnostic receipt does not resolve to a retained event"
+                            .to_owned(),
+                    )
+                })?;
+            events.push(
+                TraceDiagnosticEvent::from_authoritative(event, self.diagnostics.registry())
+                    .ok_or_else(|| {
+                        SystemError::Diagnostics(
+                            "runtime diagnostic event does not resolve through the fixed registry"
+                                .to_owned(),
+                        )
+                    })?,
+            );
+        }
+        Ok(events)
     }
 
     fn published_values(&self) -> Result<Vec<PublishedTargetValue>, SystemError> {
@@ -1292,6 +2006,8 @@ impl EngineeringSession {
         let mut values = Vec::new();
         for definition in build.probe_catalog().definitions() {
             let target = runtime_value_target(definition.runtime_target);
+            let hardware_projection =
+                self.hardware_projection_for_target(definition.runtime_target);
             let natural = runtime
                 .natural_value(target)
                 .ok_or(SystemError::TargetValueUnavailable(definition.id))?;
@@ -1310,10 +2026,16 @@ impl EngineeringSession {
                 match definition.runtime_target {
                     RuntimeTarget::Memory(_) => (None, None, None),
                     RuntimeTarget::Input(id) => (
-                        runtime
-                            .boundary()
-                            .raw_input(id)
-                            .map(|input| input.canonical_value),
+                        build
+                            .channel_bindings()
+                            .iter()
+                            .find(|binding| binding.runtime_channel_id == id)
+                            .and_then(|binding| {
+                                self.hardware_natural_inputs
+                                    .get(&binding.hardware_channel_id)
+                                    .copied()
+                            })
+                            .map(runtime_value_from_hardware),
                         None,
                         None,
                     ),
@@ -1334,7 +2056,11 @@ impl EngineeringSession {
                 raw_input_value,
                 committed_output_value,
                 delivered_output_value,
-                quality: Quality::Good,
+                quality: hardware_projection
+                    .as_ref()
+                    .map_or(Quality::Good, |projection| {
+                        observation_quality_from_hardware(projection.quality)
+                    }),
                 force,
             });
         }
@@ -1354,10 +2080,18 @@ impl EngineeringSession {
                             RuntimeTarget::Input(_) | RuntimeTarget::Output(_)
                         )
                     })
-                    .map(|definition| RuntimeIoState {
-                        target_id: definition.id,
-                        runtime_present: true,
-                        quality: Quality::Good,
+                    .map(|definition| {
+                        let projection =
+                            self.hardware_projection_for_target(definition.runtime_target);
+                        RuntimeIoState {
+                            target_id: definition.id,
+                            runtime_present: projection.as_ref().is_none_or(|projection| {
+                                projection.quality != HardwareChannelQuality::NotPresent
+                            }),
+                            quality: projection.as_ref().map_or(Quality::Good, |projection| {
+                                observation_quality_from_hardware(projection.quality)
+                            }),
+                        }
                     })
                     .collect()
             })
@@ -1430,6 +2164,7 @@ impl EngineeringSession {
         Ok(())
     }
 
+    #[allow(clippy::too_many_lines)]
     fn rebuild_navigation(&mut self) -> Result<(), SystemError> {
         let Some(build) = &self.build else {
             self.navigation = None;
@@ -1437,14 +2172,21 @@ impl EngineeringSession {
         };
         self.navigation_revision = self.navigation_revision.saturating_add(1).max(1);
         let offline_fingerprint = build.runtime_artifact().fingerprint();
-        let loaded_fingerprint = self
-            .universe
-            .controller(self.ids.controller)
-            .and_then(|instance| instance.runtime().loaded_fingerprint());
+        let loaded_artifact =
+            self.universe
+                .controller(self.ids.controller)
+                .and_then(|instance| {
+                    instance.runtime().loaded_fingerprint().map(|fingerprint| {
+                        LoadedArtifactBinding {
+                            fingerprint,
+                            controller_epoch: instance.runtime().controller_epoch(),
+                        }
+                    })
+                });
         let mut builder = NavigationIndexBuilder::new(
             self.navigation_revision,
             offline_fingerprint,
-            loaded_fingerprint,
+            loaded_artifact,
         )
         .map_err(|error| SystemError::Navigation(format!("{error:?}")))?;
         let active_objects = self
@@ -1462,6 +2204,12 @@ impl EngineeringSession {
                 .probe_catalog()
                 .definition(StableTargetId(identity.0))
                 .map(|_| StableTargetId(identity.0));
+            let domain_projection = probe_target.map_or(
+                NavigationDomainProjection::ProjectObject {
+                    object_identity: identity.0,
+                },
+                |target| NavigationDomainProjection::ProbeTarget { target },
+            );
             builder
                 .insert_anchor(NavigationAnchor {
                     identity,
@@ -1472,12 +2220,16 @@ impl EngineeringSession {
                     },
                     side: ArtifactSide::CurrentOffline,
                     artifact_fingerprint: offline_fingerprint,
+                    controller_epoch: None,
                     source: None,
+                    domain_projection: Some(domain_projection),
                     probe_target,
+                    relationship_kind: NavigationRelationshipKind::Selected,
+                    validity: NavigationValidity::Valid,
                     tombstone_reason_hash: None,
                 })
                 .map_err(|error| SystemError::Navigation(format!("{error:?}")))?;
-            if loaded_fingerprint == Some(offline_fingerprint) {
+            if let Some(loaded) = loaded_artifact {
                 builder
                     .insert_anchor(NavigationAnchor {
                         identity,
@@ -1487,9 +2239,13 @@ impl EngineeringSession {
                             NavigationKind::ProjectObject
                         },
                         side: ArtifactSide::Loaded,
-                        artifact_fingerprint: offline_fingerprint,
+                        artifact_fingerprint: loaded.fingerprint,
+                        controller_epoch: Some(loaded.controller_epoch),
                         source: None,
+                        domain_projection: Some(domain_projection),
                         probe_target,
+                        relationship_kind: NavigationRelationshipKind::Selected,
+                        validity: NavigationValidity::Valid,
                         tombstone_reason_hash: None,
                     })
                     .map_err(|error| SystemError::Navigation(format!("{error:?}")))?;
@@ -1555,6 +2311,419 @@ const fn display_base(value: CanonicalDisplayBase) -> DisplayBase {
         CanonicalDisplayBase::Decimal => DisplayBase::Decimal,
         CanonicalDisplayBase::Hexadecimal => DisplayBase::Hexadecimal,
     }
+}
+
+fn build_hardware_condition_engine(
+    hardware: &CanonicalHardwareProjection,
+    controller_object_id: ObjectId,
+    controller_epoch: u64,
+    commands: &[HardwareFaultCommand],
+) -> Result<HardwareConditionEngine, SystemError> {
+    let project = hardware.hardware_project();
+    let controller = project
+        .controllers()
+        .values()
+        .find(|controller| hardware.origin_for(controller.id.uuid()) == Some(controller_object_id))
+        .ok_or_else(|| {
+            SystemError::Hardware(
+                "canonical controller is absent from runtime hardware configuration".to_owned(),
+            )
+        })?;
+    let mut configuration = RuntimeHardwareConfiguration::new();
+    configuration
+        .add_device(controller.virtual_device_id, RuntimeDeviceRole::Controller)
+        .map_err(|error| SystemError::Hardware(format!("{error:?}")))?;
+    add_runtime_rack_modules(
+        &mut configuration,
+        &controller.local_rack,
+        controller.virtual_device_id,
+        None,
+    )?;
+    for station in project
+        .stations()
+        .values()
+        .filter(|station| station.controller_id == controller.id)
+    {
+        configuration
+            .add_device(station.virtual_device_id, RuntimeDeviceRole::Station)
+            .map_err(|error| SystemError::Hardware(format!("{error:?}")))?;
+        let required_link = link_for_device(project.network(), station.virtual_device_id);
+        add_runtime_rack_modules(
+            &mut configuration,
+            &station.rack,
+            station.virtual_device_id,
+            required_link,
+        )?;
+    }
+    let rebound = commands.iter().cloned().map(|mut command| {
+        command.expected_controller_epoch = controller_epoch;
+        command
+    });
+    HardwareConditionEngine::replay(
+        hardware.profile().pin(),
+        configuration,
+        project.network().clone(),
+        controller_epoch,
+        rebound,
+    )
+    .map_err(|error| SystemError::Hardware(format!("{error:?}")))
+}
+
+fn add_runtime_rack_modules(
+    configuration: &mut RuntimeHardwareConfiguration,
+    rack: &plc_hardware::RackConfig,
+    owner_device_id: plc_hardware::VirtualDeviceId,
+    required_link_id: Option<plc_hardware::VirtualLinkId>,
+) -> Result<(), SystemError> {
+    for module in rack
+        .slots
+        .values()
+        .filter_map(|slot| match &slot.installed {
+            Some(InstalledOccupant::Module(module)) => Some(module),
+            Some(InstalledOccupant::ControllerCore(_)) | None => None,
+        })
+    {
+        // VLINK-2 is represented by the canonical interface itself. Current
+        // Phase 2 project projection has no station authoring surface that can
+        // bind its provider-module identity, so it is not duplicated here.
+        if module.catalog_id == plc_hardware::ModuleCatalogId::Vlink2 {
+            continue;
+        }
+        configuration
+            .add_module(RuntimeModuleConfiguration {
+                configured_module: module.clone(),
+                owner_device_id,
+                required_link_id,
+            })
+            .map_err(|error| SystemError::Hardware(format!("{error:?}")))?;
+    }
+    Ok(())
+}
+
+fn link_for_device(
+    network: &plc_hardware::VirtualNetwork,
+    device_id: plc_hardware::VirtualDeviceId,
+) -> Option<plc_hardware::VirtualLinkId> {
+    let interface_ids = network
+        .interfaces()
+        .values()
+        .filter(|interface| interface.owner_device_id == device_id)
+        .map(|interface| interface.id)
+        .collect::<BTreeSet<_>>();
+    let port_ids = network
+        .ports()
+        .values()
+        .filter(|port| interface_ids.contains(&port.owner_interface_id))
+        .map(|port| port.id)
+        .collect::<BTreeSet<_>>();
+    network
+        .links()
+        .values()
+        .find(|link| {
+            link.endpoint_port_ids
+                .iter()
+                .any(|port| port_ids.contains(port))
+        })
+        .map(|link| link.id)
+}
+
+fn initial_hardware_inputs(
+    engine: &HardwareConditionEngine,
+) -> BTreeMap<HardwareChannelId, ChannelRawValue> {
+    engine
+        .configuration()
+        .modules()
+        .values()
+        .flat_map(|module| module.configured_module.channels.iter())
+        .filter(|channel| channel.direction == HardwareChannelDirection::Input)
+        .filter_map(|channel| {
+            ChannelRawValue::canonical_default(channel.raw_type).map(|value| (channel.id, value))
+        })
+        .collect()
+}
+
+fn hardware_input_shape_valid(
+    engine: &HardwareConditionEngine,
+    inputs: &BTreeMap<HardwareChannelId, ChannelRawValue>,
+) -> bool {
+    let expected = engine
+        .configuration()
+        .modules()
+        .values()
+        .flat_map(|module| module.configured_module.channels.iter())
+        .filter(|channel| channel.direction == HardwareChannelDirection::Input)
+        .map(|channel| (channel.id, channel.raw_type))
+        .collect::<BTreeMap<_, _>>();
+    inputs.len() == expected.len()
+        && inputs.iter().all(|(id, value)| {
+            expected
+                .get(id)
+                .is_some_and(|raw_type| value.matches(*raw_type))
+        })
+}
+
+fn hardware_condition_snapshot_hash(snapshot: &HardwareConditionSnapshot) -> Hash32 {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"PES-HARDWARE-CONDITION-SNAPSHOT-1\0");
+    append_bytes(&mut bytes, snapshot.profile_pin.id.as_bytes());
+    append_bytes(&mut bytes, snapshot.profile_pin.version.as_bytes());
+    bytes.extend_from_slice(&snapshot.profile_pin.manifest_hash.0);
+    bytes.extend_from_slice(&snapshot.controller_epoch.to_be_bytes());
+    bytes.extend_from_slice(&snapshot.command_boundary.to_be_bytes());
+    bytes.extend_from_slice(
+        &u64::try_from(snapshot.module_states.len())
+            .unwrap_or(u64::MAX)
+            .to_be_bytes(),
+    );
+    for (id, state) in &snapshot.module_states {
+        append_uuid(&mut bytes, id.uuid());
+        bytes.push(match state {
+            ModuleRuntimeState::ConfiguredPresent => 1,
+            ModuleRuntimeState::Pulled => 2,
+            ModuleRuntimeState::WrongCatalogInstalled => 3,
+        });
+    }
+    append_uuid_set(
+        &mut bytes,
+        snapshot.channel_faults.iter().map(|id| id.uuid()),
+    );
+    append_uuid_set(&mut bytes, snapshot.wire_breaks.iter().map(|id| id.uuid()));
+    append_bool_map(
+        &mut bytes,
+        snapshot
+            .controller_powered
+            .iter()
+            .map(|(id, value)| (id.uuid(), *value)),
+    );
+    append_bool_map(
+        &mut bytes,
+        snapshot
+            .station_available
+            .iter()
+            .map(|(id, value)| (id.uuid(), *value)),
+    );
+    append_bool_map(
+        &mut bytes,
+        snapshot
+            .link_available
+            .iter()
+            .map(|(id, value)| (id.uuid(), *value)),
+    );
+    bytes.extend_from_slice(
+        &u64::try_from(snapshot.active_conditions.len())
+            .unwrap_or(u64::MAX)
+            .to_be_bytes(),
+    );
+    for condition in &snapshot.active_conditions {
+        append_hardware_condition(&mut bytes, *condition);
+    }
+    bytes.extend_from_slice(
+        &u64::try_from(snapshot.condition_events.len())
+            .unwrap_or(u64::MAX)
+            .to_be_bytes(),
+    );
+    for event in &snapshot.condition_events {
+        bytes.extend_from_slice(&event.sequence.to_be_bytes());
+        bytes.extend_from_slice(&event.command_boundary.to_be_bytes());
+        append_hardware_condition(&mut bytes, event.condition);
+        bytes.push(match event.lifecycle {
+            ConditionLifecycle::Activated => 1,
+            ConditionLifecycle::Cleared => 2,
+        });
+        append_bytes(&mut bytes, event.diagnostic_code.stable_code().as_bytes());
+    }
+    bytes.extend_from_slice(&snapshot.network_state_fingerprint.0);
+    bytes.extend_from_slice(&snapshot.state_fingerprint.0);
+    hash32(sha256(&bytes))
+}
+
+fn hardware_command_log_hash(commands: &[HardwareFaultCommand]) -> Hash32 {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"PES-HARDWARE-COMMAND-LOG-1\0");
+    bytes.extend_from_slice(
+        &u64::try_from(commands.len())
+            .unwrap_or(u64::MAX)
+            .to_be_bytes(),
+    );
+    for command in commands {
+        append_uuid(&mut bytes, command.idempotency_key);
+        bytes.extend_from_slice(&command.expected_controller_epoch.to_be_bytes());
+        append_hardware_action(&mut bytes, command.action);
+    }
+    hash32(sha256(&bytes))
+}
+
+fn hardware_natural_input_hash(inputs: &BTreeMap<HardwareChannelId, ChannelRawValue>) -> Hash32 {
+    let mut bytes = Vec::new();
+    bytes.extend_from_slice(b"PES-HARDWARE-NATURAL-INPUTS-1\0");
+    bytes.extend_from_slice(
+        &u64::try_from(inputs.len())
+            .unwrap_or(u64::MAX)
+            .to_be_bytes(),
+    );
+    for (id, value) in inputs {
+        append_uuid(&mut bytes, id.uuid());
+        match value {
+            ChannelRawValue::Bool(value) => {
+                bytes.push(1);
+                bytes.push(u8::from(*value));
+            }
+            ChannelRawValue::Int(value) => {
+                bytes.push(2);
+                bytes.extend_from_slice(&value.to_be_bytes());
+            }
+        }
+    }
+    hash32(sha256(&bytes))
+}
+
+fn append_hardware_condition(bytes: &mut Vec<u8>, condition: HardwareConditionKey) {
+    let (tag, id) = match condition {
+        HardwareConditionKey::ModuleNotPresent(id) => (1, id.uuid()),
+        HardwareConditionKey::WrongModule(id) => (2, id.uuid()),
+        HardwareConditionKey::ChannelFault(id) => (3, id.uuid()),
+        HardwareConditionKey::WireBreak(id) => (4, id.uuid()),
+        HardwareConditionKey::ControllerUnpowered(id) => (5, id.uuid()),
+        HardwareConditionKey::StationUnavailable(id) => (6, id.uuid()),
+        HardwareConditionKey::LinkUnavailable(id) => (7, id.uuid()),
+    };
+    bytes.push(tag);
+    append_uuid(bytes, id);
+}
+
+fn append_hardware_action(bytes: &mut Vec<u8>, action: HardwareFaultAction) {
+    match action {
+        HardwareFaultAction::PullModule(id) => append_tagged_uuid(bytes, 1, id.uuid()),
+        HardwareFaultAction::RestoreModule(id) => append_tagged_uuid(bytes, 2, id.uuid()),
+        HardwareFaultAction::InstallWrongModule {
+            module_id,
+            installed_catalog,
+        } => {
+            append_tagged_uuid(bytes, 3, module_id.uuid());
+            append_bytes(bytes, installed_catalog.as_str().as_bytes());
+        }
+        HardwareFaultAction::RestoreConfiguredModule(id) => {
+            append_tagged_uuid(bytes, 4, id.uuid());
+        }
+        HardwareFaultAction::SetChannelFault(id) => append_tagged_uuid(bytes, 5, id.uuid()),
+        HardwareFaultAction::ClearChannelFault(id) => append_tagged_uuid(bytes, 6, id.uuid()),
+        HardwareFaultAction::SetWireBreak(id) => append_tagged_uuid(bytes, 7, id.uuid()),
+        HardwareFaultAction::ClearWireBreak(id) => append_tagged_uuid(bytes, 8, id.uuid()),
+        HardwareFaultAction::SetControllerPowered { device_id, powered } => {
+            append_tagged_uuid(bytes, 9, device_id.uuid());
+            bytes.push(u8::from(powered));
+        }
+        HardwareFaultAction::SetStationAvailable {
+            device_id,
+            available,
+        } => {
+            append_tagged_uuid(bytes, 10, device_id.uuid());
+            bytes.push(u8::from(available));
+        }
+        HardwareFaultAction::SetVirtualLinkAvailable { link_id, available } => {
+            append_tagged_uuid(bytes, 11, link_id.uuid());
+            bytes.push(u8::from(available));
+        }
+    }
+}
+
+fn append_tagged_uuid(bytes: &mut Vec<u8>, tag: u8, id: Uuid) {
+    bytes.push(tag);
+    append_uuid(bytes, id);
+}
+
+fn append_uuid(bytes: &mut Vec<u8>, id: Uuid) {
+    bytes.extend_from_slice(&id.into_bytes());
+}
+
+fn append_uuid_set(bytes: &mut Vec<u8>, ids: impl ExactSizeIterator<Item = Uuid>) {
+    bytes.extend_from_slice(&u64::try_from(ids.len()).unwrap_or(u64::MAX).to_be_bytes());
+    for id in ids {
+        append_uuid(bytes, id);
+    }
+}
+
+fn append_bool_map(bytes: &mut Vec<u8>, values: impl ExactSizeIterator<Item = (Uuid, bool)>) {
+    bytes.extend_from_slice(
+        &u64::try_from(values.len())
+            .unwrap_or(u64::MAX)
+            .to_be_bytes(),
+    );
+    for (id, value) in values {
+        append_uuid(bytes, id);
+        bytes.push(u8::from(value));
+    }
+}
+
+fn append_bytes(bytes: &mut Vec<u8>, value: &[u8]) {
+    bytes.extend_from_slice(&u64::try_from(value.len()).unwrap_or(u64::MAX).to_be_bytes());
+    bytes.extend_from_slice(value);
+}
+
+const fn hardware_raw_from_runtime(value: CanonicalValue) -> Option<ChannelRawValue> {
+    match value {
+        CanonicalValue::Bool(value) => Some(ChannelRawValue::Bool(value)),
+        CanonicalValue::I16(value) => Some(ChannelRawValue::Int(value)),
+        _ => None,
+    }
+}
+
+const fn runtime_value_from_hardware(value: ChannelRawValue) -> CanonicalValue {
+    match value {
+        ChannelRawValue::Bool(value) => CanonicalValue::Bool(value),
+        ChannelRawValue::Int(value) => CanonicalValue::I16(value),
+    }
+}
+
+const fn runtime_quality_from_hardware(quality: HardwareChannelQuality) -> plc_runtime::Quality {
+    match quality {
+        HardwareChannelQuality::Good => plc_runtime::Quality::Good,
+        HardwareChannelQuality::Uncertain => plc_runtime::Quality::Uncertain,
+        HardwareChannelQuality::Bad => plc_runtime::Quality::Bad,
+        HardwareChannelQuality::NotPresent => plc_runtime::Quality::NotPresent,
+    }
+}
+
+const fn observation_quality_from_hardware(quality: HardwareChannelQuality) -> Quality {
+    match quality {
+        HardwareChannelQuality::Good => Quality::Good,
+        HardwareChannelQuality::Uncertain => Quality::Uncertain,
+        HardwareChannelQuality::Bad => Quality::Bad,
+        HardwareChannelQuality::NotPresent => Quality::NotPresent,
+    }
+}
+
+const fn runtime_channel_id(target: RuntimeTarget) -> Option<plc_runtime::ChannelId> {
+    match target {
+        RuntimeTarget::Input(id) | RuntimeTarget::Output(id) => Some(id),
+        RuntimeTarget::Memory(_) => None,
+    }
+}
+
+fn hardware_projection_identity(
+    command_id: u128,
+    channel_id: HardwareChannelId,
+    domain: &[u8],
+) -> u128 {
+    let mut bytes = Vec::with_capacity(domain.len() + 32);
+    bytes.extend_from_slice(domain);
+    bytes.extend_from_slice(&command_id.to_be_bytes());
+    bytes.extend_from_slice(&channel_id.uuid().into_bytes());
+    identity_from_hash(hash32(sha256(&bytes)))
+}
+
+fn hash_hardware_projection_set(causal_hashes: &[Sha256Digest]) -> Hash32 {
+    let mut bytes = Vec::with_capacity(causal_hashes.len() * 32 + 40);
+    bytes.extend_from_slice(b"PES-HARDWARE-PROJECTION-SET-1\0");
+    bytes.extend_from_slice(
+        &u64::try_from(causal_hashes.len())
+            .unwrap_or(u64::MAX)
+            .to_be_bytes(),
+    );
+    for hash in causal_hashes {
+        bytes.extend_from_slice(&hash.0);
+    }
+    hash32(sha256(&bytes))
 }
 
 fn projected_trace_config(config: &crate::CanonicalTraceConfig) -> TraceConfig {
@@ -1630,6 +2799,10 @@ fn engineering_snapshot_hash(snapshot: &EngineeringSessionSnapshot) -> Hash32 {
     bytes.extend_from_slice(snapshot.trace_snapshot_hash.as_bytes());
     bytes.extend_from_slice(snapshot.diagnostic_snapshot_hash.as_bytes());
     bytes.extend_from_slice(snapshot.runtime_bridge_hash.as_bytes());
+    bytes.extend_from_slice(snapshot.hardware_condition_hash.as_bytes());
+    bytes.extend_from_slice(snapshot.hardware_command_hash.as_bytes());
+    bytes.extend_from_slice(snapshot.hardware_input_hash.as_bytes());
+    bytes.extend_from_slice(snapshot.hardware_diagnostic_bridge_hash.as_bytes());
     bytes.extend_from_slice(
         &u64::try_from(snapshot.trace_capture_ids.len())
             .unwrap_or(u64::MAX)
@@ -1638,6 +2811,164 @@ fn engineering_snapshot_hash(snapshot: &EngineeringSessionSnapshot) -> Hash32 {
     for id in &snapshot.trace_capture_ids {
         bytes.extend_from_slice(&id.0.to_be_bytes());
     }
+    hash32(sha256(&bytes))
+}
+
+fn force_restore_deltas(before: &ForceRegistry, after: &ForceRegistry) -> Vec<ForceRestoreDelta> {
+    let before = before
+        .entries()
+        .enumerate()
+        .map(|(index, entry)| {
+            (
+                entry.id,
+                (
+                    u64::try_from(index).unwrap_or(u64::MAX).saturating_add(1),
+                    entry,
+                ),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let after = after
+        .entries()
+        .enumerate()
+        .map(|(index, entry)| {
+            (
+                entry.id,
+                (
+                    u64::try_from(index).unwrap_or(u64::MAX).saturating_add(1),
+                    entry,
+                ),
+            )
+        })
+        .collect::<BTreeMap<_, _>>();
+    let identities = before
+        .keys()
+        .chain(after.keys())
+        .copied()
+        .collect::<BTreeSet<_>>();
+    identities
+        .into_iter()
+        .map(|force_id| {
+            let old = before.get(&force_id).copied();
+            let new = after.get(&force_id).copied();
+            let mut classifications = match (old, new) {
+                (Some((_, old)), Some((_, new))) if same_force_semantics(old, new) => {
+                    vec![ForceRestoreClassification::Retained]
+                }
+                (Some(_), Some(_)) => vec![ForceRestoreClassification::Replaced],
+                (None, Some(_)) => vec![ForceRestoreClassification::Added],
+                (Some(_), None) => vec![ForceRestoreClassification::Removed],
+                (None, None) => unreachable!("identity comes from one registry"),
+            };
+            if old.map(|(ordinal, _)| ordinal) != new.map(|(ordinal, _)| ordinal)
+                && old.is_some()
+                && new.is_some()
+            {
+                classifications.push(ForceRestoreClassification::Reordered);
+            }
+            if old.zip(new).is_some_and(|((_, old), (_, new))| {
+                old.bound_universe_epoch != new.bound_universe_epoch
+                    || old.bound_controller_epoch != new.bound_controller_epoch
+            }) {
+                classifications.push(ForceRestoreClassification::EpochRebound);
+            }
+            classifications.sort_unstable();
+            ForceRestoreDelta {
+                force_id,
+                classifications,
+                before_ordinal: old.map(|(ordinal, _)| ordinal),
+                after_ordinal: new.map(|(ordinal, _)| ordinal),
+                before: old.map(|(_, entry)| entry.clone()),
+                after: new.map(|(_, entry)| entry.clone()),
+            }
+        })
+        .collect()
+}
+
+fn same_force_semantics(left: &ForceEntry, right: &ForceEntry) -> bool {
+    left.id == right.id
+        && left.controller_id == right.controller_id
+        && left.target_id == right.target_id
+        && left.runtime_target == right.runtime_target
+        && left.instance_path == right.instance_path
+        && left.bit_range == right.bit_range
+        && left.value_type == right.value_type
+        && left.value == right.value
+        && left.natural_at_application == right.natural_at_application
+        && left.target_layer == right.target_layer
+        && left.underlying_quality == right.underlying_quality
+        && left.quality_warning == right.quality_warning
+        && left.activation_boundary == right.activation_boundary
+        && left.status == right.status
+        && left.created_universe_epoch == right.created_universe_epoch
+        && left.created_controller_epoch == right.created_controller_epoch
+        && left.created_session_epoch == right.created_session_epoch
+        && left.artifact_fingerprint == right.artifact_fingerprint
+        && left.actor_identity == right.actor_identity
+        && left.reason == right.reason
+        && left.audit_context_hash == right.audit_context_hash
+}
+
+fn hash_force_restore_deltas(
+    current_registry_hash: Hash32,
+    snapshot_registry_hash: Hash32,
+    planned_registry_hash: Hash32,
+    deltas: &[ForceRestoreDelta],
+) -> Hash32 {
+    let mut bytes = Vec::with_capacity(32 * 3 + deltas.len() * 96 + 32);
+    bytes.extend_from_slice(b"PES-FORCE-RESTORE-DELTA-1\0");
+    bytes.extend_from_slice(current_registry_hash.as_bytes());
+    bytes.extend_from_slice(snapshot_registry_hash.as_bytes());
+    bytes.extend_from_slice(planned_registry_hash.as_bytes());
+    bytes.extend_from_slice(
+        &u64::try_from(deltas.len())
+            .unwrap_or(u64::MAX)
+            .to_be_bytes(),
+    );
+    for delta in deltas {
+        bytes.extend_from_slice(&delta.force_id.0.to_be_bytes());
+        bytes.extend_from_slice(
+            &u64::try_from(delta.classifications.len())
+                .unwrap_or(u64::MAX)
+                .to_be_bytes(),
+        );
+        bytes.extend(delta.classifications.iter().map(|value| *value as u8));
+        encode_optional_ordinal(delta.before_ordinal, &mut bytes);
+        encode_optional_ordinal(delta.after_ordinal, &mut bytes);
+        encode_optional_force_hash(delta.before.as_ref(), &mut bytes);
+        encode_optional_force_hash(delta.after.as_ref(), &mut bytes);
+    }
+    hash32(sha256(&bytes))
+}
+
+fn encode_optional_ordinal(value: Option<u64>, output: &mut Vec<u8>) {
+    output.push(u8::from(value.is_some()));
+    if let Some(value) = value {
+        output.extend_from_slice(&value.to_be_bytes());
+    }
+}
+
+fn encode_optional_force_hash(value: Option<&ForceEntry>, output: &mut Vec<u8>) {
+    output.push(u8::from(value.is_some()));
+    if let Some(value) = value {
+        output.extend_from_slice(value.entry_hash.as_bytes());
+    }
+}
+
+fn hash_restore_preview(preview: &RestorePreview) -> Hash32 {
+    let mut bytes = Vec::with_capacity(32 * 7 + 64);
+    bytes.extend_from_slice(b"PES-RESTORE-PREVIEW-1\0");
+    bytes.extend_from_slice(preview.snapshot_content_hash.as_bytes());
+    bytes.extend_from_slice(&preview.expected_universe_epoch.to_be_bytes());
+    bytes.extend_from_slice(&preview.expected_controller_epoch.to_be_bytes());
+    bytes.extend_from_slice(preview.expected_current_state_hash.as_bytes());
+    bytes.extend_from_slice(preview.current_force_registry_hash.as_bytes());
+    bytes.extend_from_slice(preview.snapshot_force_registry_hash.as_bytes());
+    bytes.extend_from_slice(preview.planned_force_registry_hash.as_bytes());
+    bytes.extend_from_slice(preview.force_delta_hash.as_bytes());
+    bytes.extend_from_slice(&preview.planned_universe_epoch.to_be_bytes());
+    bytes.extend_from_slice(&preview.planned_controller_epoch.to_be_bytes());
+    bytes.push(preview.safe_mode as u8);
     hash32(sha256(&bytes))
 }
 

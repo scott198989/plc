@@ -6,7 +6,7 @@ use alloc::{
 };
 use core::{error::Error, fmt};
 
-use plc_commissioning::CommissionedScanReceipt;
+use plc_commissioning::{CommissionedHardwareBoundaryReceipt, CommissionedScanReceipt};
 use plc_runtime::{CanonicalValue, CpuState, Hash32, RunOutcome, SCAN_QUANTUM_MS};
 use plc_types::{CanonicalF32, CanonicalF64};
 
@@ -102,6 +102,45 @@ impl TraceRuntimePublication {
             scan_quantum_ms: SCAN_QUANTUM_MS,
             scan_work_units: report.work_units,
             controller_state_hash: receipt.controller_state_hash,
+        })
+    }
+
+    /// Binds scan metrics to the serialized virtual-hardware delivery event
+    /// that immediately follows the CPU output-image commit. The scan still
+    /// owns its work/time metrics, while the observation context and state
+    /// hash must name the later causal delivery boundary exactly.
+    pub fn from_commissioned_scan_after_hardware_boundary(
+        context: ObservationContext,
+        scan: &CommissionedScanReceipt,
+        hardware: &CommissionedHardwareBoundaryReceipt,
+    ) -> Result<Self, TraceError> {
+        let RunOutcome::Completed(report) = &scan.runtime.outcome else {
+            return Err(TraceError::RuntimeMetricUnavailable);
+        };
+        if context.cpu_state != CpuState::Run
+            || context.publication_boundary != crate::PublicationBoundary::ScanEnd
+            || context.scan_sequence != report.scan_sequence
+            || hardware.runtime.scan_sequence != report.scan_sequence
+            || context.event_sequence != hardware.runtime.event_sequence
+            || context.virtual_timestamp_ms != report.completed_time_ms
+            || hardware.runtime.virtual_timestamp_ms != report.completed_time_ms
+            || hardware.runtime.cpu_state != CpuState::Run
+            || context.target_state_hash != hardware.controller_state_hash
+        {
+            return Err(TraceError::RuntimeMetricBindingMismatch);
+        }
+        Ok(Self {
+            universe_id: context.universe_id.0,
+            universe_epoch: context.universe_epoch,
+            controller_id: context.controller_id.0,
+            controller_epoch: context.controller_epoch,
+            artifact_fingerprint: context.artifact_fingerprint,
+            scan_sequence: report.scan_sequence,
+            event_sequence: hardware.runtime.event_sequence,
+            virtual_timestamp_ms: report.completed_time_ms,
+            scan_quantum_ms: SCAN_QUANTUM_MS,
+            scan_work_units: report.work_units,
+            controller_state_hash: hardware.controller_state_hash,
         })
     }
 

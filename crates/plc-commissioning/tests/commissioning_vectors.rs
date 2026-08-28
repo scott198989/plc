@@ -447,7 +447,7 @@ fn preview_is_deterministic_and_initial_load_is_explicit() {
     assert_eq!(a.id(), b.id());
     assert_eq!(
         a.hash().to_hex(),
-        "bc786242dfffaeda31f5804e63b7dde40c8d7e6d06351149ca105f5c5b6188b6"
+        "a785ee26651d87576bbbab502d7615bba7b3358d44e59d156bad115debfbdc32"
     );
     assert_eq!(a.compatibility(), CompatibilityClass::Initial);
     assert!(a.requires_stop());

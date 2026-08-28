@@ -20,6 +20,7 @@ plc-language-tools = { path = "../plc-language-tools" }
 plc-observability = { path = "../plc-observability" }
 plc-program = { path = "../plc-program" }
 plc-runtime = { path = "../plc-runtime" }
+plc-types = { path = "../plc-types" }
 
 [lints.rust]
 unsafe_code = "forbid"

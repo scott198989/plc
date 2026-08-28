@@ -8,11 +8,11 @@ use plc_core::{
     CommandContext, CommandEnvelope, CommandOutcome, DomainCommand, Engine, NewObject, ObjectId,
     Payload, PayloadValue, ProfilePin, Project, ProjectObjectKind, TransactionId, Uuid,
 };
-use plc_hardware::TrainingProfile;
+use plc_hardware::{HardwareFaultAction, InstalledOccupant, ModuleId, TrainingProfile};
 use plc_observability::{Quality, StableTargetId};
-use plc_runtime::{CanonicalValue, CpuState, Hash32};
+use plc_runtime::{CanonicalValue, CpuState, Hash32, ReplayEventKind};
 use plc_system::{
-    EngineeringSession, SystemBuildError, SystemCommandIdentity, SystemError,
+    EngineeringSession, RestoreApproval, SystemBuildError, SystemCommandIdentity, SystemError,
     build_project_controller, project_hardware,
 };
 
@@ -21,6 +21,7 @@ struct Fixture {
     controller: ObjectId,
     rack: ObjectId,
     input_module: ObjectId,
+    output_module: ObjectId,
     program: ObjectId,
     input_tag: ObjectId,
     output_tag: ObjectId,
@@ -56,6 +57,7 @@ impl Fixture {
             controller: object_id(11),
             rack: object_id(12),
             input_module: object_id(13),
+            output_module: object_id(14),
             program: object_id(20),
             input_tag: object_id(30),
             output_tag: object_id(31),
@@ -96,7 +98,7 @@ impl Fixture {
             module_payload("vdi16", 1),
         );
         fixture.create(
-            object_id(14),
+            fixture.output_module,
             ProjectObjectKind::Module,
             fixture.rack,
             "Digital output 16",
@@ -710,6 +712,22 @@ fn loaded_session(fixture: &Fixture) -> EngineeringSession {
     session
 }
 
+fn projected_module_id(fixture: &Fixture, object_id: ObjectId) -> ModuleId {
+    let projection = project_hardware(fixture.engine.project());
+    projection
+        .hardware_project()
+        .controllers()
+        .values()
+        .flat_map(|controller| controller.local_rack.slots.values())
+        .filter_map(|slot| match &slot.installed {
+            Some(InstalledOccupant::Module(module)) => Some(module),
+            Some(InstalledOccupant::ControllerCore(_)) | None => None,
+        })
+        .find(|module| projection.origin_for(module.id.uuid()) == Some(object_id))
+        .map(|module| module.id)
+        .expect("canonical module projection")
+}
+
 #[test]
 fn hardware_compiler_runtime_and_load_share_one_profile_authority() {
     let fixture = Fixture::canonical_scl();
@@ -842,6 +860,170 @@ fn one_project_drives_raw_input_through_scl_to_delivered_output() {
 }
 
 #[test]
+fn output_module_fault_preserves_cpu_truth_and_suppresses_only_hardware_delivery() {
+    let fixture = Fixture::canonical_scl();
+    let output_module = projected_module_id(&fixture, fixture.output_module);
+    let mut session = loaded_session(&fixture);
+    session.request_run().expect("run");
+    session
+        .set_raw_virtual_input(
+            identity(20),
+            stable_target(fixture.input_tag),
+            CanonicalValue::Bool(false),
+        )
+        .expect("input");
+    session.run_scan(identity(21)).expect("ordinary scan");
+
+    let fault_identity = identity(22);
+    let receipt = session
+        .apply_hardware_fault(
+            fault_identity,
+            HardwareFaultAction::PullModule(output_module),
+        )
+        .expect("pull output module");
+    assert!(receipt.changed);
+    session.run_scan(identity(23)).expect("scan through fault");
+
+    let read = session.read_model().expect("faulted read model");
+    assert_eq!(read.cpu_state, CpuState::Run);
+    let output = read
+        .probes
+        .iter()
+        .find(|probe| probe.identity == stable_target(fixture.output_tag))
+        .expect("output probe");
+    assert_eq!(output.natural_value, Some(CanonicalValue::Bool(true)));
+    assert_eq!(output.effective_value, Some(CanonicalValue::Bool(true)));
+    assert_eq!(
+        output.committed_output_value,
+        Some(CanonicalValue::Bool(true))
+    );
+    assert_eq!(
+        output.delivered_output_value,
+        Some(CanonicalValue::Bool(false))
+    );
+    assert_eq!(output.quality, Quality::NotPresent);
+    assert!(!read.diagnostics.active.is_empty());
+    let runtime = session
+        .universe()
+        .controller(read.runtime_controller_id)
+        .expect("controller")
+        .runtime();
+    assert_eq!(
+        runtime.replay_events().last().map(|event| event.kind),
+        Some(ReplayEventKind::HardwareBoundary)
+    );
+
+    let state_after_fault = session.universe().semantic_state_hash();
+    let replay_after_fault = runtime.replay_hash();
+    assert_eq!(
+        session
+            .apply_hardware_fault(
+                fault_identity,
+                HardwareFaultAction::PullModule(output_module),
+            )
+            .expect("idempotent retry"),
+        receipt
+    );
+    assert_eq!(session.universe().semantic_state_hash(), state_after_fault);
+    assert_eq!(
+        session
+            .universe()
+            .controller(read.runtime_controller_id)
+            .expect("controller")
+            .runtime()
+            .replay_hash(),
+        replay_after_fault
+    );
+    assert!(
+        session
+            .apply_hardware_fault(
+                fault_identity,
+                HardwareFaultAction::RestoreModule(output_module),
+            )
+            .is_err()
+    );
+    assert_eq!(session.universe().semantic_state_hash(), state_after_fault);
+
+    session
+        .apply_hardware_fault(
+            identity(24),
+            HardwareFaultAction::RestoreModule(output_module),
+        )
+        .expect("restore output module");
+    let restored = session.read_model().expect("restored read model");
+    let output = restored
+        .probes
+        .iter()
+        .find(|probe| probe.identity == stable_target(fixture.output_tag))
+        .expect("output probe");
+    assert_eq!(
+        output.delivered_output_value,
+        Some(CanonicalValue::Bool(true))
+    );
+    assert_eq!(output.quality, Quality::Good);
+    assert!(restored.diagnostics.active.is_empty());
+}
+
+#[test]
+fn input_module_fault_keeps_natural_sample_and_snapshot_restores_the_causal_condition() {
+    let fixture = Fixture::canonical_scl();
+    let input_module = projected_module_id(&fixture, fixture.input_module);
+    let mut session = loaded_session(&fixture);
+    session.request_run().expect("run");
+    session
+        .set_raw_virtual_input(
+            identity(30),
+            stable_target(fixture.input_tag),
+            CanonicalValue::Bool(true),
+        )
+        .expect("natural input");
+    session
+        .apply_hardware_fault(identity(31), HardwareFaultAction::PullModule(input_module))
+        .expect("pull input module");
+    let faulted = session.read_model().expect("faulted read model");
+    let input = faulted
+        .probes
+        .iter()
+        .find(|probe| probe.identity == stable_target(fixture.input_tag))
+        .expect("input probe");
+    assert_eq!(input.raw_input_value, Some(CanonicalValue::Bool(true)));
+    assert_eq!(input.natural_value, Some(CanonicalValue::Bool(false)));
+    assert_eq!(input.effective_value, Some(CanonicalValue::Bool(false)));
+    assert_eq!(input.quality, Quality::NotPresent);
+
+    session.request_stop().expect("stop");
+    let snapshot = session.capture_snapshot().expect("hardware snapshot");
+    session
+        .apply_hardware_fault(
+            identity(32),
+            HardwareFaultAction::RestoreModule(input_module),
+        )
+        .expect("restore module");
+    session
+        .set_raw_virtual_input(
+            identity(33),
+            stable_target(fixture.input_tag),
+            CanonicalValue::Bool(false),
+        )
+        .expect("change natural input");
+    let preview = session.preview_restore(&snapshot).expect("restore preview");
+    session
+        .commit_restore(&snapshot, &preview, RestoreApproval::approve(&preview))
+        .expect("restore hardware snapshot");
+
+    let restored = session.read_model().expect("restored read model");
+    let input = restored
+        .probes
+        .iter()
+        .find(|probe| probe.identity == stable_target(fixture.input_tag))
+        .expect("input probe");
+    assert_eq!(input.raw_input_value, Some(CanonicalValue::Bool(true)));
+    assert_eq!(input.natural_value, Some(CanonicalValue::Bool(false)));
+    assert_eq!(input.quality, Quality::NotPresent);
+    assert!(!restored.diagnostics.active.is_empty());
+}
+
+#[test]
 fn aggregate_snapshot_is_deterministic_tamper_safe_and_restores_runtime_values() {
     let fixture = Fixture::canonical_scl();
     let mut session = loaded_session(&fixture);
@@ -867,7 +1049,7 @@ fn aggregate_snapshot_is_deterministic_tamper_safe_and_restores_runtime_values()
     let mut corrupted = snapshot.clone();
     corrupted.content_hash = Hash32::ZERO;
     let before_rejection = session.universe().semantic_state_hash();
-    assert!(session.restore_snapshot(&corrupted).is_err());
+    assert!(session.preview_restore(&corrupted).is_err());
     assert_eq!(before_rejection, session.universe().semantic_state_hash());
 
     session
@@ -877,7 +1059,10 @@ fn aggregate_snapshot_is_deterministic_tamper_safe_and_restores_runtime_values()
             CanonicalValue::Bool(false),
         )
         .expect("changed input");
-    session.restore_snapshot(&snapshot).expect("atomic restore");
+    let preview = session.preview_restore(&snapshot).expect("restore preview");
+    session
+        .commit_restore(&snapshot, &preview, RestoreApproval::approve(&preview))
+        .expect("approved atomic restore");
     let read = session.read_model().expect("read model");
     let input = read
         .probes

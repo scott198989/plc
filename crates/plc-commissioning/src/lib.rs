@@ -19,13 +19,13 @@ pub use model::{
 };
 pub use universe::{
     ActualHardwareFaultCommand, CloneInstanceCommand, CloneInstanceResult,
-    CommissionedBoundaryReceipt, CommissionedScanReceipt, CommissioningAuditEvent,
-    CommissioningAuditKind, CommissioningError, ControllerInstance, ControllerInstanceId,
-    CreateInstanceCommand, ForceRegistryProjection, InternalFailurePoint, LifecycleExecution,
-    LifecycleRollback, LoadExecution, LoadResult, LoadRollback, RemoveInstanceApproval,
-    RemoveInstancePreview, ReplaceInstanceApproval, ReplaceInstanceCommand, ReplaceInstancePreview,
-    ReplaceInstanceResult, ResetInstanceApproval, ResetInstanceKind, ResetInstancePreview,
-    ResetInstanceResult, VirtualUniverse,
+    CommissionedBoundaryReceipt, CommissionedHardwareBoundaryReceipt, CommissionedScanReceipt,
+    CommissioningAuditEvent, CommissioningAuditKind, CommissioningError, ControllerInstance,
+    ControllerInstanceId, CreateInstanceCommand, ForceRegistryProjection, InternalFailurePoint,
+    LifecycleExecution, LifecycleRollback, LoadExecution, LoadResult, LoadRollback,
+    RemoveInstanceApproval, RemoveInstancePreview, ReplaceInstanceApproval, ReplaceInstanceCommand,
+    ReplaceInstancePreview, ReplaceInstanceResult, ResetInstanceApproval, ResetInstanceKind,
+    ResetInstancePreview, ResetInstanceResult, VirtualUniverse,
 };
 
 pub use plc_runtime::{

@@ -5,9 +5,10 @@ use plc_runtime::{
     AtomicInstallError, CommandError as RuntimeCommandError, ControllerSnapshot, CpuState, Hash32,
     InputCommand, InputReceipt, MemoryId, RestartKind, RunOutcome, RuntimeBoundaryCommand,
     RuntimeBoundaryError, RuntimeBoundaryReceipt, RuntimeCloneReport, RuntimeForceResetApproval,
-    RuntimeInstallDisposition, RuntimeLifecycleError, RuntimeReplacementReport, RuntimeScanCommand,
-    RuntimeScanReceipt, RuntimeStateTransferPlan, SnapshotError, StateId, UniverseId,
-    VirtualController, VirtualControllerId,
+    RuntimeHardwareBoundaryCommand, RuntimeHardwareBoundaryReceipt, RuntimeInstallDisposition,
+    RuntimeLifecycleError, RuntimeReplacementReport, RuntimeScanCommand, RuntimeScanReceipt,
+    RuntimeStateTransferPlan, SnapshotError, StateId, UniverseId, VirtualController,
+    VirtualControllerId,
 };
 
 use crate::{
@@ -79,6 +80,12 @@ pub struct CommissionedBoundaryReceipt {
 pub struct CommissionedScanReceipt {
     pub runtime: RuntimeScanReceipt,
     pub force_registry_hash: Hash32,
+    pub controller_state_hash: Hash32,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CommissionedHardwareBoundaryReceipt {
+    pub runtime: RuntimeHardwareBoundaryReceipt,
     pub controller_state_hash: Hash32,
 }
 
@@ -423,6 +430,7 @@ pub enum CommissioningAuditKind {
     ObservationCommand = 11,
     VirtualInputChanged = 12,
     ControllerSnapshotRestored = 13,
+    HardwareBoundary = 14,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -2094,6 +2102,29 @@ impl VirtualUniverse {
         })
     }
 
+    pub fn apply_hardware_boundary(
+        &mut self,
+        binding: SessionCommandBinding,
+        command: &RuntimeHardwareBoundaryCommand,
+    ) -> Result<CommissionedHardwareBoundaryReceipt, CommissioningError> {
+        let target = self.validate_session_binding(binding)?;
+        let instance = self
+            .controllers
+            .get(&target)
+            .ok_or(SessionError::TargetUnavailable)?;
+        let pre_state_hash = instance.semantic_state_hash();
+        let mut staged = instance.clone();
+        let receipt = staged.runtime.apply_hardware_boundary(command)?;
+        let post_state_hash = staged.semantic_state_hash();
+        self.controllers.insert(target, staged);
+        self.refresh_sessions_for_target(target);
+        self.audit_hardware_boundary(target, pre_state_hash, post_state_hash);
+        Ok(CommissionedHardwareBoundaryReceipt {
+            runtime: receipt,
+            controller_state_hash: post_state_hash,
+        })
+    }
+
     pub fn run_scan_with_observation(
         &mut self,
         binding: SessionCommandBinding,
@@ -2426,6 +2457,25 @@ impl VirtualUniverse {
         self.audit.push(CommissioningAuditEvent {
             event_sequence: sequence,
             kind: CommissioningAuditKind::VirtualInputChanged,
+            controller_id: Some(target),
+            preview_id: None,
+            success: true,
+            pre_state_hash: Some(pre_state_hash),
+            post_state_hash: Some(post_state_hash),
+            internal_failure_point: InternalFailurePoint::None,
+        });
+    }
+
+    fn audit_hardware_boundary(
+        &mut self,
+        target: VirtualControllerId,
+        pre_state_hash: Hash32,
+        post_state_hash: Hash32,
+    ) {
+        let sequence = self.next_event();
+        self.audit.push(CommissioningAuditEvent {
+            event_sequence: sequence,
+            kind: CommissioningAuditKind::HardwareBoundary,
             controller_id: Some(target),
             preview_id: None,
             success: true,
