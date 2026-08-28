@@ -40,6 +40,9 @@ export type WorkbenchObjectView = Readonly<{
   lifecycle: "active" | "tombstoned";
   objectRevision: string;
   parentId: string | null;
+  payloadSchema: string;
+  presentationPayload: ProjectPayload;
+  semanticPayload: ProjectPayload;
   semanticRevision: string;
 }>;
 
@@ -91,6 +94,12 @@ export type WorkbenchOperation =
       kind: "project.copy-objects";
       sourceObjectIds: readonly string[];
       targetParentId: string;
+    }>
+  | Readonly<{
+      key: string;
+      kind: "project.set-semantic-field" | "project.set-presentation-field";
+      objectId: string;
+      value: ProjectPayloadValue;
     }>
   | Readonly<{ kind: "project.undo" }>
   | Readonly<{ kind: "project.redo" }>;

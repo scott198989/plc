@@ -19,6 +19,9 @@ const IDS = {
   input: "32600000-0000-4000-8000-000000000001",
   createOutput: "32700000-0000-4000-8000-000000000001",
   output: "32800000-0000-4000-8000-000000000001",
+  createProgram: "32900000-0000-4000-8000-000000000001",
+  program: "32a00000-0000-4000-8000-000000000001",
+  editProgram: "32b00000-0000-4000-8000-000000000001",
   createFolder: "33000000-0000-4000-8000-000000000001",
   folder: "34000000-0000-4000-8000-000000000001",
   copyFolder: "35000000-0000-4000-8000-000000000001",
@@ -150,6 +153,41 @@ describe("real engineering worker and WASM kernel", () => {
         expect(result.snapshot.buildState).toBe("not-built");
       }
     }
+
+    const programCreated = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: {
+        displayName: "Main cycle",
+        kind: "project.create-object",
+        objectId: IDS.program,
+        objectKind: "program-block",
+        parentId: IDS.controller,
+        payloadSchema: "edu.program-block/1",
+        presentationPayload: {},
+        semanticPayload: {
+          blockKind: "OB",
+          engineeringNumber: { $type: "u64", value: "1" },
+          language: "SCL",
+          obRole: "CyclicMain",
+          sourceText: "",
+        },
+      },
+      requestId: IDS.createProgram,
+    }));
+    expect(programCreated.outcome).toBe("committed");
+    const source = "InputValue := 7;\nOutputValue := InputValue + 5;";
+    const programEdited = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: {
+        key: "sourceText",
+        kind: "project.set-semantic-field",
+        objectId: IDS.program,
+        value: source,
+      },
+      requestId: IDS.editProgram,
+    }));
+    expect(programEdited.outcome).toBe("committed");
+    expect(programEdited.snapshot.objects[IDS.program]?.semanticPayload.sourceText).toBe(source);
 
     const folderCreated = operationValue(await executeEngineeringRequest({
       kind: "engineering.project.command",
@@ -327,6 +365,7 @@ const snapshot = (value: unknown): Readonly<Record<string, unknown>> & {
     displayName: string;
     kind: string;
     lifecycle: string;
+    semanticPayload: Readonly<Record<string, unknown>>;
   }>>>;
 } => {
   if (!isRecord(value) || typeof value.projectRootId !== "string") {

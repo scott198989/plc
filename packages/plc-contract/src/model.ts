@@ -406,6 +406,17 @@ export type SemanticGraphContract = Readonly<{
   sourceRevisionHash: Sha256;
 }>;
 
+export type ProjectPayloadValue =
+  | null
+  | boolean
+  | string
+  | Readonly<{ $type: "i64" | "u64"; value: string }>
+  | readonly ProjectPayloadValue[]
+  | Readonly<{
+      $type: "record";
+      value: Readonly<Record<string, ProjectPayloadValue>>;
+    }>;
+
 export type ProjectCommand =
   | Readonly<{
       commandKind: "project.create";
@@ -438,6 +449,12 @@ export type ProjectCommand =
       commandKind: "project.rename-object";
       displayName: string;
       objectId: Uuid;
+    }>
+  | Readonly<{
+      commandKind: "project.set-semantic-field" | "project.set-presentation-field";
+      key: string;
+      objectId: Uuid;
+      value: ProjectPayloadValue;
     }>
   | Readonly<{
       commandKind: "project.move-object";

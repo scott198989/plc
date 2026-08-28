@@ -101,6 +101,17 @@ try {
   await addObject(page, "Input tag");
   await page.getByRole("heading", { level: 1, name: "Input" }).waitFor();
 
+  await treeItem(page, "Controller").click();
+  await addObject(page, "Organization block");
+  await page.getByRole("heading", { level: 1, name: "Main cycle" }).waitFor();
+  const sclSource = "InputValue := 7;\nOutputValue := InputValue + 5;";
+  await page.getByLabel("SCL source").fill(sclSource);
+  await page.getByRole("button", { name: "Apply SCL source" }).click();
+  await page.getByLabel("SCL source").waitFor();
+  if (await page.getByLabel("SCL source").inputValue() !== sclSource) {
+    throw new Error("canonical SCL source did not survive the production worker round trip");
+  }
+
   await treeItem(page, "End-to-end cell").click();
   await addObject(page, "Folder");
   await page.getByRole("heading", { level: 1, name: "Engineering folder" }).waitFor();
@@ -191,7 +202,7 @@ try {
     browserPath,
     commands: [
       "create-project",
-      "create-network-controller-rack-io-tag-table-tag",
+      "create-network-controller-rack-io-tag-table-tag-scl-ob",
       "copy-with-new-identity",
       "delete",
       "undo",

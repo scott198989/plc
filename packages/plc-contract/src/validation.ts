@@ -54,6 +54,7 @@ const CANONICAL_TYPE_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_.:\-\[\]]{0,127}$/u;
 const REGISTRY_ID_PATTERN = /^[A-Za-z][A-Za-z0-9_.:\-]{0,127}$/u;
 const DIAGNOSTIC_CODE_PATTERN = /^EDU-[A-Z]{2,8}-[0-9]{4}$/u;
 const VERSION_PATTERN = /^[A-Za-z0-9][A-Za-z0-9.+_-]{0,63}$/u;
+const PROJECT_PAYLOAD_KEY_PATTERN = /^[A-Za-z0-9_.-]{1,128}$/u;
 const UINT64_MAX = (1n << 64n) - 1n;
 const INT64_MIN = -(1n << 63n);
 const INT64_MAX = (1n << 63n) - 1n;
@@ -1025,6 +1026,63 @@ const validateSemanticGraph = (
   return input as SemanticGraphContract;
 };
 
+type ProjectPayloadBudget = { remaining: number };
+
+const requirePayloadKey = (input: unknown, path: string): string => {
+  if (typeof input !== "string" || !PROJECT_PAYLOAD_KEY_PATTERN.test(input)) {
+    fail(path, "invalid canonical project payload key");
+  }
+  return input;
+};
+
+const validateProjectPayloadValue = (
+  input: unknown,
+  path: string,
+  budget: ProjectPayloadBudget,
+  depth = 0,
+): void => {
+  if (depth > 32 || budget.remaining < 1) {
+    fail(path, "canonical project payload exceeds its resource budget");
+  }
+  budget.remaining -= 1;
+  if (input === null || typeof input === "boolean") {
+    return;
+  }
+  if (typeof input === "string") {
+    requireString(input, path, PLC_CONTRACT_LIMITS.sourceCharacters, true);
+    return;
+  }
+  if (Array.isArray(input)) {
+    if (input.length > 100_000) {
+      fail(path, "canonical project payload list exceeds its item limit");
+    }
+    for (const [index, value] of input.entries()) {
+      validateProjectPayloadValue(value, `${path}[${index}]`, budget, depth + 1);
+    }
+    return;
+  }
+  const record = requireRecord(input, path);
+  requireExactKeys(record, ["$type", "value"], path);
+  const type = requireEnum(record.$type, ["i64", "u64", "record"], `${path}.$type`);
+  if (type === "i64") {
+    requireInt64(record.value, `${path}.value`);
+    return;
+  }
+  if (type === "u64") {
+    requireUInt64(record.value, `${path}.value`);
+    return;
+  }
+  const fields = requireRecord(record.value, `${path}.value`);
+  const entries = Object.entries(fields);
+  if (entries.length > 100_000) {
+    fail(path, "canonical project payload record exceeds its field limit");
+  }
+  for (const [key, value] of entries) {
+    requirePayloadKey(key, `${path}.value.${key}`);
+    validateProjectPayloadValue(value, `${path}.value.${key}`, budget, depth + 1);
+  }
+};
+
 const validateProjectCommand = (record: PlainRecord, path: string): void => {
   switch (record.commandKind) {
     case "project.create":
@@ -1091,6 +1149,15 @@ const validateProjectCommand = (record: PlainRecord, path: string): void => {
       );
       requireUuid(record.objectId, `${path}.objectId`);
       break;
+    case "project.set-semantic-field":
+    case "project.set-presentation-field": {
+      requireExactKeys(record, ["commandKind", "key", "objectId", "value"], path);
+      requireUuid(record.objectId, `${path}.objectId`);
+      requirePayloadKey(record.key, `${path}.key`);
+      const budget = { remaining: 1_000_000 };
+      validateProjectPayloadValue(record.value, `${path}.value`, budget);
+      break;
+    }
     case "project.move-object":
       requireExactKeys(
         record,
@@ -1534,6 +1601,8 @@ const DOMAIN_COMMAND_KINDS = [
   "project.create",
   "project.create-object",
   "project.rename-object",
+  "project.set-semantic-field",
+  "project.set-presentation-field",
   "project.move-object",
   "project.delete-object",
   "project.copy-objects",

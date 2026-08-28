@@ -6,6 +6,18 @@ import { projectReceiptToWorkbench } from "../src/project-receipt-projection";
 const hash = (digit: string): string => digit.repeat(64);
 const rootId = "00000000-0000-4000-8000-000000000001";
 const controllerId = "00000000-0000-4000-8000-000000000002";
+const payloads = {
+  [controllerId]: {
+    payloadSchema: "edu.controller/1",
+    presentationPayload: {},
+    semanticPayload: { catalogId: "vctrl-c1" },
+  },
+  [rootId]: {
+    payloadSchema: "edu.project/1",
+    presentationPayload: {},
+    semanticPayload: {},
+  },
+} as const;
 
 const receipt = (): ProjectSnapshotReceipt => ({
   dirtyBuildState: {
@@ -62,6 +74,7 @@ describe("projectReceiptToWorkbench", () => {
     const projected = projectReceiptToWorkbench(receipt(), {
       diagnostics: [],
       fileGrantId: "grant-1",
+      payloads,
       redoLabel: null,
       undoLabel: "Undo rename",
     });
@@ -87,6 +100,7 @@ describe("projectReceiptToWorkbench", () => {
     expect(() => projectReceiptToWorkbench(broken, {
       diagnostics: [],
       fileGrantId: null,
+      payloads,
       redoLabel: null,
       undoLabel: null,
     })).toThrow(/invalid child edge/u);

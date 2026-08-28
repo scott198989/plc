@@ -6,6 +6,7 @@ import type {
 } from "@govs/plc-contract";
 
 import type {
+  ProjectPayload,
   WorkbenchDiagnosticView,
   WorkbenchObjectView,
   WorkbenchSnapshot,
@@ -14,6 +15,11 @@ import type {
 export type WorkbenchSessionProjection = Readonly<{
   diagnostics: readonly Diagnostic[];
   fileGrantId: string | null;
+  payloads: Readonly<Record<string, Readonly<{
+    payloadSchema: string;
+    presentationPayload: ProjectPayload;
+    semanticPayload: ProjectPayload;
+  }>>>;
   redoLabel: string | null;
   undoLabel: string | null;
 }>;
@@ -38,6 +44,10 @@ export const projectReceiptToWorkbench = (
   >;
   for (const object of receipt.objects) {
     assertContainmentLinks(object, sourceObjects);
+    const payload = session.payloads[object.id];
+    if (payload === undefined) {
+      throw new Error(`Canonical payload for object ${object.id} is missing.`);
+    }
     objects[object.id] = {
       children: object.orderedChildIds,
       creationOrdinal: object.creationOrdinal,
@@ -47,6 +57,9 @@ export const projectReceiptToWorkbench = (
       lifecycle: object.lifecycle,
       objectRevision: object.objectRevision,
       parentId: object.parentId,
+      payloadSchema: payload.payloadSchema,
+      presentationPayload: payload.presentationPayload,
+      semanticPayload: payload.semanticPayload,
       semanticRevision: object.semanticRevision,
     };
   }

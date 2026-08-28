@@ -293,6 +293,8 @@ export const EngineeringWorkbench = ({
                 snapshot={snapshot}
                 tombstoneCount={tombstoneCount}
               />
+            ) : isSclProgramBlock(selected) ? (
+              <SclProgramEditor busy={busy} object={selected} onOperation={onOperation} />
             ) : (
               <ObjectOverview object={selected} snapshot={snapshot} />
             )}
@@ -512,6 +514,87 @@ const ObjectOverview = ({
           <div><dt>Semantic revision</dt><dd>{object.semanticRevision}</dd></div>
         </dl>
       </section>
+    </div>
+  );
+};
+
+const isSclProgramBlock = (object: WorkbenchObjectView): boolean =>
+  (object.kind === "OB" || object.kind === "FC" || object.kind === "FB") &&
+  object.semanticPayload.language === "SCL";
+
+type SclProgramEditorProps = Readonly<{
+  busy: boolean;
+  object: WorkbenchObjectView;
+  onOperation: (operation: WorkbenchOperation) => Promise<void>;
+}>;
+
+const SclProgramEditor = ({
+  busy,
+  object,
+  onOperation,
+}: SclProgramEditorProps): React.JSX.Element => {
+  const canonicalSource = typeof object.semanticPayload.sourceText === "string"
+    ? object.semanticPayload.sourceText
+    : "";
+  const [source, setSource] = useState(canonicalSource);
+  useEffect(() => setSource(canonicalSource), [canonicalSource, object.id]);
+  const changed = source !== canonicalSource;
+
+  const applySource = (): void => {
+    if (!busy && changed) {
+      void onOperation({
+        key: "sourceText",
+        kind: "project.set-semantic-field",
+        objectId: object.id,
+        value: source,
+      });
+    }
+  };
+
+  return (
+    <div className="scl-editor">
+      <header className="scl-editor__header">
+        <div>
+          <p className="action-kicker">Semantic text editor</p>
+          <h1>{object.displayName}</h1>
+          <p>SCL source is stored on this canonical block identity and compiled by the shared PLC pipeline.</p>
+        </div>
+        <div className="scl-editor__identity">
+          <span>{object.kind}</span>
+          <code>r{object.semanticRevision}</code>
+        </div>
+      </header>
+      <label className="scl-editor__field">
+        <span>SCL source</span>
+        <textarea
+          aria-describedby="scl-source-help"
+          disabled={busy}
+          maxLength={1_048_576}
+          onChange={(event) => setSource(event.target.value)}
+          onKeyDown={(event) => {
+            if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+              event.preventDefault();
+              applySource();
+            }
+          }}
+          placeholder={"InputValue := 7;\nOutputValue := InputValue + 5;"}
+          spellCheck="false"
+          value={source}
+        />
+      </label>
+      <footer className="scl-editor__footer">
+        <span id="scl-source-help">
+          Ctrl+Enter applies source to the canonical project. Build diagnostics will retain text anchors.
+        </span>
+        <span>{source.length.toLocaleString("en-US")} characters</span>
+        <button
+          disabled={busy || !changed}
+          onClick={applySource}
+          type="button"
+        >
+          Apply SCL source
+        </button>
+      </footer>
     </div>
   );
 };

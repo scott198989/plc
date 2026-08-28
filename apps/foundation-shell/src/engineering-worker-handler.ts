@@ -133,9 +133,9 @@ type RawKernelObject = Readonly<{
   lifecycle: "active" | "tombstoned";
   objectRevision: string;
   parentId: string | null;
-  presentationPayload: Readonly<Record<string, unknown>>;
+  presentationPayload: ProjectPayload;
   payloadSchema: string;
-  semanticPayload: Readonly<Record<string, unknown>>;
+  semanticPayload: ProjectPayload;
   semanticRevision: string;
 }>;
 
@@ -557,6 +557,31 @@ class EngineeringWorkerEngine {
           ),
         };
       }
+      case "project.set-semantic-field":
+      case "project.set-presentation-field": {
+        const revisions = expected([operation.objectId]);
+        return {
+          contractCommand: {
+            commandKind: operation.kind,
+            key: operation.key,
+            objectId: operation.objectId,
+            value: operation.value,
+          },
+          expectedObjectRevisions: revisions,
+          historyToken: "",
+          kernelRequest: envelope(
+            {
+              key: operation.key,
+              kind: operation.kind === "project.set-semantic-field"
+                ? "set-semantic-field"
+                : "set-presentation-field",
+              objectId: operation.objectId,
+              value: operation.value,
+            },
+            revisions,
+          ),
+        };
+      }
       case "project.delete-object": {
         const revisions = expected([operation.objectId]);
         return {
@@ -779,6 +804,14 @@ class EngineeringWorkerEngine {
     return projectReceiptToWorkbench(receipt, {
       diagnostics,
       fileGrantId: this.#fileGrantId,
+      payloads: Object.fromEntries(query.project.objects.map((object) => [
+        object.id,
+        {
+          payloadSchema: object.payloadSchema,
+          presentationPayload: object.presentationPayload,
+          semanticPayload: object.semanticPayload,
+        },
+      ])),
       redoLabel: query.status.canRedo ? "Redo last reverted change" : null,
       undoLabel: query.status.canUndo ? "Undo last committed change" : null,
     });
@@ -1255,6 +1288,32 @@ const parseWorkbenchOperation = (input: unknown): WorkbenchOperation => {
         kind,
         objectId: requireUuid(record.objectId, "object ID"),
       };
+    case "project.set-semantic-field":
+    case "project.set-presentation-field": {
+      requireExactKeys(record, ["key", "kind", "objectId", "value"], "field operation");
+      const key = requireString(record.key, "project payload field key", 128);
+      if (!/^[A-Za-z0-9_.-]+$/u.test(key)) {
+        throw new EngineeringWorkerError(
+          "INVALID_REQUEST",
+          "The project payload field key is outside the closed grammar.",
+        );
+      }
+      const payload = parseProjectPayload(
+        { value: record.value },
+        "project field value",
+        { remaining: 8_192 },
+      );
+      const value = payload.value;
+      if (value === undefined) {
+        throw new EngineeringWorkerError("INVALID_REQUEST", "The project field value is missing.");
+      }
+      return {
+        key,
+        kind,
+        objectId: requireUuid(record.objectId, "object ID"),
+        value,
+      };
+    }
     case "project.delete-object":
       requireExactKeys(record, ["kind", "objectId"], "delete operation");
       return { kind, objectId: requireUuid(record.objectId, "object ID") };
@@ -1565,8 +1624,16 @@ const parseKernelObject = (input: unknown): RawKernelObject => {
     objectRevision: requireDecimal(object.objectRevision, "kernel object revision"),
     parentId: nullableUuid(object.parentId, "kernel object parent"),
     payloadSchema: requireString(object.payloadSchema, "kernel object payload schema", 128),
-    presentationPayload: requireRecord(object.presentationPayload, "kernel presentation payload"),
-    semanticPayload: requireRecord(object.semanticPayload, "kernel semantic payload"),
+    presentationPayload: parseProjectPayload(
+      object.presentationPayload,
+      "kernel presentation payload",
+      { remaining: 8_192 },
+    ),
+    semanticPayload: parseProjectPayload(
+      object.semanticPayload,
+      "kernel semantic payload",
+      { remaining: 8_192 },
+    ),
     semanticRevision: requireDecimal(object.semanticRevision, "kernel object semantic revision"),
   };
 };

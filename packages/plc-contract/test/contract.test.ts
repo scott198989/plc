@@ -548,6 +548,18 @@ const DOMAIN_COMMANDS = [
     payloadSchema: "edu.controller.1",
   },
   { commandKind: "project.rename-object", displayName: "PLC_1", objectId: uuid(10) },
+  {
+    commandKind: "project.set-semantic-field",
+    key: "sourceText",
+    objectId: uuid(2),
+    value: "Output := Input;",
+  },
+  {
+    commandKind: "project.set-presentation-field",
+    key: "canvas.x",
+    objectId: uuid(2),
+    value: { $type: "i64", value: "-24" },
+  },
   { commandKind: "project.move-object", objectId: uuid(2), orderKey: "2", parentId: uuid(1) },
   { commandKind: "project.delete-object", objectId: uuid(2) },
   { commandKind: "project.copy-objects", sourceObjectIds: [uuid(2)], targetParentId: uuid(1) },
@@ -864,6 +876,27 @@ describe("domain command and query vocabulary", () => {
     expect(validatePhase2PlcMessage(current)).toBe(current);
     current.context.atProjectRevision = "12";
     expectInvalid(() => validatePhase2PlcMessage(current));
+  });
+
+  it("accepts only bounded canonical project payload values", () => {
+    expectInvalid(() => validateDomainCommand({
+      commandKind: "project.set-semantic-field",
+      key: "sourceText",
+      objectId: uuid(2),
+      value: 42,
+    }));
+    expectInvalid(() => validateDomainCommand({
+      commandKind: "project.set-semantic-field",
+      key: "not allowed",
+      objectId: uuid(2),
+      value: "text",
+    }));
+    expectInvalid(() => validateDomainCommand({
+      commandKind: "project.set-presentation-field",
+      key: "canvas.x",
+      objectId: uuid(2),
+      value: { $type: "i64", value: "01" },
+    }));
   });
 
   it("rejects UI layout in the semantic graph and dangling or duplicate graph identities", () => {
