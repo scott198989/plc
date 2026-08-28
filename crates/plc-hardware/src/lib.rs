@@ -38,10 +38,10 @@ pub use network::{
 pub use plc_core::{Sha256Digest, Uuid};
 pub use profile::{
     ArtifactLifecycleAction, Capability, ChannelLayout, ControllerCatalogId, ControllerDefinition,
-    DiagnosticPolicy, EDU21_MANIFEST_HASH, ForceLifecycleAction, IoLifecycleAction, LifecycleRule,
-    ModuleCatalogId, ModuleDefinition, PlacementClass, ProfileAllowlist, ProfileError,
-    ProfileLimits, ProfilePin, RestartRetentionPolicy, SchedulingPolicy, TrainingProfile,
-    ValueLifecycleAction,
+    DiagnosticPolicy, EDU21_COMPILER_CAPABILITY_KEYS, EDU21_MANIFEST_HASH, EDU21_PROFILE_ID,
+    EDU21_PROFILE_VERSION, ForceLifecycleAction, IoLifecycleAction, LifecycleRule, ModuleCatalogId,
+    ModuleDefinition, PlacementClass, ProfileAllowlist, ProfileError, ProfileLimits, ProfilePin,
+    RestartRetentionPolicy, SchedulingPolicy, TrainingProfile, ValueLifecycleAction,
 };
 pub use symbols::{
     Address, AddressError, AddressIntent, Binding, BindingKind, BlockValueRole,

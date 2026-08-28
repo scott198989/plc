@@ -7,6 +7,7 @@ use plc_compiler::{
     TYPED_IR_VERSION, TypedIrProgram, VerificationError, phase2_diagnostic_registry,
     verify_typed_ir,
 };
+use plc_hardware::{EDU21_COMPILER_CAPABILITY_KEYS, TrainingProfile};
 use plc_program::{
     BindingActual, BlockId, BlockInterface, CALL_FC, CallSite, CallSiteId, ControllerId,
     ControllerProgram, DataType, EngineeringNumber, InterfaceMember, InterfaceMemberId,
@@ -14,7 +15,8 @@ use plc_program::{
     validate_program,
 };
 use plc_runtime::{
-    PRIORITY_TABLE_VERSION, RUNTIME_SEMANTICS_VERSION, SCHEDULER_VERSION, WORK_COST_VERSION,
+    MAX_DYNAMIC_CALL_DEPTH, MAX_WORK_UNITS_PER_SCAN, PRIORITY_TABLE_VERSION,
+    RUNTIME_SEMANTICS_VERSION, SCAN_QUANTUM_MS, SCHEDULER_VERSION, WORK_COST_VERSION,
 };
 
 const MAIN: BlockId = BlockId::new(1);
@@ -136,6 +138,42 @@ fn compile(
 }
 
 #[test]
+fn shipped_compiler_profile_is_derived_from_one_allowlisted_training_profile() {
+    let training = TrainingProfile::edu21();
+    let compiler_profile =
+        CompilerProfile::from_training_profile(&training).expect("shipped profile");
+    assert!(compiler_profile.is_allowlisted());
+    assert_eq!(compiler_profile.identity(), training.id());
+    assert_eq!(compiler_profile.version(), training.version());
+    assert_eq!(compiler_profile.version(), "1.0.0");
+    assert_eq!(
+        compiler_profile.profile_manifest_hash(),
+        Hash32::from_bytes(training.manifest_hash().0)
+    );
+    assert_eq!(
+        compiler_profile.capabilities(),
+        EDU21_COMPILER_CAPABILITY_KEYS
+    );
+    assert_eq!(
+        u64::from(compiler_profile.scheduling().scan_quantum_ms),
+        SCAN_QUANTUM_MS
+    );
+    assert_eq!(
+        compiler_profile.scheduling().work_units_per_scan,
+        MAX_WORK_UNITS_PER_SCAN
+    );
+    assert_eq!(
+        compiler_profile.scheduling().call_depth,
+        MAX_DYNAMIC_CALL_DEPTH
+    );
+    assert_eq!(
+        compiler_profile.resource_limits(),
+        ResourceLimits::from_training_profile(&training).expect("profile limits")
+    );
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
 fn genuine_scl_slice_builds_verified_ir_maps_probes_and_runtime_manifest() {
     let program = base_program();
     let sources = base_sources("");
@@ -176,6 +214,30 @@ fn genuine_scl_slice_builds_verified_ir_maps_probes_and_runtime_manifest() {
         PRIORITY_TABLE_VERSION
     );
     assert_eq!(artifact.manifest().work_cost_version, WORK_COST_VERSION);
+    let training = TrainingProfile::edu21();
+    let compiler_profile = CompilerProfile::from_training_profile(&training).unwrap();
+    assert_eq!(artifact.manifest().profile_identity, training.id());
+    assert_eq!(artifact.manifest().profile_version, training.version());
+    assert_eq!(
+        artifact.manifest().profile_manifest_hash,
+        Hash32::from_bytes(training.manifest_hash().0)
+    );
+    assert_eq!(
+        artifact.manifest().capability_manifest_hash,
+        compiler_profile.capability_manifest_hash()
+    );
+    assert_eq!(
+        artifact.manifest().scan_quantum_ms,
+        training.scheduling().scan_quantum_ms
+    );
+    assert_eq!(
+        artifact.manifest().work_units_per_scan,
+        training.scheduling().work_units_per_scan
+    );
+    assert_eq!(
+        artifact.manifest().call_depth,
+        training.scheduling().call_depth
+    );
     assert_eq!(
         artifact.package_fingerprint(),
         completion.report().artifact_fingerprint().unwrap()
@@ -675,6 +737,12 @@ fn missing_profile_capabilities_block_after_real_analysis() {
             .count(),
         5
     );
+    assert!(completion.report().diagnostics().iter().any(|diagnostic| {
+        diagnostic.code() == DiagnosticCode::REGISTRY_OR_PROFILE_INVALID
+            && diagnostic
+                .cause()
+                .contains("not backed by the shipped allowlisted training manifest")
+    }));
 }
 
 #[test]

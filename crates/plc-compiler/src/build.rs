@@ -5,6 +5,7 @@ use alloc::{
     vec::Vec,
 };
 
+use plc_hardware::{ProfileAllowlist, SchedulingPolicy, TrainingProfile};
 use plc_program::{
     BindingActual, BlockId, CanonicalValue, ControllerProgram, DataBlockKind, DataType,
     DependencyEdge, DependencyReason, InstanceOwner, InstructionCategory, InterfaceMember,
@@ -13,15 +14,16 @@ use plc_program::{
     phase2_instruction_registry, validate_program,
 };
 use plc_runtime::{
-    Hash32, PRIORITY_TABLE_VERSION, RUNTIME_SEMANTICS_VERSION, SCHEDULER_VERSION, WORK_COST_VERSION,
+    Hash32, MAX_DYNAMIC_CALL_DEPTH, MAX_WORK_UNITS_PER_SCAN, PRIORITY_TABLE_VERSION,
+    RUNTIME_SEMANTICS_VERSION, SCAN_QUANTUM_MS, SCHEDULER_VERSION, WORK_COST_VERSION,
 };
 
 use crate::{
     ARITHMETIC_POLICY_VERSION, BUILD_ARTIFACT_SCHEMA, BuildAttemptId, BuildDiagnostic,
     COMPILER_SEMANTICS_VERSION, CONVERSION_POLICY_VERSION, CancellationToken, DiagnosticCode,
     DiagnosticParameter, DiagnosticTarget, PROBE_SCHEMA_VERSION, ProbeTable, ResourceLimit,
-    ResourceLimits, SclSource, SemanticNodeId, SourceAnchor, SourceMapTable, TYPE_SYSTEM_VERSION,
-    VerifiedIr,
+    ResourceLimits, ResourceProfileError, SclSource, SemanticNodeId, SourceAnchor, SourceMapTable,
+    TYPE_SYSTEM_VERSION, VerifiedIr,
     diagnostic::{RegistryError, phase2_diagnostic_registry},
     hash::CanonicalHasher,
     limits::{WorkMeter, WorkStop},
@@ -35,8 +37,11 @@ pub struct CompilerProfile {
     identity: String,
     version: String,
     capabilities: Vec<String>,
-    fingerprint: Hash32,
+    profile_manifest_hash: Hash32,
     capability_manifest_hash: Hash32,
+    scheduling: SchedulingPolicy,
+    resource_limits: ResourceLimits,
+    allowlisted: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -45,32 +50,66 @@ pub enum ProfileError {
     EmptyVersion,
     InvalidCapability,
     CapabilityOrder,
+    UnapprovedTrainingProfile,
+    TrainingLimit(ResourceProfileError),
+    RuntimeSchedulingMismatch,
 }
 
 impl CompilerProfile {
+    /// Returns the compiler projection of the embedded EDU-21 authority.
+    ///
+    /// # Panics
+    ///
+    /// Panics only if the embedded, compile-time shipped training profile no
+    /// longer satisfies its own allowlist or immutable runtime contract.
     #[must_use]
     pub fn edu21_core() -> Self {
-        let identity = String::from("EDU-21 Core");
-        let version = String::from("1.0");
-        let capabilities = vec![
-            "scl.assignment".into(),
-            "scl.call.fc".into(),
-            "scl.expression.baseline".into(),
-            "scl.if".into(),
-            "scl.return".into(),
-        ];
-        let capability_manifest_hash = hash_capabilities(&capabilities);
-        let mut hasher = CanonicalHasher::new("PES-COMPILER-PROFILE-1");
-        hasher.string(&identity);
-        hasher.string(&version);
-        hasher.hash(capability_manifest_hash);
-        Self {
-            identity,
-            version,
-            capabilities,
-            fingerprint: hasher.finish(),
-            capability_manifest_hash,
+        Self::from_training_profile(&TrainingProfile::edu21())
+            .expect("the embedded EDU-21 training profile is compiler-compatible")
+    }
+
+    /// Derives the shipped compiler view from the exact allowlisted training
+    /// profile. Identity, version, canonical manifest, scheduling, resource
+    /// ceilings, and capability material all originate at that authority.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed profile error if the supplied value is not the
+    /// exact shipped manifest or disagrees with immutable runtime scheduling.
+    pub fn from_training_profile(profile: &TrainingProfile) -> Result<Self, ProfileError> {
+        let admitted = ProfileAllowlist::load(&profile.pin())
+            .map_err(|_| ProfileError::UnapprovedTrainingProfile)?;
+        if admitted != *profile {
+            return Err(ProfileError::UnapprovedTrainingProfile);
         }
+        let scheduling = profile.scheduling().clone();
+        if u64::from(scheduling.scan_quantum_ms) != SCAN_QUANTUM_MS
+            || scheduling.work_units_per_scan != MAX_WORK_UNITS_PER_SCAN
+            || scheduling.call_depth != MAX_DYNAMIC_CALL_DEPTH
+        {
+            return Err(ProfileError::RuntimeSchedulingMismatch);
+        }
+        let capabilities = profile
+            .compiler_capability_keys()
+            .iter()
+            .map(|value| String::from(*value))
+            .collect::<Vec<_>>();
+        if capabilities.is_empty() {
+            return Err(ProfileError::UnapprovedTrainingProfile);
+        }
+        let capability_manifest_hash = hash_capabilities(&capabilities);
+        let resource_limits =
+            ResourceLimits::from_training_profile(profile).map_err(ProfileError::TrainingLimit)?;
+        Ok(Self {
+            identity: String::from(profile.id()),
+            version: String::from(profile.version()),
+            capabilities,
+            profile_manifest_hash: Hash32::from_bytes(profile.manifest_hash().0),
+            capability_manifest_hash,
+            scheduling,
+            resource_limits,
+            allowlisted: true,
+        })
     }
 
     /// Creates a pinned capability profile. Capabilities must already be in
@@ -107,17 +146,20 @@ impl CompilerProfile {
             return Err(ProfileError::CapabilityOrder);
         }
         let capability_manifest_hash = hash_capabilities(&capabilities);
-        let mut hasher = CanonicalHasher::new("PES-COMPILER-PROFILE-1");
+        let mut hasher = CanonicalHasher::new("PES-COMPILER-CUSTOM-PROFILE-1");
         hasher.string(&identity);
         hasher.string(&version);
         hasher.hash(capability_manifest_hash);
-        let fingerprint = hasher.finish();
+        let profile_manifest_hash = hasher.finish();
         Ok(Self {
             identity,
             version,
             capabilities,
-            fingerprint,
+            profile_manifest_hash,
             capability_manifest_hash,
+            scheduling: TrainingProfile::edu21().scheduling().clone(),
+            resource_limits: ResourceLimits::default(),
+            allowlisted: false,
         })
     }
 
@@ -138,12 +180,34 @@ impl CompilerProfile {
 
     #[must_use]
     pub const fn fingerprint(&self) -> Hash32 {
-        self.fingerprint
+        self.profile_manifest_hash
+    }
+
+    /// Returns the canonical training-profile manifest hash. `fingerprint()`
+    /// remains a compatibility alias and is not independently calculated.
+    #[must_use]
+    pub const fn profile_manifest_hash(&self) -> Hash32 {
+        self.profile_manifest_hash
     }
 
     #[must_use]
     pub const fn capability_manifest_hash(&self) -> Hash32 {
         self.capability_manifest_hash
+    }
+
+    #[must_use]
+    pub const fn scheduling(&self) -> &SchedulingPolicy {
+        &self.scheduling
+    }
+
+    #[must_use]
+    pub const fn resource_limits(&self) -> ResourceLimits {
+        self.resource_limits
+    }
+
+    #[must_use]
+    pub const fn is_allowlisted(&self) -> bool {
+        self.allowlisted
     }
 }
 
@@ -230,8 +294,9 @@ impl BuildSnapshot {
     fn calculate_hash(&self) -> Hash32 {
         let mut hasher = CanonicalHasher::new("PES-BUILD-SNAPSHOT-1");
         encode_program(&mut hasher, &self.program);
-        hasher.hash(self.profile.fingerprint);
+        hasher.hash(self.profile.profile_manifest_hash);
         hasher.hash(self.profile.capability_manifest_hash);
+        hasher.bool(self.profile.allowlisted);
         hasher.hash(self.instruction_registry_hash);
         hasher.u64(self.scl_sources.len() as u64);
         for (owner, source) in &self.scl_sources {
@@ -447,8 +512,11 @@ pub struct BuildManifest {
     pub instruction_registry_hash: Hash32,
     pub profile_identity: String,
     pub profile_version: String,
-    pub profile_hash: Hash32,
+    pub profile_manifest_hash: Hash32,
     pub capability_manifest_hash: Hash32,
+    pub scan_quantum_ms: u32,
+    pub work_units_per_scan: u32,
+    pub call_depth: u8,
     pub runtime_version: &'static str,
     pub scheduler_version: &'static str,
     pub priority_table_version: &'static str,
@@ -542,7 +610,7 @@ impl BuildArtifact {
             &self.source_maps,
             &self.probe_table,
             &self.canonical_program,
-            self.manifest.profile_hash,
+            self.manifest.profile_manifest_hash,
         )
     }
 }
@@ -795,6 +863,13 @@ impl BuildContext<'_> {
 
         self.stage(CompilerStage::CallInstanceAndScheduleValidation, 1)?;
         self.stage(CompilerStage::CapabilityAndResourceValidation, 1)?;
+        if !self.attempt.snapshot.profile.allowlisted {
+            self.push_diagnostic(
+                DiagnosticCode::REGISTRY_OR_PROFILE_INVALID,
+                DiagnosticTarget::Project,
+                "compiler profile is not backed by the shipped allowlisted training manifest",
+            )?;
+        }
         for required in [
             "scl.assignment",
             "scl.call.fc",
@@ -904,6 +979,7 @@ impl BuildContext<'_> {
         })
     }
 
+    #[allow(clippy::too_many_lines)]
     fn package_artifact(
         &mut self,
         verified_ir: VerifiedIr,
@@ -959,8 +1035,11 @@ impl BuildContext<'_> {
             instruction_registry_hash: self.attempt.snapshot.instruction_registry_hash,
             profile_identity: self.attempt.snapshot.profile.identity.clone(),
             profile_version: self.attempt.snapshot.profile.version.clone(),
-            profile_hash: self.attempt.snapshot.profile.fingerprint,
+            profile_manifest_hash: self.attempt.snapshot.profile.profile_manifest_hash,
             capability_manifest_hash: self.attempt.snapshot.profile.capability_manifest_hash,
+            scan_quantum_ms: self.attempt.snapshot.profile.scheduling.scan_quantum_ms,
+            work_units_per_scan: self.attempt.snapshot.profile.scheduling.work_units_per_scan,
+            call_depth: self.attempt.snapshot.profile.scheduling.call_depth,
             runtime_version: RUNTIME_SEMANTICS_VERSION,
             scheduler_version: SCHEDULER_VERSION,
             priority_table_version: PRIORITY_TABLE_VERSION,
@@ -1509,8 +1588,11 @@ fn encode_semantic_manifest(hasher: &mut CanonicalHasher, manifest: &BuildManife
     hasher.hash(manifest.instruction_registry_hash);
     hasher.string(&manifest.profile_identity);
     hasher.string(&manifest.profile_version);
-    hasher.hash(manifest.profile_hash);
+    hasher.hash(manifest.profile_manifest_hash);
     hasher.hash(manifest.capability_manifest_hash);
+    hasher.u32(manifest.scan_quantum_ms);
+    hasher.u32(manifest.work_units_per_scan);
+    hasher.u8(manifest.call_depth);
     hasher.string(manifest.runtime_version);
     hasher.string(manifest.scheduler_version);
     hasher.string(manifest.priority_table_version);

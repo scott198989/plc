@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 
 use plc_commissioning::PostLoadMode;
+use plc_compiler::CompilerProfile;
 use plc_core::{
     CommandContext, CommandEnvelope, CommandOutcome, DomainCommand, Engine, NewObject, ObjectId,
     Payload, PayloadValue, ProfilePin, Project, ProjectObjectKind, TransactionId, Uuid,
@@ -10,7 +11,10 @@ use plc_core::{
 use plc_hardware::TrainingProfile;
 use plc_observability::{Quality, StableTargetId};
 use plc_runtime::{CanonicalValue, CpuState, Hash32};
-use plc_system::{EngineeringSession, SystemCommandIdentity, SystemError};
+use plc_system::{
+    EngineeringSession, SystemBuildError, SystemCommandIdentity, SystemError,
+    build_project_controller, project_hardware,
+};
 
 struct Fixture {
     engine: Engine,
@@ -704,6 +708,84 @@ fn loaded_session(fixture: &Fixture) -> EngineeringSession {
     session.go_online().expect("online");
     session.start_monitoring().expect("monitor");
     session
+}
+
+#[test]
+fn hardware_compiler_runtime_and_load_share_one_profile_authority() {
+    let fixture = Fixture::canonical_scl();
+    let training = TrainingProfile::edu21();
+    let expected_manifest = Hash32::from_bytes(training.manifest_hash().0);
+    let compiler_profile =
+        CompilerProfile::from_training_profile(&training).expect("compiler projection");
+    let hardware = project_hardware(fixture.engine.project());
+    assert!(hardware.can_build());
+    assert_eq!(hardware.profile().id(), training.id());
+    assert_eq!(hardware.profile().version(), "1.0.0");
+    assert_eq!(hardware.profile().manifest_hash(), training.manifest_hash());
+
+    let build = build_project_controller(fixture.engine.project(), fixture.controller)
+        .expect("integrated build");
+    let compiler = build.compiler_artifact();
+    assert_eq!(compiler.profile_identity(), training.id());
+    assert_eq!(compiler.profile_version(), training.version());
+    assert_eq!(compiler.profile_manifest_hash(), expected_manifest);
+    assert_eq!(
+        compiler.capability_manifest_hash(),
+        compiler_profile.capability_manifest_hash()
+    );
+    assert_eq!(
+        build.runtime_artifact().spec().profile_fingerprint,
+        expected_manifest
+    );
+    assert_eq!(
+        build.load_package().profile_fingerprint(),
+        expected_manifest
+    );
+    assert_eq!(
+        build.load_package().capability_fingerprint(),
+        compiler.capability_manifest_hash()
+    );
+}
+
+#[test]
+fn tampered_and_unapproved_project_profile_pins_block_system_builds() {
+    let shipped = TrainingProfile::edu21().pin();
+    let pins = [
+        ProfilePin {
+            id: shipped.id.clone(),
+            version: shipped.version.clone(),
+            manifest_hash: plc_core::Sha256Digest([0xa5; 32]),
+        },
+        ProfilePin {
+            id: "EDU-21 Experimental".to_owned(),
+            version: shipped.version.clone(),
+            manifest_hash: shipped.manifest_hash,
+        },
+        ProfilePin {
+            id: shipped.id,
+            version: "1.0".to_owned(),
+            manifest_hash: shipped.manifest_hash,
+        },
+    ];
+    for (ordinal, pin) in pins.into_iter().enumerate() {
+        let ordinal = u64::try_from(ordinal).unwrap();
+        let root = object_id(500 + ordinal);
+        let project = Project::new(
+            Uuid::deterministic_v4(b"plc-system-unapproved-profile", ordinal),
+            root,
+            "Unapproved profile",
+            pin,
+        );
+        let hardware = project_hardware(&project);
+        assert!(!hardware.can_build());
+        assert!(hardware.diagnostics().iter().any(|diagnostic| {
+            diagnostic.code == "EDU-SYS-1000" && diagnostic.primary_object_id == root
+        }));
+        assert!(matches!(
+            build_project_controller(&project, object_id(999)),
+            Err(SystemBuildError::ProjectionBlocked(_))
+        ));
+    }
 }
 
 #[test]

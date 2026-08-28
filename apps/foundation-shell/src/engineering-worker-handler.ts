@@ -5,6 +5,7 @@ import {
   validatePhase2PlcMessage,
 } from "@govs/plc-contract";
 import type {
+  CanonicalTypedValue,
   CommandContext,
   Diagnostic,
   DomainCommand,
@@ -18,6 +19,17 @@ import type {
 
 import { encodeCanonicalJson } from "./canonical-json";
 import { projectReceiptToWorkbench } from "./project-receipt-projection";
+import {
+  encodeRuntimeOperation,
+  parseEngineeringRuntimeValue,
+  parseRuntimeOperation,
+  RuntimeWireError,
+} from "./runtime-wire";
+import type {
+  EngineeringRuntimeView,
+  RuntimeOperation,
+  RuntimeValue,
+} from "./runtime-types";
 import { WasmKernel, WasmKernelError } from "./wasm-kernel";
 import type {
   ProjectPayload,
@@ -32,6 +44,7 @@ const PROFILE_MANIFEST_HASH =
   "9febe00e579c161920610be4d2079621b6255217a623f29ee0f656fcd992ed9a";
 const PROFILE_ID = "EDU-21 Core";
 const PROFILE_VERSION = "1.0.0";
+const LOCAL_WORKBENCH_AUTHOR_ID = "6c6f6361-6c2d-4777-af72-6b62656e6368";
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_PROJECT_OBJECTS = 16_384;
 const ZERO_HASH = "0".repeat(64);
@@ -74,6 +87,11 @@ type EngineeringRequest =
   | Readonly<{
       kind: "engineering.project.command";
       operation: WorkbenchOperation;
+      requestId: string;
+    }>
+  | Readonly<{
+      kind: "engineering.runtime.command";
+      operation: RuntimeOperation;
       requestId: string;
     }>
   | Readonly<{
@@ -217,6 +235,7 @@ type RawSystemQuery = Readonly<{
     manifestHash: string;
     version: string;
   }>;
+  runtime: EngineeringRuntimeView;
   sourceDocumentHash: string;
   sourceSemanticFingerprint: string;
 }>;
@@ -257,6 +276,8 @@ class EngineeringWorkerEngine {
         return this.openProject(request);
       case "engineering.project.command":
         return this.executeProjectOperation(request.requestId, request.operation);
+      case "engineering.runtime.command":
+        return this.executeRuntimeOperation(request.requestId, request.operation);
       case "engineering.persistence.prepare":
         return this.prepareSave(request.mode, request.newDocumentId);
       case "engineering.persistence.commit":
@@ -378,6 +399,33 @@ class EngineeringWorkerEngine {
     this.#currentDiagnostics = diagnostics;
     const snapshot = await this.snapshot(after, await deriveUuid(`${requestId}:snapshot`));
     return { diagnostics: snapshot.diagnostics, outcome: rawResult.outcome, snapshot };
+  }
+
+  private async executeRuntimeOperation(
+    requestId: string,
+    operation: RuntimeOperation,
+  ): Promise<WorkbenchSnapshot> {
+    const query = this.requireQuery();
+    const kernel = await this.#kernelPromise;
+    const before = parseSystemQuery(kernel.systemQuery(), query);
+    const contractCommand = runtimeContractCommand(operation, before.runtime);
+    if (contractCommand !== null) {
+      validateCommandMessage(this.commandMessage(
+        requestId,
+        await deriveUuid(`${requestId}:runtime:transaction`),
+        query.project.documentRevision,
+        [],
+        contractCommand,
+      ));
+    }
+    const idempotencyKey = await deriveUuid(`${requestId}:runtime:idempotency`);
+    const wire = encodeRuntimeOperation(operation, {
+      authorId: LOCAL_WORKBENCH_AUTHOR_ID,
+      commandId: requestId,
+      idempotencyKey,
+    });
+    kernel.systemHandle(wire);
+    return this.snapshot(query, await deriveUuid(`${requestId}:runtime:snapshot`));
   }
 
   private async prepareSave(
@@ -801,7 +849,8 @@ class EngineeringWorkerEngine {
       schemaVersion: PLC_CONTRACT_SCHEMA_VERSION,
     } as const;
     validatePhase2PlcMessage(result);
-    return projectReceiptToWorkbench(receipt, {
+    return {
+      ...projectReceiptToWorkbench(receipt, {
       diagnostics,
       fileGrantId: this.#fileGrantId,
       payloads: Object.fromEntries(query.project.objects.map((object) => [
@@ -814,7 +863,9 @@ class EngineeringWorkerEngine {
       ])),
       redoLabel: query.status.canRedo ? "Redo last reverted change" : null,
       undoLabel: query.status.canUndo ? "Undo last committed change" : null,
-    });
+      }),
+      runtime: system.runtime,
+    };
   }
 
   private requireQuery(): RawKernelQuery {
@@ -870,6 +921,133 @@ const validateCommandMessage = (message: DomainCommandMessage): void => {
   if (validated.kind !== PLC_MESSAGE_KIND.command) {
     throw new EngineeringWorkerError("CONTRACT_FAILURE", "The PLC command contract was not preserved.");
   }
+};
+
+const runtimeContractCommand = (
+  operation: RuntimeOperation,
+  runtime: EngineeringRuntimeView,
+): DomainCommand | null => {
+  const session = runtime.session;
+  if (session === null) {
+    return null;
+  }
+  switch (operation.kind) {
+    case "runtime.build":
+      return {
+        commandKind: "build.compile",
+        controllerId: session.controllerObjectId,
+        scope: "ControllerBuild",
+        selectedObjectId: null,
+      };
+    case "runtime.request-run":
+    case "runtime.request-stop":
+      return {
+        commandKind: "runtime.set-mode",
+        controllerId: session.runtimeControllerId,
+        expectedControllerEpoch: session.controllerEpoch,
+        mode: operation.kind === "runtime.request-run" ? "RUN" : "STOP",
+      };
+    case "runtime.set-raw-input":
+      return {
+        commandKind: "runtime.set-virtual-input",
+        controllerId: session.runtimeControllerId,
+        expectedControllerEpoch: session.controllerEpoch,
+        targetId: operation.targetId,
+        value: contractRuntimeValue(operation.value),
+      };
+    case "runtime.preview-load":
+      if (session.buildFingerprint === null) {
+        return null;
+      }
+      return {
+        artifactPackageFingerprint: session.buildFingerprint,
+        commandKind: "commissioning.preview-load",
+        controllerId: session.runtimeControllerId,
+        expectedControllerEpoch: session.controllerEpoch,
+      };
+    case "runtime.commit-load":
+      if (session.loadPreview === null) {
+        return null;
+      }
+      return {
+        commandKind: "commissioning.commit-load",
+        controllerId: session.runtimeControllerId,
+        expectedControllerEpoch: session.controllerEpoch,
+        previewFingerprint: session.loadPreview.previewFingerprint,
+        previewId: session.loadPreview.previewId,
+      };
+    case "runtime.start-monitoring":
+      return {
+        commandKind: "monitoring.subscribe",
+        controllerId: session.runtimeControllerId,
+        expectedControllerEpoch: session.controllerEpoch,
+        targetIds: session.probes.map((probe) => probe.id),
+      };
+    case "runtime.modify-once":
+      return {
+        commandKind: "monitoring.modify",
+        controllerId: session.runtimeControllerId,
+        expectedControllerEpoch: session.controllerEpoch,
+        targetId: operation.targetId,
+        value: contractRuntimeValue(operation.value),
+      };
+    case "runtime.create-force":
+      return {
+        commandKind: "monitoring.create-force",
+        controllerId: session.runtimeControllerId,
+        expectedControllerEpoch: session.controllerEpoch,
+        expectedForceRevision: session.forceRegistryVersion,
+        targetId: operation.targetId,
+        value: contractRuntimeValue(operation.value),
+      };
+    case "runtime.remove-force":
+      return {
+        commandKind: "monitoring.remove-force",
+        controllerId: session.runtimeControllerId,
+        expectedControllerEpoch: session.controllerEpoch,
+        forceId: operation.forceId,
+      };
+    case "runtime.arm-trace":
+      return {
+        commandKind: "monitoring.trace-control",
+        controllerId: session.runtimeControllerId,
+        expectedControllerEpoch: session.controllerEpoch,
+        operation: "arm",
+        traceId: operation.traceId,
+      };
+    case "runtime.power-on":
+    case "runtime.power-off":
+    case "runtime.go-online":
+    case "runtime.run-scan":
+    case "runtime.capture-snapshot":
+    case "runtime.restore-snapshot":
+      return null;
+  }
+};
+
+const contractRuntimeValue = (value: RuntimeValue): CanonicalTypedValue => {
+  switch (value.type) {
+    case "BOOL":
+      if (typeof value.value !== "boolean") {
+        throw new EngineeringWorkerError("INVALID_REQUEST", "A BOOL runtime value must be boolean.");
+      }
+      return { kind: "bool", typeId: "BOOL", value: value.value };
+    case "I32":
+      return { kind: "signed-integer", typeId: "DINT", value: runtimeDecimal(value) };
+    case "I64":
+      return { kind: "signed-integer", typeId: "LINT", value: runtimeDecimal(value) };
+    case "U32":
+      return { kind: "unsigned-integer", typeId: "UDINT", value: runtimeDecimal(value) };
+    case "TIME_MS":
+      return { kind: "time", milliseconds: runtimeDecimal(value), typeId: "TIME" };
+  }
+};
+
+const runtimeDecimal = (value: RuntimeValue): string => {
+  if (typeof value.value !== "string" || !SIGNED_DECIMAL_PATTERN.test(value.value)) {
+    throw new EngineeringWorkerError("INVALID_REQUEST", `${value.type} requires canonical decimal text.`);
+  }
+  return value.value;
 };
 
 const validateSuccessfulPersistenceResult = (
@@ -984,12 +1162,21 @@ const projectSnapshotReceipt = async (
     dirtyBuildState: {
       controllerStates: query.project.objects
         .filter((object) => object.kind === "controller")
-        .map((object) => ({
-          controllerId: object.id,
-          hardware: system.canBuild ? "current" as const : "blocked" as const,
-          loadedArtifactFingerprint: null,
-          software: "not-built" as const,
-        })),
+        .map((object) => {
+          const runtime = system.runtime.session?.controllerObjectId === object.id
+            ? system.runtime.session
+            : null;
+          return {
+            controllerId: object.id,
+            hardware: system.canBuild ? "current" as const : "blocked" as const,
+            loadedArtifactFingerprint: runtime?.loadedArtifactFingerprint ?? null,
+            software: runtime?.buildCurrent === true
+              ? "current" as const
+              : runtime?.buildFingerprint !== null && runtime?.buildFingerprint !== undefined
+                ? "stale" as const
+                : "not-built" as const,
+          };
+        }),
       currentDocumentHash: upperHash(query.status.documentHash),
       currentSemanticFingerprint: upperHash(query.status.semanticFingerprint),
       documentDirty: query.status.documentDirty,
@@ -1191,6 +1378,9 @@ const parseEngineeringRequest = (input: unknown): EngineeringRequest => {
     case "engineering.project.command":
       requireExactKeys(record, ["kind", "operation", "requestId"], "engineering command request");
       return { kind, operation: parseWorkbenchOperation(record.operation), requestId };
+    case "engineering.runtime.command":
+      requireExactKeys(record, ["kind", "operation", "requestId"], "engineering runtime request");
+      return { kind, operation: parseRuntimeOperation(record.operation), requestId };
     case "engineering.persistence.prepare": {
       requireExactKeys(
         record,
@@ -1457,6 +1647,7 @@ const parseSystemQuery = (
       "channelBindingCount",
       "diagnostics",
       "profile",
+      "runtime",
       "schemaVersion",
       "sourceDocumentHash",
       "sourceSemanticFingerprint",
@@ -1503,6 +1694,25 @@ const parseSystemQuery = (
     throw new EngineeringWorkerError(
       "INVALID_CORE_RESPONSE",
       "The canonical system projection does not match the active project snapshot.",
+    );
+  }
+  let runtime: EngineeringRuntimeView;
+  try {
+    runtime = parseEngineeringRuntimeValue(record.runtime);
+  } catch (error) {
+    if (error instanceof RuntimeWireError) {
+      throw new EngineeringWorkerError("INVALID_CORE_RESPONSE", error.message);
+    }
+    throw error;
+  }
+  if (
+    runtime.sourceDocumentHash.toLowerCase() !== sourceDocumentHash.toLowerCase() ||
+    runtime.sourceSemanticFingerprint.toLowerCase() !== sourceSemanticFingerprint.toLowerCase() ||
+    runtime.canBuild !== requireBoolean(record.canBuild, "canonical hardware canBuild")
+  ) {
+    throw new EngineeringWorkerError(
+      "INVALID_CORE_RESPONSE",
+      "The runtime read model does not match the canonical system projection.",
     );
   }
   const objectIds = new Set(kernelQuery.project.objects.map((object) => object.id));
@@ -1588,6 +1798,7 @@ const parseSystemQuery = (
       manifestHash,
       version: profileVersion,
     },
+    runtime,
     sourceDocumentHash,
     sourceSemanticFingerprint,
   };

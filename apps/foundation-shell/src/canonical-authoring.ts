@@ -387,10 +387,32 @@ export const createDataBlockPayload = (
       members: [],
     };
 
-export const createWatchPayload = (): ProjectPayload => ({ rows: [] });
+export const createNamedTypePayload = (): ProjectPayload => ({
+  members: [recordValue({
+    declaredOrder: unsignedValue(0),
+    id: crypto.randomUUID(),
+    name: "Ready",
+    typeId: "BOOL",
+  })],
+});
 
-export const createTracePayload = (): ProjectPayload => ({
-  channels: [],
+export const createWatchPayload = (targetTagIds: readonly string[] = []): ProjectPayload => ({
+  rows: targetTagIds.map((targetTag, order) => recordValue({
+    displayBase: "automatic",
+    id: crypto.randomUUID(),
+    layer: "effective",
+    order: unsignedValue(order),
+    targetTag,
+  })),
+});
+
+export const createTracePayload = (targetTagIds: readonly string[] = []): ProjectPayload => ({
+  channels: targetTagIds.map((targetTag, index) => recordValue({
+    alias: `Channel ${index + 1}`,
+    id: crypto.randomUUID(),
+    layer: "effective",
+    targetTag,
+  })),
   everyScans: unsignedValue(1),
   maximumDurationMs: unsignedValue(60_000),
   postSamples: unsignedValue(32),

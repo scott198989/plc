@@ -4,6 +4,7 @@ import { EngineeringClient } from "./engineering-client";
 import { EngineeringWorkbench } from "./EngineeringWorkbench";
 import { FileAccessBroker, FileAccessError } from "./file-access-broker";
 import { ProjectHome } from "./ProjectHome";
+import type { RuntimeOperation } from "./runtime-types";
 import type { WorkbenchOperation, WorkbenchSnapshot } from "./workbench-types";
 
 type AppServices = Readonly<{
@@ -101,6 +102,13 @@ export const App = (): React.JSX.Element => {
     }
   }, [runBusy, services]);
 
+  const executeRuntimeOperation = useCallback(async (operation: RuntimeOperation): Promise<void> => {
+    const next = await runBusy(() => services.client.executeRuntime(operation));
+    if (next !== null) {
+      setSnapshot(next);
+    }
+  }, [runBusy, services]);
+
   const saveProject = useCallback(async (requestedMode: "save" | "save-as"): Promise<boolean> => {
     if (snapshot === null) {
       return false;
@@ -171,6 +179,7 @@ export const App = (): React.JSX.Element => {
         error={error}
         onClose={closeProject}
         onOperation={executeOperation}
+        onRuntimeOperation={executeRuntimeOperation}
         onSave={async (mode) => { await saveProject(mode); }}
         snapshot={snapshot}
       />

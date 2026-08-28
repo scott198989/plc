@@ -18,7 +18,7 @@ import type {
 const WIRE_MAGIC = "PES-SYSTEM-COMMAND-1";
 const MAX_RESPONSE_BYTES = 8 * 1024 * 1024;
 const MAX_COLLECTION_ITEMS = 16_384;
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const HASH_PATTERN = /^[0-9a-f]{64}$/iu;
 const UINT64_PATTERN = /^(?:0|[1-9][0-9]*)$/u;
 
@@ -71,6 +71,10 @@ export const parseEngineeringRuntimeView = (
   } catch {
     throw new RuntimeWireError("The runtime core returned malformed UTF-8 JSON.");
   }
+  return parseEngineeringRuntimeValue(decoded);
+};
+
+export const parseEngineeringRuntimeValue = (decoded: unknown): EngineeringRuntimeView => {
   const root = record(decoded, "runtime response");
   exactKeys(root, [
     "availability",
@@ -106,6 +110,64 @@ export const parseEngineeringRuntimeView = (
     sourceDocumentHash: hash(root.sourceDocumentHash, "runtime source document hash"),
     sourceSemanticFingerprint: hash(root.sourceSemanticFingerprint, "runtime semantic fingerprint"),
   };
+};
+
+export const parseRuntimeOperation = (input: unknown): RuntimeOperation => {
+  const value = record(input, "runtime operation");
+  const kind = string(value.kind, "runtime operation kind", 80);
+  switch (kind) {
+    case "runtime.build":
+    case "runtime.power-on":
+    case "runtime.power-off":
+    case "runtime.commit-load":
+    case "runtime.go-online":
+    case "runtime.request-run":
+    case "runtime.request-stop":
+    case "runtime.run-scan":
+    case "runtime.start-monitoring":
+    case "runtime.capture-snapshot":
+    case "runtime.restore-snapshot":
+      exactKeys(value, ["kind"], "runtime operation");
+      return { kind };
+    case "runtime.preview-load":
+      exactKeys(value, ["kind", "postLoadMode"], "runtime load-preview operation");
+      return {
+        kind,
+        postLoadMode: oneOf(value.postLoadMode, ["STOP", "RUN"] as const, "post-load mode"),
+      };
+    case "runtime.set-raw-input":
+    case "runtime.modify-once":
+      exactKeys(value, ["kind", "targetId", "value"], "runtime value operation");
+      return {
+        kind,
+        targetId: requireUuid(value.targetId, "runtime target identity"),
+        value: parseRuntimeValue(value.value, undefined, "runtime command value"),
+      };
+    case "runtime.create-force":
+      exactKeys(value, ["forceId", "kind", "reason", "targetId", "value"], "runtime force-create operation");
+      return {
+        forceId: requireUuid(value.forceId, "force identity"),
+        kind,
+        reason: wireText(value.reason, "force reason", 128),
+        targetId: requireUuid(value.targetId, "runtime target identity"),
+        value: parseRuntimeValue(value.value, undefined, "forced value"),
+      };
+    case "runtime.remove-force":
+      exactKeys(value, ["forceId", "kind", "reason"], "runtime force-remove operation");
+      return {
+        forceId: requireUuid(value.forceId, "force identity"),
+        kind,
+        reason: wireText(value.reason, "force reason", 128),
+      };
+    case "runtime.arm-trace":
+      exactKeys(value, ["kind", "traceId"], "runtime trace operation");
+      return {
+        kind,
+        traceId: requireUuid(value.traceId, "trace identity"),
+      };
+    default:
+      throw new RuntimeWireError("The runtime operation kind is unsupported.");
+  }
 };
 
 const operationToken = (operation: RuntimeOperation): string => {
@@ -455,4 +517,3 @@ const wireText = (input: unknown, label: string, maximum: number): string => {
   }
   return value;
 };
-

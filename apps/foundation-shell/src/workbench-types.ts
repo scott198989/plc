@@ -1,5 +1,7 @@
 import type { ProjectObjectKind } from "@govs/plc-contract";
 
+import type { EngineeringRuntimeView } from "./runtime-types";
+
 /** Hardware-only children join canonical project objects in the navigator projection. */
 export type WorkbenchObjectKind = ProjectObjectKind | "Rack" | "Channel";
 
@@ -68,6 +70,7 @@ export type WorkbenchSnapshot = Readonly<{
   projectHash: string;
   projectName: string;
   projectRootId: string;
+  runtime: EngineeringRuntimeView;
   semanticRevision: string;
   undo: Readonly<{
     canRedo: boolean;

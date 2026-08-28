@@ -1,5 +1,7 @@
 use core::sync::atomic::{AtomicBool, Ordering};
 
+use plc_hardware::{ProfileAllowlist, TrainingProfile};
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResourceLimits {
     pub max_source_bytes_per_block: usize,
@@ -14,23 +16,59 @@ pub struct ResourceLimits {
 }
 
 impl ResourceLimits {
-    pub const EDU21: Self = Self {
-        max_source_bytes_per_block: 1_048_576,
-        max_tokens_per_block: 262_144,
-        max_syntax_nodes_per_block: 262_144,
-        max_syntax_depth: 256,
-        max_dependency_edges: 1_000_000,
-        max_diagnostics: 10_000,
-        max_ir_operations: 1_000_000,
-        max_compiler_work_units: 10_000_000,
-        max_artifact_bytes: 64 * 1_048_576,
-    };
+    /// Projects compiler ceilings from an admitted training profile. There is
+    /// no independently maintained shipped compiler-limit table.
+    ///
+    /// # Errors
+    ///
+    /// Returns a fail-closed error if the profile is not the exact shipped
+    /// allowlisted value or a ceiling cannot be represented on this target.
+    pub fn from_training_profile(profile: &TrainingProfile) -> Result<Self, ResourceProfileError> {
+        let admitted = ProfileAllowlist::load(&profile.pin())
+            .map_err(|_| ResourceProfileError::UnapprovedProfile)?;
+        if admitted != *profile {
+            return Err(ResourceProfileError::UnapprovedProfile);
+        }
+        let limits = profile.limits();
+        let source_bytes = to_usize(
+            u64::from(limits.source_bytes_per_block),
+            "source_bytes_per_block",
+        )?;
+        Ok(Self {
+            max_source_bytes_per_block: source_bytes,
+            max_tokens_per_block: source_bytes / 4,
+            max_syntax_nodes_per_block: source_bytes / 4,
+            max_syntax_depth: to_usize(u64::from(limits.syntax_nesting), "syntax_nesting")?,
+            max_dependency_edges: to_usize(limits.dependency_edges, "dependency_edges")?,
+            max_diagnostics: to_usize(
+                u64::from(limits.diagnostics_per_build),
+                "diagnostics_per_build",
+            )?,
+            max_ir_operations: to_usize(
+                limits.constant_evaluation_operations,
+                "constant_evaluation_operations",
+            )?,
+            max_compiler_work_units: limits.semantic_work_units_per_build,
+            max_artifact_bytes: to_usize(limits.artifact_package_bytes, "artifact_package_bytes")?,
+        })
+    }
 }
 
 impl Default for ResourceLimits {
     fn default() -> Self {
-        Self::EDU21
+        Self::from_training_profile(&TrainingProfile::edu21())
+            .expect("the embedded EDU-21 profile has target-representable compiler limits")
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ResourceProfileError {
+    UnapprovedProfile,
+    LimitOutOfRange(&'static str),
+}
+
+fn to_usize(value: u64, field: &'static str) -> Result<usize, ResourceProfileError> {
+    usize::try_from(value).map_err(|_| ResourceProfileError::LimitOutOfRange(field))
 }
 
 #[derive(Debug, Default)]

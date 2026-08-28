@@ -20,6 +20,7 @@ type KernelWasmExports = Readonly<{
   plc_session_open: (length: number) => number;
   plc_session_prepare_save: (mode: number, length: number) => number;
   plc_session_system_query: () => number;
+  plc_session_system_command: (length: number) => number;
 }>;
 
 export type WasmHealth = Readonly<{
@@ -90,6 +91,13 @@ export class WasmKernel {
 
   public systemQuery(): Uint8Array<ArrayBuffer> {
     return this.call(() => this.#exports.plc_session_system_query());
+  }
+
+  public systemHandle(request: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
+    return this.callWithInput(
+      request,
+      (length) => this.#exports.plc_session_system_command(length),
+    );
   }
 
   public prepareSave(
@@ -214,6 +222,7 @@ const readExports = (exports: WebAssembly.Exports): KernelWasmExports => {
     "plc_session_open",
     "plc_session_prepare_save",
     "plc_session_system_query",
+    "plc_session_system_command",
   ] as const;
   if (!(exports.memory instanceof WebAssembly.Memory)) {
     throw new WasmKernelError("The engineering core memory export is missing.");

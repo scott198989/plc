@@ -24,6 +24,8 @@ export type WorkbenchSessionProjection = Readonly<{
   undoLabel: string | null;
 }>;
 
+export type ProjectWorkbenchSnapshot = Omit<WorkbenchSnapshot, "runtime">;
+
 /**
  * Adapts an already validated domain receipt for display. It derives no PLC
  * semantics and rejects graph inconsistencies instead of repairing them.
@@ -31,7 +33,7 @@ export type WorkbenchSessionProjection = Readonly<{
 export const projectReceiptToWorkbench = (
   receipt: ProjectSnapshotReceipt,
   session: WorkbenchSessionProjection,
-): WorkbenchSnapshot => {
+): ProjectWorkbenchSnapshot => {
   const sourceObjects = new Map(receipt.objects.map((object) => [object.id, object]));
   const root = sourceObjects.get(receipt.projectRootId);
   if (root === undefined || root.kind !== "ProjectRoot" || root.parentId !== null) {
@@ -112,7 +114,7 @@ const assertContainmentLinks = (
 
 const aggregateBuildState = (
   receipt: ProjectSnapshotReceipt,
-): WorkbenchSnapshot["buildState"] => {
+): ProjectWorkbenchSnapshot["buildState"] => {
   const states = receipt.dirtyBuildState.controllerStates.flatMap((state) => [
     state.hardware,
     state.software,

@@ -50,6 +50,8 @@ const requiredExports = [
   "plc_session_handle",
   "plc_session_open",
   "plc_session_prepare_save",
+  "plc_session_system_command",
+  "plc_session_system_query",
 ];
 const exportNames = new Set(WebAssembly.Module.exports(module).map(({ name }) => name));
 for (const required of requiredExports) {

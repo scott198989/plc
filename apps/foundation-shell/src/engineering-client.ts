@@ -1,4 +1,5 @@
 import EngineeringWorker from "./foundation.worker?worker&inline";
+import type { RuntimeOperation } from "./runtime-types";
 import type {
   WorkbenchOperation,
   WorkbenchOperationResult,
@@ -25,6 +26,11 @@ type EngineeringRequest =
   | Readonly<{
       kind: "engineering.project.command";
       operation: WorkbenchOperation;
+      requestId: string;
+    }>
+  | Readonly<{
+      kind: "engineering.runtime.command";
+      operation: RuntimeOperation;
       requestId: string;
     }>
   | Readonly<{
@@ -141,6 +147,17 @@ export class EngineeringClient {
         requestId: crypto.randomUUID(),
       },
       isOperationResult,
+    );
+  }
+
+  public async executeRuntime(operation: RuntimeOperation): Promise<WorkbenchSnapshot> {
+    return this.request(
+      {
+        kind: "engineering.runtime.command",
+        operation,
+        requestId: crypto.randomUUID(),
+      },
+      isWorkbenchSnapshot,
     );
   }
 
@@ -295,6 +312,9 @@ const isWorkbenchSnapshot = (value: unknown): value is WorkbenchSnapshot =>
   typeof value.projectName === "string" &&
   typeof value.projectHash === "string" &&
   isRecord(value.objects) &&
+  isRecord(value.runtime) &&
+  value.runtime.schemaVersion === 1 &&
+  (value.runtime.availability === "READY" || value.runtime.availability === "UNAVAILABLE") &&
   Array.isArray(value.diagnostics) &&
   isRecord(value.undo);
 

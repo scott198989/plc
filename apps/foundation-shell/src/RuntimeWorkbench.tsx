@@ -11,6 +11,7 @@ import type {
 
 type RuntimeSurfaceProps = Readonly<{
   busy: boolean;
+  onNavigate?: (objectId: string) => void;
   onOperation: (operation: RuntimeOperation) => Promise<void>;
   runtime: EngineeringRuntimeView;
 }>;
@@ -113,12 +114,18 @@ export const RuntimeToolbar = ({
 
 export const RuntimeInspector = ({
   busy,
+  onNavigate,
   onOperation,
   runtime,
 }: RuntimeSurfaceProps): React.JSX.Element => {
   const session = runtime.session;
   if (session === null) {
-    return <UnavailableRuntime runtime={runtime} />;
+    return (
+      <UnavailableRuntime
+        {...(onNavigate === undefined ? {} : { onNavigate })}
+        runtime={runtime}
+      />
+    );
   }
 
   return (
@@ -159,6 +166,7 @@ export const RuntimeInspector = ({
                 busy={busy}
                 force={session.forces.find((entry) => entry.targetId === probe.id) ?? null}
                 key={probe.id}
+                online={session.online}
                 onOperation={onOperation}
                 probe={probe}
               />
@@ -220,11 +228,18 @@ export const RuntimeInspector = ({
         {session.diagnostics.length === 0 ? (
           <RuntimeEmpty message="No runtime diagnostics have been published." />
         ) : session.diagnostics.map((diagnostic) => (
-          <div className="runtime-diagnostic-row" data-severity={diagnostic.severity} key={diagnostic.occurrenceId}>
+          <button
+            aria-disabled={diagnostic.navigationObjectId === null || onNavigate === undefined}
+            className="runtime-diagnostic-row"
+            data-severity={diagnostic.severity}
+            key={diagnostic.occurrenceId}
+            onClick={() => diagnostic.navigationObjectId !== null && onNavigate?.(diagnostic.navigationObjectId)}
+            type="button"
+          >
             <span>{diagnostic.active ? "●" : "○"}</span>
             <code>{diagnostic.code}</code>
             <span>{diagnostic.message}</span>
-          </div>
+          </button>
         ))}
       </section>
     </div>
@@ -272,11 +287,13 @@ const RuntimeSummary = ({
 const RuntimeProbeRow = ({
   busy,
   force,
+  online,
   onOperation,
   probe,
 }: Readonly<{
   busy: boolean;
   force: RuntimeForceView | null;
+  online: boolean;
   onOperation: (operation: RuntimeOperation) => Promise<void>;
   probe: RuntimeProbeView;
 }>): React.JSX.Element => {
@@ -285,7 +302,7 @@ const RuntimeProbeRow = ({
     setDraft(editableValue(probe.effectiveValue, probe.valueType));
   }, [probe.effectiveValue, probe.valueType]);
   const parsed = parseDraftValue(draft, probe.valueType);
-  const canWrite = parsed !== null && !busy;
+  const canWrite = parsed !== null && !busy && online;
 
   return (
     <div className="runtime-probe-row" data-forced={force !== null} role="row">
@@ -338,7 +355,7 @@ const RuntimeProbeRow = ({
         ) : (
           <button
             className="force-action force-action--active"
-            disabled={busy}
+            disabled={busy || !online}
             onClick={() => void onOperation({
               forceId: force.forceId,
               kind: "runtime.remove-force",
@@ -352,7 +369,13 @@ const RuntimeProbeRow = ({
   );
 };
 
-const UnavailableRuntime = ({ runtime }: Readonly<{ runtime: EngineeringRuntimeView }>): React.JSX.Element => (
+const UnavailableRuntime = ({
+  onNavigate,
+  runtime,
+}: Readonly<{
+  onNavigate?: (objectId: string) => void;
+  runtime: EngineeringRuntimeView;
+}>): React.JSX.Element => (
   <div className="runtime-unavailable">
     <span aria-hidden="true">◇</span>
     <div>
@@ -360,9 +383,15 @@ const UnavailableRuntime = ({ runtime }: Readonly<{ runtime: EngineeringRuntimeV
       <strong>{runtime.reason ?? "Configure one valid fictional controller."}</strong>
       <p>The editable project remains available. Build and runtime actions stay closed until canonical validation succeeds.</p>
       {runtime.diagnostics.slice(0, 4).map((diagnostic) => (
-        <div className="runtime-unavailable__diagnostic" key={`${diagnostic.code}:${diagnostic.objectId ?? "project"}`}>
+        <button
+          aria-disabled={diagnostic.objectId === null || onNavigate === undefined}
+          className="runtime-unavailable__diagnostic"
+          key={`${diagnostic.code}:${diagnostic.objectId ?? "project"}`}
+          onClick={() => diagnostic.objectId !== null && onNavigate?.(diagnostic.objectId)}
+          type="button"
+        >
           <code>{diagnostic.code}</code><span>{diagnostic.message}</span>
-        </div>
+        </button>
       ))}
     </div>
   </div>
@@ -422,4 +451,3 @@ const shortIdentity = (value: string): string => value.slice(0, 8);
 
 const titleCase = (value: string): string =>
   value.toLocaleLowerCase("en-US").replaceAll("_", " ").replace(/^./u, (character) => character.toLocaleUpperCase("en-US"));
-

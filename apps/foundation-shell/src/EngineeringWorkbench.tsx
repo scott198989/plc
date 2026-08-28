@@ -5,6 +5,7 @@ import {
   createDataBlockPayload,
   createFbdProgramPayload,
   createLadProgramPayload,
+  createNamedTypePayload,
   createSclProgramPayload,
   createTracePayload,
   createWatchPayload,
@@ -13,6 +14,8 @@ import {
   unsignedValue,
   updateGraphNodeFields,
 } from "./canonical-authoring";
+import { RuntimeInspector, RuntimeToolbar } from "./RuntimeWorkbench";
+import type { EngineeringRuntimeView, RuntimeOperation } from "./runtime-types";
 import type {
   ProjectPayload,
   ProjectPayloadValue,
@@ -27,6 +30,7 @@ type EngineeringWorkbenchProps = Readonly<{
   error: string | null;
   onClose: () => void;
   onOperation: (operation: WorkbenchOperation) => Promise<void>;
+  onRuntimeOperation: (operation: RuntimeOperation) => Promise<void>;
   onSave: (mode: "save" | "save-as") => Promise<void>;
   snapshot: WorkbenchSnapshot;
 }>;
@@ -61,12 +65,13 @@ export const EngineeringWorkbench = ({
   error,
   onClose,
   onOperation,
+  onRuntimeOperation,
   onSave,
   snapshot,
 }: EngineeringWorkbenchProps): React.JSX.Element => {
   const [selectedId, setSelectedId] = useState(snapshot.projectRootId);
   const [openTabs, setOpenTabs] = useState<readonly string[]>([snapshot.projectRootId]);
-  const [diagnosticsOpen, setDiagnosticsOpen] = useState(true);
+  const [bottomPane, setBottomPane] = useState<"diagnostics" | "runtime" | null>("diagnostics");
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
 
   const selected = snapshot.objects[selectedId] ?? snapshot.objects[snapshot.projectRootId];
@@ -206,6 +211,12 @@ export const EngineeringWorkbench = ({
         </div>
       </header>
 
+      <RuntimeToolbar
+        busy={busy}
+        onOperation={onRuntimeOperation}
+        runtime={snapshot.runtime}
+      />
+
       <div className="workbench-body">
         <aside className="navigator-pane" aria-label="Project navigator">
           <div className="pane-heading">
@@ -318,20 +329,30 @@ export const EngineeringWorkbench = ({
             )}
           </section>
 
-          <section className="diagnostics-pane" data-open={diagnosticsOpen}>
-            <button
-              aria-expanded={diagnosticsOpen}
-              className="diagnostics-heading"
-              onClick={() => setDiagnosticsOpen((open) => !open)}
-              type="button"
-            >
-              <span>Diagnostics</span>
+          <section className="diagnostics-pane" data-open={bottomPane !== null}>
+            <div aria-label="Engineering tools" className="engineering-tools-heading" role="tablist">
+              <button
+                aria-selected={bottomPane === "diagnostics"}
+                className="engineering-tool-tab"
+                onClick={() => setBottomPane((current) => current === "diagnostics" ? null : "diagnostics")}
+                role="tab"
+                type="button"
+              >Diagnostics</button>
+              <button
+                aria-selected={bottomPane === "runtime"}
+                className="engineering-tool-tab"
+                onClick={() => setBottomPane((current) => current === "runtime" ? null : "runtime")}
+                role="tab"
+                type="button"
+              >Runtime &amp; commissioning</button>
               <span className="diagnostics-summary">
-                {blockingCount > 0 ? `${blockingCount} blocking` : "No blocking issues"}
-                <span aria-hidden="true">{diagnosticsOpen ? "⌄" : "⌃"}</span>
+                {bottomPane === "runtime"
+                  ? runtimeSummary(snapshot.runtime)
+                  : blockingCount > 0 ? `${blockingCount} blocking` : "No blocking issues"}
+                <span aria-hidden="true">{bottomPane === null ? "⌃" : "⌄"}</span>
               </span>
-            </button>
-            {diagnosticsOpen && (
+            </div>
+            {bottomPane === "diagnostics" && (
               <div className="diagnostics-list" role="list">
                 {snapshot.diagnostics.length === 0 ? (
                   <div
@@ -364,6 +385,16 @@ export const EngineeringWorkbench = ({
                 )}
               </div>
             )}
+            {bottomPane === "runtime" && (
+              <div className="runtime-pane-scroll">
+                <RuntimeInspector
+                  busy={busy}
+                  onNavigate={selectObject}
+                  onOperation={onRuntimeOperation}
+                  runtime={snapshot.runtime}
+                />
+              </div>
+            )}
           </section>
         </main>
 
@@ -382,6 +413,7 @@ export const EngineeringWorkbench = ({
           <span aria-hidden="true">◇</span> Virtual only
         </span>
         <span className="status-segment">{formatBuildState(snapshot.buildState)}</span>
+        <span className="status-segment">{runtimeSummary(snapshot.runtime)}</span>
         <span className="status-spacer" />
         <span className="status-segment status-segment--hash" title={snapshot.projectHash}>
           Project {snapshot.projectHash.slice(0, 10)}
@@ -1094,7 +1126,15 @@ const creationOptions = (
           semanticPayload: {},
         },
       ];
-    case "Controller":
+    case "Controller": {
+      const targetTagIds = Object.values(snapshot.objects)
+        .filter((object) =>
+          object.lifecycle === "active" &&
+          object.kind === "Tag" &&
+          isDescendantOf(object, parent.id, snapshot)
+        )
+        .sort((left, right) => left.creationOrdinal.localeCompare(right.creationOrdinal))
+        .map((object) => object.id);
       return [
         {
           baseName: "Local rack",
@@ -1121,7 +1161,7 @@ const creationOptions = (
           label: "Named structure",
           objectKind: "type-definition",
           payloadSchema: "edu.named-type/1",
-          semanticPayload: { members: [] },
+          semanticPayload: createNamedTypePayload,
         },
         {
           baseName: "Main cycle",
@@ -1215,7 +1255,7 @@ const creationOptions = (
           label: "Watch table",
           objectKind: "generic",
           payloadSchema: "edu.watch-table/1",
-          semanticPayload: createWatchPayload,
+          semanticPayload: () => createWatchPayload(targetTagIds),
         },
         {
           baseName: "Trace",
@@ -1224,9 +1264,10 @@ const creationOptions = (
           label: "Trace configuration",
           objectKind: "generic",
           payloadSchema: "edu.trace-configuration/1",
-          semanticPayload: createTracePayload,
+          semanticPayload: () => createTracePayload(targetTagIds),
         },
       ];
+    }
     case "Rack": {
       const slot = parent.children.filter((id) => snapshot.objects[id]?.kind === "Module").length + 1;
       return [
@@ -1398,6 +1439,23 @@ const nextObjectName = (
   return `${baseName} ${crypto.randomUUID().slice(0, 8)}`;
 };
 
+const isDescendantOf = (
+  object: WorkbenchObjectView,
+  ancestorId: string,
+  snapshot: WorkbenchSnapshot,
+): boolean => {
+  let parentId = object.parentId;
+  const visited = new Set<string>();
+  while (parentId !== null && !visited.has(parentId)) {
+    if (parentId === ancestorId) {
+      return true;
+    }
+    visited.add(parentId);
+    parentId = snapshot.objects[parentId]?.parentId ?? null;
+  }
+  return false;
+};
+
 const formatDirtyState = (state: WorkbenchSnapshot["dirtyState"]): string => {
   switch (state) {
     case "clean": return "Saved";
@@ -1413,4 +1471,13 @@ const formatBuildState = (state: WorkbenchSnapshot["buildState"]): string => {
     case "stale": return "Build stale";
     case "blocked": return "Build blocked";
   }
+};
+
+const runtimeSummary = (runtime: EngineeringRuntimeView): string => {
+  const session = runtime.session;
+  if (session === null) {
+    return "Runtime unavailable";
+  }
+  const mode = session.cpuState === "PAUSED_EDUCATIONAL" ? "PAUSED" : session.cpuState;
+  return `${mode} · ${session.online ? "online" : "offline"} · scan ${session.scanSequence}`;
 };

@@ -17,6 +17,7 @@ dependencies = [
 name = "plc-compiler"
 version = "0.1.0"
 dependencies = [
+ "plc-hardware",
  "plc-lad",
  "plc-language-tools",
  "plc-program",
@@ -31,7 +32,11 @@ version = "0.1.0"
 name = "plc-engineering-wasm"
 version = "0.0.0"
 dependencies = [
+ "plc-commissioning",
  "plc-core",
+ "plc-hardware",
+ "plc-observability",
+ "plc-runtime",
  "plc-system",
 ]
 

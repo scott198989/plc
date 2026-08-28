@@ -4,8 +4,10 @@ import {
   createDataBlockPayload,
   createFbdProgramPayload,
   createLadProgramPayload,
+  createNamedTypePayload,
   createSclProgramPayload,
   createTracePayload,
+  createWatchPayload,
   interfaceMemberIdentity,
   updateGraphNodeFields,
 } from "../src/canonical-authoring";
@@ -49,6 +51,31 @@ describe("canonical authoring payloads", () => {
       state: "idle",
       trigger: "immediate",
     });
+  });
+
+  it("creates usable named, watch, and trace payloads from canonical tag identities", () => {
+    const firstTag = "10000000-0000-4000-8000-000000000001";
+    const secondTag = "20000000-0000-4000-8000-000000000001";
+    const namedMembers = list(createNamedTypePayload().members).map(record);
+    expect(namedMembers).toHaveLength(1);
+    expect(namedMembers[0]).toMatchObject({
+      declaredOrder: { $type: "u64", value: "0" },
+      name: "Ready",
+      typeId: "BOOL",
+    });
+    expect(namedMembers[0]?.id).toMatch(UUID);
+
+    const watchRows = list(createWatchPayload([firstTag, secondTag]).rows).map(record);
+    expect(watchRows.map((row) => row.targetTag)).toEqual([firstTag, secondTag]);
+    expect(watchRows.map((row) => row.order)).toEqual([
+      { $type: "u64", value: "0" },
+      { $type: "u64", value: "1" },
+    ]);
+
+    const traceChannels = list(createTracePayload([secondTag]).channels).map(record);
+    expect(traceChannels).toHaveLength(1);
+    expect(traceChannels[0]).toMatchObject({ alias: "Channel 1", layer: "effective", targetTag: secondTag });
+    expect(traceChannels[0]?.id).toMatch(UUID);
   });
 
   it("authors a coordinate-free LAD rung with stable semantic references", () => {

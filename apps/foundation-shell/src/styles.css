@@ -377,7 +377,7 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
   width: 100vw;
   height: 100vh;
   display: grid;
-  grid-template-rows: 54px minmax(0, 1fr) 25px;
+  grid-template-rows: 54px 48px minmax(0, 1fr) 25px;
   overflow: hidden;
   background: var(--bg);
 }
@@ -1152,6 +1152,38 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 
 .diagnostics-pane { border-top: 1px solid var(--line-strong); background: #ffffff; }
 
+.engineering-tools-heading {
+  min-height: 34px;
+  padding: 0 8px;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  background: #ffffff;
+}
+
+.engineering-tool-tab {
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 0 10px;
+  cursor: pointer;
+  background: transparent;
+  color: #66747b;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: 0.045em;
+  text-transform: uppercase;
+}
+
+.engineering-tool-tab:hover,
+.engineering-tool-tab[aria-selected="true"] {
+  color: var(--accent-deep);
+  background: #f3f7f7;
+}
+
+.engineering-tool-tab[aria-selected="true"] { border-bottom-color: var(--accent); }
+.engineering-tools-heading .diagnostics-summary { margin-left: auto; align-items: center; }
+.runtime-pane-scroll { max-height: min(52vh, 560px); overflow: auto; border-top: 1px solid #e4e8e9; background: #edf1f1; }
+
 .diagnostics-heading {
   width: 100%;
   height: 34px;
@@ -1675,7 +1707,9 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 .trace-row small { color: #6f7c82; font-size: 8px; text-transform: uppercase; }
 
 .runtime-diagnostic-row {
+  width: 100%;
   min-height: 38px;
+  border: 0;
   border-bottom: 1px solid #e8ebec;
   padding: 6px 13px;
   display: grid;
@@ -1683,8 +1717,14 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
   align-items: center;
   gap: 10px;
   color: #45545b;
+  cursor: pointer;
+  background: transparent;
+  text-align: left;
   font-size: 9px;
 }
+
+.runtime-diagnostic-row[aria-disabled="true"] { cursor: default; }
+.runtime-diagnostic-row:not([aria-disabled="true"]):hover { background: #f3f7f7; }
 
 .runtime-diagnostic-row:last-child { border-bottom: 0; }
 .runtime-diagnostic-row > span:first-child { color: #6e7c82; font-size: 8px; }
@@ -1739,7 +1779,9 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 .runtime-unavailable p { max-width: 600px; margin: 7px 0 18px; color: #617077; font-size: 11px; line-height: 1.5; }
 
 .runtime-unavailable__diagnostic {
+  width: 100%;
   min-height: 38px;
+  border: 0;
   border-top: 1px solid #e2e6e7;
   padding: 7px 0;
   display: grid;
@@ -1747,8 +1789,14 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
   align-items: center;
   gap: 10px;
   color: #56656c;
+  cursor: pointer;
+  background: transparent;
+  text-align: left;
   font-size: 9px;
 }
+
+.runtime-unavailable__diagnostic[aria-disabled="true"] { cursor: default; }
+.runtime-unavailable__diagnostic:not([aria-disabled="true"]):hover { background: #f3f7f7; }
 
 .runtime-unavailable__diagnostic code { overflow: hidden; color: #41545a; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -1795,7 +1843,7 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
   .workbench-shell {
     min-width: 0;
     width: 100%;
-    grid-template-rows: 96px minmax(0, 1fr) 25px;
+    grid-template-rows: 96px 48px minmax(0, 1fr) 25px;
   }
   .workbench-header {
     grid-template-columns: 48px minmax(0, 1fr);

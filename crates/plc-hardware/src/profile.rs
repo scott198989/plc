@@ -10,6 +10,17 @@ use crate::canonical::CanonicalEncoder;
 pub const EDU21_PROFILE_ID: &str = "EDU-21 Core";
 pub const EDU21_PROFILE_VERSION: &str = "1.0.0";
 pub const EDU21_CATALOG_VERSION: &str = "1.0.0";
+/// Fine-grained compiler capabilities projected from the shipped training
+/// profile. The compiler hashes this ordered material independently while the
+/// training-profile manifest remains the authority for whether the compiler
+/// and SCL capability families are admitted at all.
+pub const EDU21_COMPILER_CAPABILITY_KEYS: [&str; 5] = [
+    "scl.assignment",
+    "scl.call.fc",
+    "scl.expression.baseline",
+    "scl.if",
+    "scl.return",
+];
 pub const EDU21_MANIFEST_HASH: Sha256Digest = Sha256Digest([
     0x9f, 0xeb, 0xe0, 0x0e, 0x57, 0x9c, 0x16, 0x19, 0x20, 0x61, 0x0b, 0xe4, 0xd2, 0x07, 0x96, 0x21,
     0xb6, 0x25, 0x52, 0x17, 0xa6, 0x23, 0xf2, 0x9e, 0xe0, 0xf6, 0x56, 0xfc, 0xd9, 0x92, 0xed, 0x9a,
@@ -558,6 +569,20 @@ impl TrainingProfile {
         }
     }
 
+    /// Returns the strict, lexically ordered compiler capability material
+    /// authorized by this profile. A profile without both the compiler and SCL
+    /// capability families supplies no compiler surface and therefore fails
+    /// closed when projected into the compiler crate.
+    #[must_use]
+    pub fn compiler_capability_keys(&self) -> &'static [&'static str] {
+        if self.capability_enabled(Capability::Compiler) && self.capability_enabled(Capability::Scl)
+        {
+            &EDU21_COMPILER_CAPABILITY_KEYS
+        } else {
+            &[]
+        }
+    }
+
     #[must_use]
     pub fn controller(&self, id: ControllerCatalogId) -> Option<&ControllerDefinition> {
         self.controllers.get(&id)
@@ -998,5 +1023,21 @@ mod tests {
             ProfileAllowlist::load(&bad_pin),
             Err(ProfileError::HashMismatch)
         );
+    }
+
+    #[test]
+    fn shipped_profile_is_the_ordered_compiler_capability_authority() {
+        let profile = TrainingProfile::edu21();
+        assert_eq!(
+            profile.compiler_capability_keys(),
+            &super::EDU21_COMPILER_CAPABILITY_KEYS
+        );
+        assert!(
+            profile
+                .compiler_capability_keys()
+                .windows(2)
+                .all(|pair| pair[0] < pair[1])
+        );
+        assert!(profile.validate().is_ok());
     }
 }

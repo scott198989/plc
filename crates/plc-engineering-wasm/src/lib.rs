@@ -2,6 +2,8 @@
 mod kernel_bridge;
 #[cfg(any(target_arch = "wasm32", test))]
 mod system_bridge;
+#[cfg(test)]
+mod test_fixture;
 
 const HEALTH_PAYLOAD: &[u8] =
     br#"{"schemaVersion":1,"buildIdentity":"plc-engineering-core@0.2.0","healthState":"HEALTHY"}"#;

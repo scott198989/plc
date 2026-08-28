@@ -2,7 +2,7 @@ use core::fmt;
 
 use plc_core::{DecodeLimits, KernelSession, ProtocolError, Uuid, sha256};
 
-use crate::system_bridge::project_system_query;
+use crate::system_bridge::{SystemBridge, SystemBridgeError, project_system_query};
 
 const APPLICATION_VERSION: &str = "plc-engineering-simulator/0.2.0";
 const QUERY_PROJECT: &[u8] = br#"{"operation":"query-project","schemaVersion":1}"#;
@@ -30,6 +30,7 @@ pub(crate) enum BridgeError {
     PendingSaveExists,
     SaveVerificationMismatch,
     Protocol(String),
+    System(String),
 }
 
 impl fmt::Display for BridgeError {
@@ -46,6 +47,7 @@ impl fmt::Display for BridgeError {
             Self::Protocol(message) => {
                 write!(formatter, "project kernel rejected the request: {message}")
             }
+            Self::System(message) => formatter.write_str(message),
         }
     }
 }
@@ -56,16 +58,24 @@ impl From<ProtocolError> for BridgeError {
     }
 }
 
+impl From<SystemBridgeError> for BridgeError {
+    fn from(value: SystemBridgeError) -> Self {
+        Self::System(value.to_string())
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct KernelBridge {
     active: Option<KernelSession>,
     pending_save: Option<PendingSave>,
+    system: Option<SystemBridge>,
 }
 
 impl KernelBridge {
     pub(crate) fn create(&mut self, request: &[u8]) -> Result<Vec<u8>, BridgeError> {
         check_input(request)?;
         let session = KernelSession::create(request)?;
+        self.system = Some(SystemBridge::new(session.project()));
         self.active = Some(session);
         self.pending_save = None;
         self.query()
@@ -74,6 +84,7 @@ impl KernelBridge {
     pub(crate) fn open(&mut self, package: &[u8]) -> Result<Vec<u8>, BridgeError> {
         check_input(package)?;
         let (session, _) = KernelSession::open(package, DecodeLimits::default())?;
+        self.system = Some(SystemBridge::new(session.project()));
         self.active = Some(session);
         self.pending_save = None;
         self.query()
@@ -84,11 +95,23 @@ impl KernelBridge {
         if self.pending_save.is_some() {
             return Err(BridgeError::PendingSaveExists);
         }
-        self.active
+        let output = self
+            .active
             .as_mut()
             .ok_or(BridgeError::NoActiveSession)?
             .handle(request)
-            .map_err(Into::into)
+            .map_err(BridgeError::from)?;
+        let project = self
+            .active
+            .as_ref()
+            .ok_or(BridgeError::NoActiveSession)?
+            .project()
+            .clone();
+        self.system
+            .as_mut()
+            .ok_or(BridgeError::NoActiveSession)?
+            .refresh_project(&project)?;
+        Ok(output)
     }
 
     pub(crate) fn query(&mut self) -> Result<Vec<u8>, BridgeError> {
@@ -101,7 +124,21 @@ impl KernelBridge {
 
     pub(crate) fn system_query(&self) -> Result<Vec<u8>, BridgeError> {
         let active = self.active.as_ref().ok_or(BridgeError::NoActiveSession)?;
-        Ok(project_system_query(active.project()))
+        let system = self.system.as_ref().ok_or(BridgeError::NoActiveSession)?;
+        project_system_query(active.project(), system).map_err(Into::into)
+    }
+
+    pub(crate) fn system_command(&mut self, request: &[u8]) -> Result<Vec<u8>, BridgeError> {
+        check_input(request)?;
+        if self.pending_save.is_some() {
+            return Err(BridgeError::PendingSaveExists);
+        }
+        self.active.as_ref().ok_or(BridgeError::NoActiveSession)?;
+        self.system
+            .as_mut()
+            .ok_or(BridgeError::NoActiveSession)?
+            .execute(request)
+            .map_err(Into::into)
     }
 
     pub(crate) fn prepare_save(&mut self, mode: SaveMode) -> Result<Vec<u8>, BridgeError> {
@@ -140,6 +177,16 @@ impl KernelBridge {
             return Err(BridgeError::SaveVerificationMismatch);
         }
         self.active = Some(pending.session);
+        let project = self
+            .active
+            .as_ref()
+            .ok_or(BridgeError::NoActiveSession)?
+            .project()
+            .clone();
+        self.system
+            .as_mut()
+            .ok_or(BridgeError::NoActiveSession)?
+            .refresh_project(&project)?;
         self.query()
     }
 
@@ -234,6 +281,12 @@ mod exports {
                 STATUS_ERROR
             }
         }
+    }
+
+    #[allow(unsafe_code)]
+    #[unsafe(no_mangle)]
+    pub extern "C" fn plc_session_system_command(length: u32) -> i32 {
+        run_with_input(length, KernelBridge::system_command)
     }
 
     #[allow(unsafe_code)]
@@ -357,8 +410,10 @@ mod exports {
     }
 
     fn write_error(error: BridgeError) {
-        let escaped = error.to_string().replace('\\', "\\\\").replace('"', "\\\"");
-        write_output(format!(r#"{{"error":"{escaped}"}}"#).into_bytes());
+        let mut output = String::from(r#"{"error":"#);
+        crate::system_bridge::push_json_string(&mut output, &error.to_string());
+        output.push('}');
+        write_output(output.into_bytes());
     }
 
     fn write_output(output: Vec<u8>) {
@@ -369,9 +424,62 @@ mod exports {
 #[cfg(test)]
 mod tests {
     use super::{BridgeError, KernelBridge, SaveMode};
-    use plc_core::{DecodeLimits, KernelSession, Uuid, sha256};
+    use crate::{system_bridge::SystemBridge, test_fixture::RuntimeFixture};
+    use plc_core::{DecodeLimits, KernelSession, Project, Uuid, sha256};
 
     const CREATE: &[u8] = br#"{"displayName":"Bridge","documentId":"cda496e1-165b-4ab0-9ddc-9ad749bf75a4","profile":{"id":"EDU-21 Core","manifestHash":"9febe00e579c161920610be4d2079621b6255217a623f29ee0f656fcd992ed9a","version":"1.0.0"},"rootId":"88c521b1-f9f7-4bb0-8dc1-adca746a13a6","schemaVersion":1}"#;
+
+    fn bridge_from_project(project: &Project) -> KernelBridge {
+        let session = KernelSession::from_project(project.clone()).expect("fixture kernel");
+        KernelBridge {
+            active: Some(session),
+            pending_save: None,
+            system: Some(SystemBridge::new(project)),
+        }
+    }
+
+    fn runtime_command(operation: &str, fields: &[String], ordinal: u64) -> Vec<u8> {
+        let command_id = Uuid::deterministic_v4(b"plc-wasm-command-id", ordinal).to_string();
+        let idempotency = Uuid::deterministic_v4(b"plc-wasm-idempotency", ordinal).to_string();
+        let author = Uuid::deterministic_v4(b"plc-wasm-author", 1).to_string();
+        [
+            vec![
+                "PES-SYSTEM-COMMAND-1".to_owned(),
+                operation.to_owned(),
+                command_id,
+                idempotency,
+                author,
+            ],
+            fields.to_vec(),
+        ]
+        .concat()
+        .join("\n")
+        .into_bytes()
+    }
+
+    fn execute_runtime(
+        bridge: &mut KernelBridge,
+        operation: &str,
+        fields: &[String],
+        ordinal: u64,
+    ) -> String {
+        let output = bridge
+            .system_command(&runtime_command(operation, fields, ordinal))
+            .unwrap_or_else(|error| panic!("{operation} failed: {error}"));
+        String::from_utf8(output).expect("runtime JSON")
+    }
+
+    fn json_string_field<'a>(input: &'a str, field: &str) -> &'a str {
+        let marker = format!(r#""{field}":""#);
+        let remainder = input
+            .split_once(&marker)
+            .unwrap_or_else(|| panic!("missing JSON field {field}"))
+            .1;
+        remainder
+            .split_once('"')
+            .unwrap_or_else(|| panic!("unterminated JSON field {field}"))
+            .0
+    }
 
     #[test]
     fn create_query_and_open_use_the_real_kernel() {
@@ -443,5 +551,234 @@ mod tests {
         assert!(text.contains(r#""sourceSemanticFingerprint":"#));
         assert!(text.contains(r#""code":"EDU-SYS-1001""#));
         assert!(text.contains(r#""canBuild":false"#));
+        assert!(text.contains(r#""runtime":{"availability":"UNAVAILABLE""#));
+        assert_eq!(query, bridge.system_query().expect("deterministic query"));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn journey_a_runs_through_the_native_kernel_system_bridge() {
+        let fixture = RuntimeFixture::canonical();
+        let mut bridge = bridge_from_project(fixture.project());
+        let initial = bridge
+            .system
+            .as_ref()
+            .expect("system")
+            .runtime_query()
+            .expect("runtime query");
+        let initial_text = String::from_utf8(initial.clone()).expect("runtime JSON");
+        assert!(initial_text.contains(r#""availability":"READY""#));
+        assert!(initial_text.contains(r#""canBuild":true"#));
+        assert!(initial_text.contains(r#""cpuState":"POWERED_OFF""#));
+        assert_eq!(
+            initial,
+            bridge
+                .system
+                .as_ref()
+                .expect("system")
+                .runtime_query()
+                .expect("repeat query")
+        );
+
+        let built = execute_runtime(&mut bridge, "BUILD", &[], 1);
+        assert!(built.contains(r#""buildCurrent":true"#));
+        assert!(built.contains(r#""buildFingerprint":"#));
+        let build_fingerprint = json_string_field(&built, "buildFingerprint").to_owned();
+        execute_runtime(&mut bridge, "POWER_ON", &[], 2);
+        let preview = execute_runtime(&mut bridge, "PREVIEW_LOAD", &["STOP".to_owned()], 3);
+        assert!(preview.contains(r#""loadPreview":{"blockerCount":0"#));
+        assert_eq!(
+            json_string_field(&preview, "candidateFingerprint"),
+            build_fingerprint
+        );
+        let loaded = execute_runtime(&mut bridge, "COMMIT_LOAD", &[], 4);
+        assert!(loaded.contains(r#""loaded":true"#));
+        assert!(loaded.contains(r#""loadPreview":null"#));
+        assert_ne!(
+            json_string_field(&loaded, "loadedArtifactFingerprint"),
+            build_fingerprint
+        );
+        let online = execute_runtime(&mut bridge, "GO_ONLINE", &[], 5);
+        assert!(online.contains(r#""online":true"#));
+        execute_runtime(&mut bridge, "START_MONITORING", &[], 6);
+        execute_runtime(&mut bridge, "REQUEST_RUN", &[], 7);
+
+        let input = fixture.input_tag.to_string();
+        execute_runtime(
+            &mut bridge,
+            "SET_RAW_INPUT",
+            &[input, "BOOL".to_owned(), "true".to_owned()],
+            8,
+        );
+        let scanned = execute_runtime(&mut bridge, "RUN_SCAN", &[], 9);
+        assert!(scanned.contains(r#""cpuState":"RUN""#));
+        assert!(scanned.contains(r#""rawInputValue":{"type":"BOOL","value":true}"#));
+        assert!(scanned.contains(r#""deliveredOutputValue":{"type":"BOOL","value":true}"#));
+        assert!(scanned.contains(r#""latestValue":{"type":"BOOL","value":true}"#));
+
+        let output = fixture.output_tag.to_string();
+        let modified = execute_runtime(
+            &mut bridge,
+            "MODIFY_ONCE",
+            &[output.clone(), "BOOL".to_owned(), "false".to_owned()],
+            10,
+        );
+        assert!(modified.contains(r#""effectiveValue":{"type":"BOOL","value":false}"#));
+        let force_id = Uuid::deterministic_v4(b"plc-wasm-force", 1).to_string();
+        let forced = execute_runtime(
+            &mut bridge,
+            "CREATE_FORCE",
+            &[
+                force_id.clone(),
+                output,
+                "BOOL".to_owned(),
+                "true".to_owned(),
+                "Journey A force".to_owned(),
+            ],
+            11,
+        );
+        assert!(forced.contains(r#""forceCount":1"#));
+        assert!(forced.contains(r#""quality":"FORCED""#));
+        let removed = execute_runtime(
+            &mut bridge,
+            "REMOVE_FORCE",
+            &[force_id, "Journey A release".to_owned()],
+            12,
+        );
+        assert!(removed.contains(r#""forceCount":0"#));
+
+        let trace = execute_runtime(&mut bridge, "ARM_TRACE", &[fixture.trace.to_string()], 13);
+        assert!(trace.contains(r#""state":"ARMED""#));
+        let capturing = execute_runtime(&mut bridge, "RUN_SCAN", &[], 14);
+        assert!(capturing.contains(r#""state":"CAPTURING""#));
+        let traced = execute_runtime(&mut bridge, "RUN_SCAN", &[], 15);
+        assert!(traced.contains(r#""captureCount":1"#));
+
+        execute_runtime(&mut bridge, "REQUEST_STOP", &[], 16);
+        let captured = execute_runtime(&mut bridge, "CAPTURE_SNAPSHOT", &[], 17);
+        assert!(captured.contains(r#""snapshotAvailable":true"#));
+        execute_runtime(
+            &mut bridge,
+            "SET_RAW_INPUT",
+            &[
+                fixture.input_tag.to_string(),
+                "BOOL".to_owned(),
+                "false".to_owned(),
+            ],
+            18,
+        );
+        let restored = execute_runtime(&mut bridge, "RESTORE_SNAPSHOT", &[], 19);
+        assert!(restored.contains(r#""rawInputValue":{"type":"BOOL","value":true}"#));
+        assert!(restored.contains(r#""snapshotAvailable":true"#));
+    }
+
+    #[test]
+    fn invalid_runtime_and_pending_state_fail_closed() {
+        let mut unavailable = KernelBridge::default();
+        unavailable
+            .create(CREATE)
+            .expect("invalid project remains open");
+        assert!(matches!(
+            unavailable.system_command(&runtime_command("BUILD", &[], 1)),
+            Err(BridgeError::System(_))
+        ));
+
+        let fixture = RuntimeFixture::canonical();
+        let mut bridge = bridge_from_project(fixture.project());
+        execute_runtime(&mut bridge, "BUILD", &[], 2);
+        execute_runtime(&mut bridge, "POWER_ON", &[], 3);
+        execute_runtime(&mut bridge, "PREVIEW_LOAD", &["STOP".to_owned()], 4);
+        execute_runtime(&mut bridge, "POWER_OFF", &[], 5);
+        assert!(matches!(
+            bridge.system_command(&runtime_command("COMMIT_LOAD", &[], 6)),
+            Err(BridgeError::System(message)) if message.contains("no verified virtual load preview")
+        ));
+        assert!(matches!(
+            bridge.system_command(b"PES-SYSTEM-COMMAND-1\nBUILD"),
+            Err(BridgeError::System(message)) if message.contains("malformed")
+        ));
+    }
+
+    #[test]
+    fn refresh_preserves_loaded_runtime_and_invalidates_stale_opaque_state() {
+        let mut fixture = RuntimeFixture::canonical();
+        let mut bridge = bridge_from_project(fixture.project());
+        execute_runtime(&mut bridge, "BUILD", &[], 1);
+        execute_runtime(&mut bridge, "POWER_ON", &[], 2);
+        execute_runtime(&mut bridge, "PREVIEW_LOAD", &["STOP".to_owned()], 3);
+        execute_runtime(&mut bridge, "COMMIT_LOAD", &[], 4);
+        execute_runtime(&mut bridge, "GO_ONLINE", &[], 5);
+        execute_runtime(&mut bridge, "REQUEST_RUN", &[], 6);
+        execute_runtime(&mut bridge, "REQUEST_STOP", &[], 7);
+        execute_runtime(&mut bridge, "CAPTURE_SNAPSHOT", &[], 8);
+
+        fixture.make_hardware_invalid();
+        let changed = fixture.project().clone();
+        bridge
+            .system
+            .as_mut()
+            .expect("system")
+            .refresh_project(&changed)
+            .expect("invalid offline project is adopted");
+        bridge.active = Some(KernelSession::from_project(changed).expect("changed kernel"));
+        let query = bridge.system_query().expect("invalid project query");
+        let text = String::from_utf8(query).expect("system JSON");
+        assert!(text.contains(r#""runtime":{"availability":"READY""#));
+        assert!(text.contains(r#""canBuild":false"#));
+        assert!(text.contains(r#""loaded":true"#));
+        assert!(text.contains(r#""hardwareToLoaded":"MISMATCH""#));
+        assert!(text.contains(r#""snapshotAvailable":false"#));
+        assert!(matches!(
+            bridge.system_command(&runtime_command("RESTORE_SNAPSHOT", &[], 9)),
+            Err(BridgeError::System(message)) if message.contains("no aggregate runtime snapshot")
+        ));
+    }
+
+    #[test]
+    fn save_as_and_presentation_refresh_keep_compatible_runtime_state() {
+        let mut fixture = RuntimeFixture::canonical();
+        let mut bridge = bridge_from_project(fixture.project());
+        execute_runtime(&mut bridge, "BUILD", &[], 1);
+        execute_runtime(&mut bridge, "POWER_ON", &[], 2);
+        execute_runtime(&mut bridge, "PREVIEW_LOAD", &["STOP".to_owned()], 3);
+        execute_runtime(&mut bridge, "COMMIT_LOAD", &[], 4);
+        execute_runtime(&mut bridge, "GO_ONLINE", &[], 5);
+        execute_runtime(&mut bridge, "CAPTURE_SNAPSHOT", &[], 6);
+
+        let package = bridge
+            .prepare_save(SaveMode::SaveAs(Uuid::deterministic_v4(
+                b"plc-wasm-save-as",
+                1,
+            )))
+            .expect("Save As package");
+        bridge
+            .commit_save(package.len(), sha256(&package).0)
+            .expect("Save As commit");
+        let after_save = bridge
+            .system
+            .as_ref()
+            .expect("system")
+            .runtime_query()
+            .expect("runtime after Save As");
+        let after_save = String::from_utf8(after_save).expect("runtime JSON");
+        assert!(after_save.contains(r#""loaded":true"#));
+        assert!(after_save.contains(r#""snapshotAvailable":true"#));
+
+        fixture.rename_program_presentation();
+        bridge
+            .system
+            .as_mut()
+            .expect("system")
+            .refresh_project(fixture.project())
+            .expect("presentation refresh");
+        let after_presentation = bridge
+            .system
+            .as_ref()
+            .expect("system")
+            .runtime_query()
+            .expect("presentation query");
+        let after_presentation = String::from_utf8(after_presentation).expect("runtime JSON");
+        assert!(after_presentation.contains(r#""buildCurrent":true"#));
+        assert!(after_presentation.contains(r#""snapshotAvailable":true"#));
     }
 }

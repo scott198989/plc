@@ -4,6 +4,7 @@ import {
   RuntimeWireError,
   encodeRuntimeOperation,
   parseEngineeringRuntimeView,
+  parseRuntimeOperation,
 } from "../src/runtime-wire";
 
 const UUIDS = {
@@ -60,6 +61,22 @@ describe("runtime WASM wire", () => {
     }, identity)).toThrow(RuntimeWireError);
   });
 
+  it("parses only exact typed runtime request shapes", () => {
+    expect(parseRuntimeOperation({
+      kind: "runtime.set-raw-input",
+      targetId: UUIDS.target,
+      value: { type: "I32", value: "-2147483648" },
+    })).toEqual({
+      kind: "runtime.set-raw-input",
+      targetId: UUIDS.target,
+      value: { type: "I32", value: "-2147483648" },
+    });
+    expect(() => parseRuntimeOperation({
+      endpoint: "127.0.0.1",
+      kind: "runtime.power-on",
+    })).toThrow(RuntimeWireError);
+  });
+
   it("accepts an exact unavailable read model and rejects extra fields", () => {
     const view = {
       availability: "UNAVAILABLE",
@@ -84,4 +101,3 @@ describe("runtime WASM wire", () => {
 
 const jsonBytes = (value: unknown): Uint8Array<ArrayBuffer> =>
   new TextEncoder().encode(JSON.stringify(value));
-

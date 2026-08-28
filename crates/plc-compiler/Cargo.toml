@@ -11,6 +11,7 @@ description = "Capability-free deterministic PLC compiler and initial SCL fronte
 path = "src/lib.rs"
 
 [dependencies]
+plc-hardware = { path = "../plc-hardware" }
 plc-program = { path = "../plc-program" }
 plc-runtime = { path = "../plc-runtime" }
 

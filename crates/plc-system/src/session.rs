@@ -7,7 +7,6 @@ use plc_commissioning::{
     OfflineEngineeringState, OfflineSourceBuild, PostLoadMode, PreviewApproval,
     SessionCommandBinding, VirtualLoadPackage, VirtualOnlineSessionId, VirtualUniverse,
 };
-use plc_compiler::CompilerProfile;
 use plc_core::{Lifecycle, ObjectId, Project, Sha256Digest, sha256};
 use plc_observability::{
     ActiveCondition, ArtifactSide, DiagnosticEvent as ObservationDiagnosticEvent, DiagnosticLedger,
@@ -266,12 +265,12 @@ impl EngineeringSession {
             .artifact()
             .ok_or_else(|| SystemError::Projection(hardware.diagnostics().to_vec()))?
             .hardware_fingerprint;
-        let compiler_profile = CompilerProfile::edu21_core();
+        let profile_manifest_hash = Hash32::from_bytes(hardware.profile().manifest_hash().0);
         let offline = OfflineEngineeringState {
             configured: ConfiguredController {
                 id: ids.offline,
                 configured_hardware_fingerprint: hash32(hardware_fingerprint),
-                profile_fingerprint: compiler_profile.fingerprint(),
+                profile_fingerprint: profile_manifest_hash,
             },
             source_revision_hash: hash32(project.semantic_fingerprint()),
             build_snapshot_hash: None,

@@ -12,7 +12,7 @@ use plc_compiler::{
 use plc_core::{ObjectId, Project, Sha256Digest, sha256};
 use plc_hardware::{
     ChannelAddress, ChannelDirection as HardwareDirection, ChannelId as HardwareChannelId,
-    HardwareChannelBinding, PrimitiveType,
+    HardwareChannelBinding, PrimitiveType, TrainingProfile,
 };
 use plc_lad::{LadLimits, lower_lad_to_ir};
 use plc_language_tools::lower_fbd_to_verified_ir;
@@ -71,7 +71,9 @@ pub struct SystemBuildProduct {
 #[derive(Clone, Debug)]
 pub struct SystemCompilerArtifact {
     composed: ComposedFrontendArtifact,
-    profile_fingerprint: Hash32,
+    profile_identity: String,
+    profile_version: String,
+    profile_manifest_hash: Hash32,
     capability_manifest_hash: Hash32,
 }
 
@@ -82,8 +84,25 @@ impl SystemCompilerArtifact {
     }
 
     #[must_use]
+    pub fn profile_identity(&self) -> &str {
+        &self.profile_identity
+    }
+
+    #[must_use]
+    pub fn profile_version(&self) -> &str {
+        &self.profile_version
+    }
+
+    #[must_use]
+    pub const fn profile_manifest_hash(&self) -> Hash32 {
+        self.profile_manifest_hash
+    }
+
+    /// Compatibility alias for commissioning/runtime APIs that still name
+    /// this field a fingerprint. It is exactly the canonical profile manifest.
+    #[must_use]
     pub const fn profile_fingerprint(&self) -> Hash32 {
-        self.profile_fingerprint
+        self.profile_manifest_hash
     }
 
     #[must_use]
@@ -160,6 +179,7 @@ impl SystemBuildProduct {
 #[derive(Clone, Debug)]
 pub enum SystemBuildError {
     ProjectionBlocked(Vec<ProjectDiagnostic>),
+    Profile(String),
     MissingAuthoredBody(BlockId),
     DuplicateAuthoredBody(BlockId),
     GraphDecode(GraphDecodeError),
@@ -194,19 +214,22 @@ pub fn build_project_controller(
         return Err(SystemBuildError::ProjectionBlocked(projection_diagnostics));
     }
 
-    let profile = CompilerProfile::edu21_core();
-    let composed = compile_frontends(&software)?;
+    let profile = CompilerProfile::from_training_profile(hardware.profile())
+        .map_err(|error| SystemBuildError::Profile(format!("{error:?}")))?;
+    let composed = compile_frontends(&software, hardware.profile(), profile.resource_limits())?;
     let runtime_projection = project_verified_ir_to_runtime(
         composed.verified_ir(),
         composed.source_maps(),
         composed.probes(),
         software.program(),
-        profile.fingerprint(),
+        profile.profile_manifest_hash(),
     )
     .map_err(|error| SystemBuildError::RuntimeProjection(format!("{error:?}")))?;
     let compiler_artifact = SystemCompilerArtifact {
         composed,
-        profile_fingerprint: profile.fingerprint(),
+        profile_identity: profile.identity().to_owned(),
+        profile_version: profile.version().to_owned(),
+        profile_manifest_hash: profile.profile_manifest_hash(),
         capability_manifest_hash: profile.capability_manifest_hash(),
     };
     let hardware_artifact = hardware
@@ -259,6 +282,8 @@ pub fn build_project_controller(
 
 fn compile_frontends(
     software: &CanonicalSoftwareProjection,
+    profile: &TrainingProfile,
+    compiler_limits: ResourceLimits,
 ) -> Result<ComposedFrontendArtifact, SystemBuildError> {
     let program = software.program();
     let graphical = software
@@ -286,21 +311,36 @@ fn compile_frontends(
         let artifact = match (scl, graph) {
             (Some(_), Some(_)) => return Err(SystemBuildError::DuplicateAuthoredBody(owner)),
             (None, None) => return Err(SystemBuildError::MissingAuthoredBody(owner)),
-            (Some(source), None) => {
-                lower_scl_frontend_artifact(program, source, ResourceLimits::EDU21).map_err(
-                    |error| SystemBuildError::SclFrontend {
-                        owner,
-                        detail: format!("{error:?}"),
-                    },
-                )?
-            }
+            (Some(source), None) => lower_scl_frontend_artifact(program, source, compiler_limits)
+                .map_err(|error| SystemBuildError::SclFrontend {
+                owner,
+                detail: format!("{error:?}"),
+            })?,
             (None, Some(body)) => {
                 match decode_graphical_body(body).map_err(SystemBuildError::GraphDecode)? {
                     DecodedGraphicalBody::Lad(document) => {
-                        let lowered = lower_lad_to_ir(&document, program, LadLimits::default())
-                            .map_err(|error| SystemBuildError::LadFrontend {
-                                owner,
-                                detail: format!("{error:?}"),
+                        let limits = profile.limits();
+                        let lad_limits = LadLimits {
+                            max_networks: profile_limit(
+                                limits.networks_per_block,
+                                "networks_per_block",
+                            )?,
+                            max_nodes_per_network: profile_limit(
+                                limits.nodes_per_network,
+                                "nodes_per_network",
+                            )?,
+                            max_edges_per_network: profile_limit(
+                                limits.edges_per_network,
+                                "edges_per_network",
+                            )?,
+                            max_diagnostics: compiler_limits.max_diagnostics,
+                        };
+                        let lowered =
+                            lower_lad_to_ir(&document, program, lad_limits).map_err(|error| {
+                                SystemBuildError::LadFrontend {
+                                    owner,
+                                    detail: format!("{error:?}"),
+                                }
                             })?;
                         FrontendArtifact::new(
                             owner,
@@ -311,6 +351,7 @@ fn compile_frontends(
                         )
                     }
                     DecodedGraphicalBody::Fbd(document) => {
+                        validate_fbd_profile_limits(&document, profile)?;
                         let lowered =
                             lower_fbd_to_verified_ir(&document, program).map_err(|error| {
                                 SystemBuildError::FbdFrontend {
@@ -333,6 +374,44 @@ fn compile_frontends(
     }
     compose_frontend_artifacts(program, &artifacts)
         .map_err(|error| SystemBuildError::Composition(format!("{error:?}")))
+}
+
+fn profile_limit(value: u32, field: &'static str) -> Result<usize, SystemBuildError> {
+    usize::try_from(value).map_err(|_| {
+        SystemBuildError::Profile(format!(
+            "training profile limit '{field}' is not representable on this target"
+        ))
+    })
+}
+
+fn validate_fbd_profile_limits(
+    document: &plc_language_tools::FbdDocument,
+    profile: &TrainingProfile,
+) -> Result<(), SystemBuildError> {
+    let limits = profile.limits();
+    let max_networks = profile_limit(limits.networks_per_block, "networks_per_block")?;
+    let max_nodes = profile_limit(limits.nodes_per_network, "nodes_per_network")?;
+    let max_edges = profile_limit(limits.edges_per_network, "edges_per_network")?;
+    if document.networks.len() > max_networks {
+        return Err(SystemBuildError::FbdFrontend {
+            owner: document.owner,
+            detail: "FBD network count exceeds the admitted training-profile limit".to_owned(),
+        });
+    }
+    if let Some(network) = document
+        .networks
+        .values()
+        .find(|network| network.nodes.len() > max_nodes || network.connections.len() > max_edges)
+    {
+        return Err(SystemBuildError::FbdFrontend {
+            owner: document.owner,
+            detail: format!(
+                "FBD network {:?} exceeds the admitted training-profile node/edge limits",
+                network.id
+            ),
+        });
+    }
+    Ok(())
 }
 
 fn project_runtime_channels<'a>(

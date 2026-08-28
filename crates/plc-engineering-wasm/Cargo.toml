@@ -6,8 +6,14 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
+plc-commissioning = { path = "../plc-commissioning" }
 plc-core = { path = "../plc-core" }
+plc-observability = { path = "../plc-observability" }
+plc-runtime = { path = "../plc-runtime" }
 plc-system = { path = "../plc-system" }
+
+[dev-dependencies]
+plc-hardware = { path = "../plc-hardware" }
 
 [lib]
 crate-type = ["cdylib", "rlib"]

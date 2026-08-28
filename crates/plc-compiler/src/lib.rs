@@ -49,7 +49,7 @@ pub use ir::{
     SourceMapSite, SourceMapTable, TypedIrProgram, UnaryOperator, VerificationError, VerifiedIr,
     verify_typed_ir,
 };
-pub use limits::{CancellationToken, ResourceLimit, ResourceLimits};
+pub use limits::{CancellationToken, ResourceLimit, ResourceLimits, ResourceProfileError};
 pub use plc_runtime::Hash32;
 pub use runtime_adapter::{
     RuntimeAdapterError, RuntimeArtifactProjection, RuntimeBlockBinding, RuntimeMappedSite,
