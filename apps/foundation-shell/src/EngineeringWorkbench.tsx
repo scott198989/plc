@@ -1,15 +1,21 @@
 import { useEffect, useMemo, useState } from "react";
 
 import {
+  canonicalRecordFields,
   createDataBlockPayload,
+  createFbdProgramPayload,
+  createLadProgramPayload,
   createSclProgramPayload,
   createTracePayload,
   createWatchPayload,
   interfaceMemberIdentity,
+  recordValue,
   unsignedValue,
+  updateGraphNodeFields,
 } from "./canonical-authoring";
 import type {
   ProjectPayload,
+  ProjectPayloadValue,
   ProjectStorageKind,
   WorkbenchObjectView,
   WorkbenchOperation,
@@ -305,6 +311,8 @@ export const EngineeringWorkbench = ({
               />
             ) : isSclProgramBlock(selected) ? (
               <SclProgramEditor busy={busy} object={selected} onOperation={onOperation} />
+            ) : isGraphicalProgramBlock(selected) ? (
+              <GraphicalProgramEditor busy={busy} object={selected} onOperation={onOperation} />
             ) : (
               <ObjectOverview object={selected} snapshot={snapshot} />
             )}
@@ -532,6 +540,10 @@ const isSclProgramBlock = (object: WorkbenchObjectView): boolean =>
   (object.kind === "OB" || object.kind === "FC" || object.kind === "FB") &&
   object.semanticPayload.language === "SCL";
 
+const isGraphicalProgramBlock = (object: WorkbenchObjectView): boolean =>
+  (object.kind === "OB" || object.kind === "FC" || object.kind === "FB") &&
+  (object.semanticPayload.language === "LAD" || object.semanticPayload.language === "FBD");
+
 type SclProgramEditorProps = Readonly<{
   busy: boolean;
   object: WorkbenchObjectView;
@@ -607,6 +619,328 @@ const SclProgramEditor = ({
       </footer>
     </div>
   );
+};
+
+type GraphInterfaceMember = Readonly<{
+  dataType: string;
+  id: string;
+  name: string;
+  role: string;
+}>;
+
+type GraphicalProgramEditorProps = Readonly<{
+  busy: boolean;
+  object: WorkbenchObjectView;
+  onOperation: (operation: WorkbenchOperation) => Promise<void>;
+}>;
+
+const GraphicalProgramEditor = ({
+  busy,
+  object,
+  onOperation,
+}: GraphicalProgramEditorProps): React.JSX.Element => {
+  const language = object.semanticPayload.language === "FBD" ? "FBD" : "LAD";
+  const graph = object.semanticPayload.graph;
+  const graphRecord = canonicalRecordFields(graph);
+  const networks = graphRecord !== null && Array.isArray(graphRecord.networks)
+    ? graphRecord.networks
+    : [];
+  const members = readGraphInterfaceMembers(object.semanticPayload);
+
+  const commitNodeFields = (
+    nodeId: string,
+    fields: ProjectPayload,
+  ): void => {
+    if (busy || graph === undefined) {
+      return;
+    }
+    const updated = updateGraphNodeFields(graph, nodeId, fields);
+    if (updated !== null) {
+      void onOperation({
+        key: "graph",
+        kind: "project.set-semantic-field",
+        objectId: object.id,
+        value: updated,
+      });
+    }
+  };
+
+  const bindOperand = (
+    node: ProjectPayload,
+    nodeId: string,
+    memberId: string,
+  ): void => {
+    const operand = canonicalRecordFields(node.operand);
+    if (operand !== null) {
+      commitNodeFields(nodeId, { operand: recordValue({ ...operand, memberId }) });
+    }
+  };
+
+  return (
+    <div className="graph-editor" data-language={language}>
+      <header className="graph-editor__header">
+        <div>
+          <p className="action-kicker">Coordinate-free semantic editor</p>
+          <h1>{object.displayName}</h1>
+          <p>
+            {language === "LAD"
+              ? "Power flow, operands, and coil behavior are stored as a stable ladder graph."
+              : "Typed ports and data dependencies are stored independently from this visual arrangement."}
+          </p>
+        </div>
+        <div className="graph-editor__identity">
+          <span>{language}</span>
+          <code>{networks.length} network{networks.length === 1 ? "" : "s"}</code>
+        </div>
+      </header>
+
+      {networks.length === 0 ? (
+        <div className="graph-editor__invalid" role="alert">
+          This block has no valid canonical {language} network to edit.
+        </div>
+      ) : (
+        <div className="graph-editor__networks">
+          {networks.map((networkValue, networkIndex) => {
+            const network = canonicalRecordFields(networkValue);
+            if (network === null || !Array.isArray(network.nodes)) {
+              return (
+                <div className="graph-editor__invalid" key={`invalid-${networkIndex}`} role="alert">
+                  Network {networkIndex + 1} is malformed and will not compile.
+                </div>
+              );
+            }
+            return language === "LAD" ? (
+              <LadderNetworkEditor
+                bindOperand={bindOperand}
+                busy={busy}
+                commitNodeFields={commitNodeFields}
+                key={String(network.id ?? networkIndex)}
+                members={members}
+                network={network}
+                networkIndex={networkIndex}
+              />
+            ) : (
+              <FbdNetworkEditor
+                busy={busy}
+                commitNodeFields={commitNodeFields}
+                key={String(network.id ?? networkIndex)}
+                members={members}
+                network={network}
+                networkIndex={networkIndex}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      <footer className="graph-editor__footer">
+        <span>Semantic identities remain stable when symbols are renamed.</span>
+        <span>Layout does not participate in execution.</span>
+      </footer>
+    </div>
+  );
+};
+
+type GraphNetworkEditorProps = Readonly<{
+  busy: boolean;
+  commitNodeFields: (nodeId: string, fields: ProjectPayload) => void;
+  members: readonly GraphInterfaceMember[];
+  network: ProjectPayload;
+  networkIndex: number;
+}>;
+
+const LadderNetworkEditor = ({
+  bindOperand,
+  busy,
+  commitNodeFields,
+  members,
+  network,
+  networkIndex,
+}: GraphNetworkEditorProps & Readonly<{
+  bindOperand: (node: ProjectPayload, nodeId: string, memberId: string) => void;
+}>): React.JSX.Element => {
+  const nodes = Array.isArray(network.nodes)
+    ? network.nodes.map(canonicalRecordFields).filter((node): node is ProjectPayload => node !== null)
+    : [];
+  const edgeCount = Array.isArray(network.edges) ? network.edges.length : 0;
+  return (
+    <section className="lad-network" aria-label={`LAD network ${networkIndex + 1}`}>
+      <div className="graph-network__heading">
+        <span>Network {networkIndex + 1}</span>
+        <code>{nodes.length} nodes · {edgeCount} power edges</code>
+      </div>
+      <div className="lad-rung">
+        <span className="lad-rail" aria-hidden="true" />
+        {nodes.map((node) => {
+          const nodeId = typeof node.id === "string" ? node.id : "";
+          const nodeKind = typeof node.nodeKind === "string" ? node.nodeKind : "unresolved";
+          const operand = canonicalRecordFields(node.operand);
+          const memberId = typeof operand?.memberId === "string" ? operand.memberId : "";
+          if (nodeKind === "power-source") {
+            return <div className="lad-power-source" key={nodeId}><span aria-hidden="true">L+</span><small>Power</small></div>;
+          }
+          if (nodeKind === "contact") {
+            return (
+              <div className="lad-element lad-contact" key={nodeId}>
+                <div className="lad-symbol" aria-hidden="true">
+                  <span>—|</span><strong>{node.mode === "normally-closed" ? "/" : ""}</strong><span>|—</span>
+                </div>
+                <label>
+                  <span>Operand</span>
+                  <select disabled={busy} onChange={(event) => bindOperand(node, nodeId, event.target.value)} value={memberId}>
+                    {memberOptions(members, memberId)}
+                  </select>
+                </label>
+                <label>
+                  <span>Contact</span>
+                  <select
+                    disabled={busy}
+                    onChange={(event) => commitNodeFields(nodeId, { mode: event.target.value })}
+                    value={typeof node.mode === "string" ? node.mode : "normally-open"}
+                  >
+                    <option value="normally-open">Normally open</option>
+                    <option value="normally-closed">Normally closed</option>
+                  </select>
+                </label>
+              </div>
+            );
+          }
+          if (nodeKind === "coil") {
+            return (
+              <div className="lad-element lad-coil" key={nodeId}>
+                <div className="lad-symbol" aria-hidden="true"><span>—(</span><strong>{coilMark(node.mode)}</strong><span>)—</span></div>
+                <label>
+                  <span>Operand</span>
+                  <select disabled={busy} onChange={(event) => bindOperand(node, nodeId, event.target.value)} value={memberId}>
+                    {memberOptions(members, memberId)}
+                  </select>
+                </label>
+                <label>
+                  <span>Coil</span>
+                  <select
+                    disabled={busy}
+                    onChange={(event) => commitNodeFields(nodeId, { mode: event.target.value })}
+                    value={typeof node.mode === "string" ? node.mode : "normal"}
+                  >
+                    <option value="normal">Normal</option>
+                    <option value="negated">Negated</option>
+                    <option value="set">Set</option>
+                    <option value="reset">Reset</option>
+                  </select>
+                </label>
+              </div>
+            );
+          }
+          return <div className="lad-element lad-element--unsupported" key={nodeId}>{nodeKind}</div>;
+        })}
+        <span className="lad-rail lad-rail--right" aria-hidden="true" />
+      </div>
+    </section>
+  );
+};
+
+const FbdNetworkEditor = ({
+  busy,
+  commitNodeFields,
+  members,
+  network,
+  networkIndex,
+}: GraphNetworkEditorProps): React.JSX.Element => {
+  const nodes = Array.isArray(network.nodes)
+    ? network.nodes.map(canonicalRecordFields).filter((node): node is ProjectPayload => node !== null)
+    : [];
+  const connectionCount = Array.isArray(network.connections) ? network.connections.length : 0;
+  return (
+    <section className="fbd-network" aria-label={`FBD network ${networkIndex + 1}`}>
+      <div className="graph-network__heading">
+        <span>Network {networkIndex + 1}</span>
+        <code>{nodes.length} nodes · {connectionCount} typed connections</code>
+      </div>
+      <div className="fbd-flow">
+        {nodes.map((node, index) => {
+          const nodeId = typeof node.id === "string" ? node.id : "";
+          const nodeKind = typeof node.nodeKind === "string" ? node.nodeKind : "unresolved";
+          const isMemberNode = nodeKind === "load-member" || nodeKind === "store-member";
+          const memberId = typeof node.memberId === "string" ? node.memberId : "";
+          return (
+            <div className="fbd-flow__step" key={nodeId}>
+              <article className="fbd-node" data-kind={nodeKind}>
+                <div className="fbd-node__title">
+                  <span>{fbdNodeLabel(node)}</span>
+                  <code>{index + 1}</code>
+                </div>
+                {isMemberNode ? (
+                  <label>
+                    <span>{nodeKind === "load-member" ? "Read member" : "Write member"}</span>
+                    <select
+                      disabled={busy}
+                      onChange={(event) => commitNodeFields(nodeId, { memberId: event.target.value })}
+                      value={memberId}
+                    >
+                      {memberOptions(members, memberId)}
+                    </select>
+                  </label>
+                ) : (
+                  <div className="fbd-node__instruction">
+                    <span>IN</span><strong>{node.instructionCode === undefined ? nodeKind : "NOT"}</strong><span>OUT</span>
+                  </div>
+                )}
+                <small>{Array.isArray(node.ports) ? node.ports.length : 0} typed port{Array.isArray(node.ports) && node.ports.length === 1 ? "" : "s"}</small>
+              </article>
+              {index < nodes.length - 1 && <span className="fbd-connection" aria-label="Typed data connection">→</span>}
+            </div>
+          );
+        })}
+      </div>
+    </section>
+  );
+};
+
+const readGraphInterfaceMembers = (payload: ProjectPayload): readonly GraphInterfaceMember[] => {
+  if (!Array.isArray(payload.interface)) {
+    return [];
+  }
+  return payload.interface.flatMap((value) => {
+    const member = canonicalRecordFields(value);
+    return member !== null &&
+      typeof member.id === "string" &&
+      typeof member.name === "string" &&
+      typeof member.role === "string" &&
+      typeof member.type === "string"
+      ? [{ dataType: member.type, id: member.id, name: member.name, role: member.role }]
+      : [];
+  });
+};
+
+const memberOptions = (
+  members: readonly GraphInterfaceMember[],
+  selectedId: string,
+): React.JSX.Element[] => {
+  const values = members.some((member) => member.id === selectedId)
+    ? members
+    : [{ dataType: "?", id: selectedId, name: "Unresolved member", role: "unresolved" }, ...members];
+  return values.map((member) => (
+    <option key={member.id} value={member.id}>{member.name} · {member.dataType} · {member.role}</option>
+  ));
+};
+
+const coilMark = (mode: ProjectPayloadValue | undefined): string => {
+  switch (mode) {
+    case "negated": return "/";
+    case "set": return "S";
+    case "reset": return "R";
+    default: return " ";
+  }
+};
+
+const fbdNodeLabel = (node: ProjectPayload): string => {
+  switch (node.nodeKind) {
+    case "load-member": return "Member source";
+    case "store-member": return "Member sink";
+    case "instruction": return "Boolean instruction";
+    case "call": return "Block call";
+    default: return typeof node.nodeKind === "string" ? node.nodeKind : "Unresolved node";
+  }
 };
 
 type PropertiesPaneProps = Readonly<{
@@ -781,7 +1115,19 @@ const creationOptions = (
           label: "Organization block",
           objectKind: "program-block",
           payloadSchema: "edu.program-block/1",
-          semanticPayload: () => createSclProgramPayload("cyclic-ob"),
+          semanticPayload: () => createSclProgramPayload(
+            "cyclic-ob",
+            nextEngineeringNumber(snapshot, "OB"),
+          ),
+        },
+        {
+          baseName: "Ladder cycle",
+          description: "Editable semantic LAD organization block",
+          glyph: "LD",
+          label: "Ladder organization block",
+          objectKind: "program-block",
+          payloadSchema: "edu.program-block/1",
+          semanticPayload: () => createLadProgramPayload(nextEngineeringNumber(snapshot, "OB")),
         },
         {
           baseName: "Function",
@@ -790,7 +1136,19 @@ const creationOptions = (
           label: "Function",
           objectKind: "program-block",
           payloadSchema: "edu.program-block/1",
-          semanticPayload: () => createSclProgramPayload("fc"),
+          semanticPayload: () => createSclProgramPayload(
+            "fc",
+            nextEngineeringNumber(snapshot, "FC"),
+          ),
+        },
+        {
+          baseName: "FBD function",
+          description: "Typed function-block diagram",
+          glyph: "FD",
+          label: "FBD function",
+          objectKind: "program-block",
+          payloadSchema: "edu.program-block/1",
+          semanticPayload: () => createFbdProgramPayload(nextEngineeringNumber(snapshot, "FC")),
         },
         {
           baseName: "Function block",
@@ -799,7 +1157,10 @@ const creationOptions = (
           label: "Function block",
           objectKind: "program-block",
           payloadSchema: "edu.program-block/1",
-          semanticPayload: () => createSclProgramPayload("fb"),
+          semanticPayload: () => createSclProgramPayload(
+            "fb",
+            nextEngineeringNumber(snapshot, "FB"),
+          ),
         },
         {
           baseName: "Global data",
@@ -808,7 +1169,11 @@ const creationOptions = (
           label: "Global data block",
           objectKind: "data-block",
           payloadSchema: "edu.data-block/1",
-          semanticPayload: () => createDataBlockPayload("GlobalDB"),
+          semanticPayload: () => createDataBlockPayload(
+            "GlobalDB",
+            null,
+            nextEngineeringNumber(snapshot, "GlobalDB"),
+          ),
         },
         {
           baseName: "Instance data",
@@ -822,6 +1187,7 @@ const creationOptions = (
             Object.values(snapshot.objects).find(
               (object) => object.lifecycle === "active" && object.kind === "FB",
             )?.id ?? null,
+            nextEngineeringNumber(snapshot, "InstanceDB"),
           ),
         },
         {
@@ -920,6 +1286,38 @@ const tagTemplate = (
     tagKind: area === "I" ? "Input" : area === "Q" ? "Output" : "Memory",
   },
 });
+
+const nextEngineeringNumber = (
+  snapshot: WorkbenchSnapshot,
+  blockKind: "FB" | "FC" | "GlobalDB" | "InstanceDB" | "OB",
+): number => {
+  let maximum = 0;
+  for (const object of Object.values(snapshot.objects)) {
+    if (object.lifecycle !== "active") {
+      continue;
+    }
+    const authoredKind = object.semanticPayload.blockKind ?? object.semanticPayload.dbKind;
+    if (authoredKind !== blockKind) {
+      continue;
+    }
+    const value = object.semanticPayload.engineeringNumber;
+    if (
+      typeof value === "object" &&
+      value !== null &&
+      !Array.isArray(value) &&
+      "$type" in value &&
+      value.$type === "u64" &&
+      "value" in value &&
+      typeof value.value === "string"
+    ) {
+      const parsed = Number(value.value);
+      if (Number.isSafeInteger(parsed) && parsed > maximum) {
+        maximum = parsed;
+      }
+    }
+  }
+  return Math.min(maximum + 1, 4_294_967_295);
+};
 
 const nextObjectName = (
   baseName: string,

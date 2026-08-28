@@ -7,7 +7,7 @@ export const unsignedValue = (value: number): Readonly<{ $type: "u64"; value: st
   value: value.toString(10),
 });
 
-const recordValue = (
+export const recordValue = (
   value: Readonly<Record<string, ProjectPayloadValue>>,
 ): Readonly<{
   $type: "record";
@@ -28,6 +28,210 @@ const interfaceMember = (
   role,
   type: dataType,
 });
+
+const graphNetwork = (
+  value: Readonly<Record<string, ProjectPayloadValue>>,
+): ProjectPayloadValue => recordValue(value);
+
+const ladderPowerPort = (
+  id: string,
+  direction: "input" | "output",
+): ProjectPayloadValue => recordValue({ direction, id });
+
+const ladderOperand = (memberId: string): ProjectPayloadValue => recordValue({
+  id: crypto.randomUUID(),
+  kind: "caller-member",
+  memberId,
+});
+
+const fbdPort = (
+  name: string,
+  direction: "input" | "output",
+): ProjectPayloadValue => recordValue({
+  activation: "none",
+  dataType: "BOOL",
+  direction,
+  effectRole: "value",
+  id: crypto.randomUUID(),
+  multiplicity: direction === "output" ? "many" : "one",
+  name,
+  required: direction === "input",
+  status: "active",
+});
+
+/**
+ * Creates a coordinate-free semantic LAD graph. The visible editor is free to
+ * lay the rung out differently without changing this executable state.
+ */
+export const createLadProgramPayload = (engineeringNumber = 1): ProjectPayload => {
+  const input = interfaceMember("InputValue", "temp", 0, "BOOL");
+  const output = interfaceMember("OutputValue", "temp", 1, "BOOL");
+  const inputMemberId = recordMemberId(input);
+  const outputMemberId = recordMemberId(output);
+  const sourceOutput = crypto.randomUUID();
+  const contactInput = crypto.randomUUID();
+  const contactOutput = crypto.randomUUID();
+  const coilInput = crypto.randomUUID();
+
+  return {
+    blockKind: "OB",
+    engineeringNumber: unsignedValue(engineeringNumber),
+    graph: recordValue({
+      documentId: crypto.randomUUID(),
+      networks: [
+        graphNetwork({
+          branches: [],
+          edges: [
+            recordValue({
+              id: crypto.randomUUID(),
+              sourcePortId: sourceOutput,
+              targetPortId: contactInput,
+            }),
+            recordValue({
+              id: crypto.randomUUID(),
+              sourcePortId: contactOutput,
+              targetPortId: coilInput,
+            }),
+          ],
+          id: crypto.randomUUID(),
+          nodes: [
+            recordValue({
+              id: crypto.randomUUID(),
+              nodeKind: "power-source",
+              powerPorts: [ladderPowerPort(sourceOutput, "output")],
+              semanticOrder: unsignedValue(0),
+            }),
+            recordValue({
+              id: crypto.randomUUID(),
+              mode: "normally-open",
+              nodeKind: "contact",
+              operand: ladderOperand(inputMemberId),
+              powerPorts: [
+                ladderPowerPort(contactInput, "input"),
+                ladderPowerPort(contactOutput, "output"),
+              ],
+              semanticOrder: unsignedValue(1),
+            }),
+            recordValue({
+              id: crypto.randomUUID(),
+              mode: "normal",
+              nodeKind: "coil",
+              operand: ladderOperand(outputMemberId),
+              powerPorts: [ladderPowerPort(coilInput, "input")],
+              semanticOrder: unsignedValue(2),
+            }),
+          ],
+          semanticOrder: unsignedValue(0),
+        }),
+      ],
+      schema: "edu.lad-semantic-graph/1",
+      semanticRevision: unsignedValue(0),
+    }),
+    interface: [input, output],
+    language: "LAD",
+    obRole: "CyclicMain",
+  };
+};
+
+/** Creates a typed, coordinate-free FBD function with one real NOT node. */
+export const createFbdProgramPayload = (engineeringNumber = 1): ProjectPayload => {
+  const input = interfaceMember("InputValue", "input", 0, "BOOL");
+  const output = interfaceMember("Result", "output", 1, "BOOL");
+  const inputMemberId = recordMemberId(input);
+  const outputMemberId = recordMemberId(output);
+  const loadOutput = fbdPort("OUT", "output");
+  const invertInput = recordValue({
+    ...recordFields(fbdPort("IN", "input")),
+    formalId: unsignedValue(0x0010),
+    formalKind: "instruction",
+  });
+  const invertOutput = recordValue({
+    ...recordFields(fbdPort("OUT", "output")),
+    formalId: unsignedValue(0x0011),
+    formalKind: "instruction",
+  });
+  const storeInput = fbdPort("IN", "input");
+
+  return {
+    blockKind: "FC",
+    engineeringNumber: unsignedValue(engineeringNumber),
+    graph: recordValue({
+      documentId: crypto.randomUUID(),
+      networks: [
+        graphNetwork({
+          connections: [
+            recordValue({
+              id: crypto.randomUUID(),
+              kind: "data",
+              sourcePortId: recordId(loadOutput),
+              targetPortId: recordId(invertInput),
+            }),
+            recordValue({
+              id: crypto.randomUUID(),
+              kind: "data",
+              sourcePortId: recordId(invertOutput),
+              targetPortId: recordId(storeInput),
+            }),
+          ],
+          id: crypto.randomUUID(),
+          nodes: [
+            recordValue({
+              id: crypto.randomUUID(),
+              memberId: inputMemberId,
+              nodeKind: "load-member",
+              ports: [loadOutput],
+              semanticOrder: unsignedValue(0),
+            }),
+            recordValue({
+              id: crypto.randomUUID(),
+              instructionCode: unsignedValue(0x0010),
+              nodeKind: "instruction",
+              ports: [invertInput, invertOutput],
+              semanticOrder: unsignedValue(1),
+              stateInstanceId: null,
+            }),
+            recordValue({
+              id: crypto.randomUUID(),
+              memberId: outputMemberId,
+              nodeKind: "store-member",
+              ports: [storeInput],
+              semanticOrder: unsignedValue(2),
+            }),
+          ],
+          semanticOrder: unsignedValue(0),
+        }),
+      ],
+      schema: "edu.fbd-semantic-graph/1",
+    }),
+    interface: [input, output],
+    language: "FBD",
+  };
+};
+
+const recordFields = (
+  value: ProjectPayloadValue,
+): Readonly<Record<string, ProjectPayloadValue>> => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    !("$type" in value) ||
+    value.$type !== "record"
+  ) {
+    throw new Error("Canonical authoring expected a record value.");
+  }
+  return value.value;
+};
+
+const recordId = (value: ProjectPayloadValue): string => {
+  const id = recordFields(value).id;
+  if (typeof id !== "string") {
+    throw new Error("Canonical authoring expected a record identity.");
+  }
+  return id;
+};
+
+const recordMemberId = (value: ProjectPayloadValue): string => recordId(value);
 
 /**
  * Creates the semantic payload for a new SCL block at the moment the user
@@ -136,4 +340,54 @@ export const interfaceMemberIdentity = (
     }
   }
   return null;
+};
+
+/**
+ * Replaces fields on exactly one stable graphical node. The operation returns
+ * null for malformed graphs, missing identities, or duplicate identities so a
+ * UI edit can never silently target an ambiguous semantic object.
+ */
+export const updateGraphNodeFields = (
+  graph: ProjectPayloadValue,
+  nodeId: string,
+  fields: ProjectPayload,
+): ProjectPayloadValue | null => {
+  const graphRecord = recordFieldsOrNull(graph);
+  if (graphRecord === null || !Array.isArray(graphRecord.networks)) {
+    return null;
+  }
+  let replacements = 0;
+  const networks = graphRecord.networks.map((networkValue) => {
+    const network = recordFieldsOrNull(networkValue);
+    if (network === null || !Array.isArray(network.nodes)) {
+      return networkValue;
+    }
+    const nodes = network.nodes.map((nodeValue) => {
+      const node = recordFieldsOrNull(nodeValue);
+      if (node === null || node.id !== nodeId) {
+        return nodeValue;
+      }
+      replacements += 1;
+      return recordValue({ ...node, ...fields });
+    });
+    return recordValue({ ...network, nodes });
+  });
+  return replacements === 1 ? recordValue({ ...graphRecord, networks }) : null;
+};
+
+export const canonicalRecordFields = (
+  value: ProjectPayloadValue | undefined,
+): ProjectPayload | null => value === undefined ? null : recordFieldsOrNull(value);
+
+const recordFieldsOrNull = (value: ProjectPayloadValue): ProjectPayload | null => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    Array.isArray(value) ||
+    !("$type" in value) ||
+    value.$type !== "record"
+  ) {
+    return null;
+  }
+  return value.value;
 };

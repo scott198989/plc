@@ -2,9 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   createDataBlockPayload,
+  createFbdProgramPayload,
+  createLadProgramPayload,
   createSclProgramPayload,
   createTracePayload,
   interfaceMemberIdentity,
+  updateGraphNodeFields,
 } from "../src/canonical-authoring";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
@@ -47,7 +50,117 @@ describe("canonical authoring payloads", () => {
       trigger: "immediate",
     });
   });
+
+  it("authors a coordinate-free LAD rung with stable semantic references", () => {
+    const payload = createLadProgramPayload();
+    expect(payload).toMatchObject({ blockKind: "OB", language: "LAD", obRole: "CyclicMain" });
+    const graph = record(payload.graph);
+    expect(graph.schema).toBe("edu.lad-semantic-graph/1");
+    expect(JSON.stringify(graph)).not.toMatch(/\b(?:x|y|width|height|route|viewport)\b/u);
+
+    const network = record(list(graph.networks)[0]);
+    const nodes = list(network.nodes).map(record);
+    const edges = list(network.edges).map(record);
+    expect(nodes.map((node) => node.nodeKind)).toEqual(["power-source", "contact", "coil"]);
+    expect(edges).toHaveLength(2);
+    const ports = new Set(
+      nodes.flatMap((node) => list(node.powerPorts).map((port) => String(record(port).id))),
+    );
+    expect(edges.every((edge) => ports.has(String(edge.sourcePortId)) && ports.has(String(edge.targetPortId)))).toBe(true);
+    expect(record(nodes[1]?.operand).memberId).toBe(interfaceMemberIdentity(payload, "InputValue"));
+    expect(record(nodes[2]?.operand).memberId).toBe(interfaceMemberIdentity(payload, "OutputValue"));
+  });
+
+  it("authors a typed FBD data-flow graph through the shared NOT instruction", () => {
+    const payload = createFbdProgramPayload();
+    expect(payload).toMatchObject({ blockKind: "FC", language: "FBD" });
+    const graph = record(payload.graph);
+    expect(graph.schema).toBe("edu.fbd-semantic-graph/1");
+    expect(JSON.stringify(graph)).not.toMatch(/\b(?:x|y|width|height|route|viewport)\b/u);
+
+    const network = record(list(graph.networks)[0]);
+    const nodes = list(network.nodes).map(record);
+    expect(nodes.map((node) => node.nodeKind)).toEqual([
+      "load-member",
+      "instruction",
+      "store-member",
+    ]);
+    expect(nodes[1]?.instructionCode).toEqual({ $type: "u64", value: "16" });
+    expect(record(list(nodes[1]?.ports)[0]).formalId).toEqual({ $type: "u64", value: "16" });
+    expect(record(list(nodes[1]?.ports)[1]).formalId).toEqual({ $type: "u64", value: "17" });
+    expect(list(network.connections)).toHaveLength(2);
+  });
+
+  it("edits one graphical identity without changing topology identities", () => {
+    const payload = createLadProgramPayload();
+    const graph = payload.graph;
+    if (graph === undefined) {
+      throw new Error("Expected a graph payload.");
+    }
+    const before = record(graph);
+    const network = record(list(before.networks)[0]);
+    const nodes = list(network.nodes).map(record);
+    const contact = nodes.find((node) => node.nodeKind === "contact");
+    if (contact === undefined || typeof contact.id !== "string") {
+      throw new Error("Expected a stable contact identity.");
+    }
+    const identitiesBefore = collectIdentities(before);
+    const updated = updateGraphNodeFields(graph, contact.id, { mode: "normally-closed" });
+    expect(updated).not.toBeNull();
+    if (updated === null) {
+      throw new Error("Expected a graph update.");
+    }
+    const after = record(updated);
+    const updatedNodes = list(record(list(after.networks)[0]).nodes).map(record);
+    expect(updatedNodes.find((node) => node.id === contact.id)?.mode).toBe("normally-closed");
+    expect(collectIdentities(after)).toEqual(identitiesBefore);
+    expect(updateGraphNodeFields(graph, crypto.randomUUID(), { mode: "normally-closed" })).toBeNull();
+  });
 });
+
+const collectIdentities = (value: unknown): readonly string[] => {
+  const identities: string[] = [];
+  const visit = (current: unknown): void => {
+    if (Array.isArray(current)) {
+      current.forEach(visit);
+      return;
+    }
+    if (typeof current !== "object" || current === null) {
+      return;
+    }
+    for (const [key, child] of Object.entries(current)) {
+      if ((key === "id" || key.endsWith("Id")) && typeof child === "string" && UUID.test(child)) {
+        identities.push(`${key}:${child}`);
+      }
+      visit(child);
+    }
+  };
+  visit(value);
+  return identities.sort();
+};
+
+const record = (value: unknown): Record<string, unknown> => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("$type" in value) ||
+    value.$type !== "record" ||
+    !("value" in value) ||
+    typeof value.value !== "object" ||
+    value.value === null ||
+    Array.isArray(value.value)
+  ) {
+    throw new Error("Expected a canonical record value.");
+  }
+  return value.value as Record<string, unknown>;
+};
+
+const list = (value: unknown): readonly unknown[] => {
+  if (!Array.isArray(value)) {
+    throw new Error("Expected a canonical list value.");
+  }
+  return value;
+};
 
 const memberId = (value: unknown): string => {
   if (
