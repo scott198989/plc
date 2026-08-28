@@ -30,6 +30,7 @@
     "typecheck": "pnpm wasm:all:embed && pnpm --filter @govs/foundation-contract typecheck && pnpm --filter @govs/foundation-shell typecheck",
     "verify:isolation": "node tools/foundation/verify-isolation.mjs",
     "verify:mutations": "node tools/phase1/run_phase1_mutations.mjs --baseline-ref HEAD",
+    "verify:phase2:mutations": "node tools/phase2/run_pinned_python.mjs -B tools/phase2/run_phase2_mutations.py --root . --candidate-ref HEAD",
     "verify:phase1": "node tools/phase1/run_pinned_python.mjs -B tools/phase1/run_phase1_verification.py --baseline-ref HEAD",
     "wasm:build": "node tools/foundation/build-wasm.mjs",
     "wasm:embed": "pnpm wasm:build && node tools/foundation/embed-wasm.mjs",
