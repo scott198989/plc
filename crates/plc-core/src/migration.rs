@@ -71,8 +71,42 @@ pub struct MigrationReport {
     /// Digest of the untouched source model. A host persists the encoded source
     /// package as its immutable backup before replacing any destination bytes.
     pub backup_hash: Sha256Digest,
+    pub backup: MigrationBackup,
     pub resulting_hash: Sha256Digest,
     pub changes: Vec<MigrationChange>,
+}
+
+/// Immutable in-memory source evidence created before the first migration
+/// callback is invoked. A capable host may persist the corresponding source
+/// package before replacing destination bytes; this value always permits an
+/// exact model rollback inside the capability-free core.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MigrationBackup {
+    source_version: u32,
+    source_hash: Sha256Digest,
+    source: Project,
+}
+
+impl MigrationBackup {
+    #[must_use]
+    pub const fn source_version(&self) -> u32 {
+        self.source_version
+    }
+
+    #[must_use]
+    pub const fn source_hash(&self) -> Sha256Digest {
+        self.source_hash
+    }
+
+    #[must_use]
+    pub const fn project(&self) -> &Project {
+        &self.source
+    }
+
+    #[must_use]
+    pub fn restore(&self) -> Project {
+        self.source.clone()
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,6 +116,7 @@ pub enum MigrationError {
     AmbiguousStep(u32),
     NonAdjacentStep { from: u32, to: u32 },
     StepFailed { name: String, message: String },
+    NonDeterministic(String),
     NonIdempotent(String),
     InvalidResult(String),
     IdentityChanged(String),
@@ -99,6 +134,11 @@ pub fn migrate_project(
         return Err(MigrationError::BackwardMigration);
     }
     let backup_hash = source.document_hash();
+    let backup = MigrationBackup {
+        source_version,
+        source_hash: backup_hash,
+        source: source.clone(),
+    };
     let source_document_id = source.document_id();
     let source_root_id = source.root_id();
     let mut candidate = source.clone();
@@ -122,39 +162,8 @@ pub fn migrate_project(
             });
         }
         let before_hash = candidate.document_hash();
-        let mut migrated = candidate.clone();
-        let mut output =
-            (step.apply)(&mut migrated).map_err(|message| MigrationError::StepFailed {
-                name: step.name.to_owned(),
-                message,
-            })?;
-        migrated
-            .validate()
-            .map_err(|error| MigrationError::InvalidResult(format!("{error:?}")))?;
-        if migrated.document_id() != source_document_id || migrated.root_id() != source_root_id {
-            return Err(MigrationError::IdentityChanged(step.name.to_owned()));
-        }
-        validate_identity_changes(&candidate, &migrated, &output.identity_mappings, step.name)?;
-        let mut idempotence_probe = migrated.clone();
-        (step.apply)(&mut idempotence_probe).map_err(|message| MigrationError::StepFailed {
-            name: step.name.to_owned(),
-            message,
-        })?;
-        if idempotence_probe.document_hash() != migrated.document_hash() {
-            return Err(MigrationError::NonIdempotent(step.name.to_owned()));
-        }
-        output.affected_object_ids.sort_unstable();
-        output.affected_object_ids.dedup();
-        let known: BTreeSet<_> = migrated.objects().map(|object| object.id).collect();
-        if output
-            .affected_object_ids
-            .iter()
-            .any(|id| !known.contains(id) && candidate.object(*id).is_none())
-        {
-            return Err(MigrationError::InvalidResult(
-                "affected object list contains an unknown identity".to_owned(),
-            ));
-        }
+        let (migrated, output) =
+            apply_verified_step(&candidate, step, source_document_id, source_root_id)?;
         let after_hash = migrated.document_hash();
         changes.push(MigrationChange {
             from_version: current,
@@ -178,10 +187,152 @@ pub fn migrate_project(
             source_version,
             target_version,
             backup_hash,
+            backup,
             resulting_hash,
             changes,
         },
     ))
+}
+
+fn apply_verified_step(
+    candidate: &Project,
+    step: MigrationStep,
+    source_document_id: crate::Uuid,
+    source_root_id: ObjectId,
+) -> Result<(Project, MigrationStepOutput), MigrationError> {
+    if step.name.is_empty() || step.name.len() > 256 {
+        return Err(MigrationError::InvalidResult(
+            "migration step name is empty or oversized".to_owned(),
+        ));
+    }
+    let mut migrated = candidate.clone();
+    let output = (step.apply)(&mut migrated).map_err(|message| MigrationError::StepFailed {
+        name: step.name.to_owned(),
+        message,
+    })?;
+    let mut determinism_probe = candidate.clone();
+    let determinism_output =
+        (step.apply)(&mut determinism_probe).map_err(|message| MigrationError::StepFailed {
+            name: step.name.to_owned(),
+            message,
+        })?;
+    if determinism_probe != migrated || determinism_output != output {
+        return Err(MigrationError::NonDeterministic(step.name.to_owned()));
+    }
+    let output = canonicalize_output(output)?;
+    migrated
+        .validate()
+        .map_err(|error| MigrationError::InvalidResult(format!("{error:?}")))?;
+    if migrated.document_id() != source_document_id || migrated.root_id() != source_root_id {
+        return Err(MigrationError::IdentityChanged(step.name.to_owned()));
+    }
+    validate_identity_changes(candidate, &migrated, &output.identity_mappings, step.name)?;
+    validate_reported_changes(candidate, &migrated, &output, step.name)?;
+    let mut idempotence_probe = migrated.clone();
+    let idempotence_output =
+        (step.apply)(&mut idempotence_probe).map_err(|message| MigrationError::StepFailed {
+            name: step.name.to_owned(),
+            message,
+        })?;
+    if idempotence_probe != migrated || idempotence_output != MigrationStepOutput::default() {
+        return Err(MigrationError::NonIdempotent(step.name.to_owned()));
+    }
+    Ok((migrated, output))
+}
+
+fn canonicalize_output(
+    mut output: MigrationStepOutput,
+) -> Result<MigrationStepOutput, MigrationError> {
+    output.affected_object_ids.sort_unstable();
+    output.affected_object_ids.dedup();
+    for mapping in &mut output.identity_mappings {
+        mapping.source_ids.sort_unstable();
+        mapping.source_ids.dedup();
+        mapping.target_ids.sort_unstable();
+        mapping.target_ids.dedup();
+    }
+    output.identity_mappings.sort_by(|left, right| {
+        (&left.source_ids, &left.target_ids, &left.rationale).cmp(&(
+            &right.source_ids,
+            &right.target_ids,
+            &right.rationale,
+        ))
+    });
+    output.defaults_introduced.sort_by(|left, right| {
+        (&left.object_id, &left.field_path, &left.canonical_value).cmp(&(
+            &right.object_id,
+            &right.field_path,
+            &right.canonical_value,
+        ))
+    });
+    output.warnings.sort();
+    output.warnings.dedup();
+    output.unsupported_features.sort();
+    output.unsupported_features.dedup();
+    let has_invalid_text = {
+        let mut bounded_text = output
+            .identity_mappings
+            .iter()
+            .map(|mapping| mapping.rationale.as_str())
+            .chain(output.defaults_introduced.iter().flat_map(|default| {
+                [
+                    default.field_path.as_str(),
+                    default.canonical_value.as_str(),
+                ]
+            }))
+            .chain(output.warnings.iter().map(String::as_str))
+            .chain(output.unsupported_features.iter().map(String::as_str));
+        bounded_text.any(|text| text.is_empty() || text.len() > 4096)
+    };
+    if has_invalid_text
+        || output.identity_mappings.len() > 100_000
+        || output.defaults_introduced.len() > 100_000
+        || output.warnings.len() > 10_000
+        || output.unsupported_features.len() > 10_000
+    {
+        return Err(MigrationError::InvalidResult(
+            "migration report output is empty or exceeds its bound".to_owned(),
+        ));
+    }
+    Ok(output)
+}
+
+fn validate_reported_changes(
+    before: &Project,
+    after: &Project,
+    output: &MigrationStepOutput,
+    step_name: &str,
+) -> Result<(), MigrationError> {
+    let ids: BTreeSet<_> = before
+        .objects()
+        .map(|object| object.id)
+        .chain(after.objects().map(|object| object.id))
+        .collect();
+    let changed: BTreeSet<_> = ids
+        .into_iter()
+        .filter(|id| before.object(*id) != after.object(*id))
+        .collect();
+    let reported: BTreeSet<_> = output.affected_object_ids.iter().copied().collect();
+    if changed != reported {
+        return Err(MigrationError::InvalidResult(format!(
+            "migration step {step_name} did not report every changed object"
+        )));
+    }
+    let known: BTreeSet<_> = before
+        .objects()
+        .map(|object| object.id)
+        .chain(after.objects().map(|object| object.id))
+        .collect();
+    if output
+        .defaults_introduced
+        .iter()
+        .any(|default| !known.contains(&default.object_id))
+    {
+        return Err(MigrationError::InvalidResult(format!(
+            "migration step {step_name} reported a default for an unknown object"
+        )));
+    }
+    Ok(())
 }
 
 fn validate_identity_changes(

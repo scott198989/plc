@@ -15,7 +15,8 @@ use crate::json::{
     JsonLimits, JsonValue, canonical_json, parse_json, require_only_fields, required,
 };
 use crate::model::{
-    ObjectId, ProfilePin, Project, Uuid, project_from_json, project_object_to_json, project_to_json,
+    ObjectId, ProfilePin, Project, SimulatorExtension, Uuid, payload_value_from_json,
+    payload_value_to_json, project_from_json, project_object_to_json, project_to_json,
 };
 
 const MAGIC: &[u8; 8] = b"VLABPKG1";
@@ -28,6 +29,7 @@ const DISPOSABLE_INDEX_PATH: &str = "index/manifest.json";
 const ASSET_INDEX_PATH: &str = "assets/manifest.json";
 const BUILD_RECORD_INDEX_PATH: &str = "build-records/manifest.json";
 const SNAPSHOT_INDEX_PATH: &str = "snapshots/manifest.json";
+const EXTENSION_PREFIX: &str = "extensions/simulator/";
 const PACKAGE_KIND: &str = "plc-engineering-project";
 const KERNEL_CAPABILITY: &str = "project-kernel-v1";
 
@@ -37,10 +39,16 @@ pub struct DecodeLimits {
     pub max_entries: usize,
     pub max_entry_bytes: usize,
     pub max_total_entry_bytes: usize,
+    /// The physical codec is intentionally uncompressed, so every admitted
+    /// non-empty member has an expansion ratio of exactly one.
+    pub max_expansion_ratio: usize,
     pub max_path_bytes: usize,
+    pub max_image_bytes: usize,
     pub max_json_depth: usize,
     pub max_json_string_bytes: usize,
+    pub max_json_collection_items: usize,
     pub max_json_values: usize,
+    pub max_total_objects: usize,
 }
 
 impl Default for DecodeLimits {
@@ -50,10 +58,14 @@ impl Default for DecodeLimits {
             max_entries: 100_000,
             max_entry_bytes: 32 * 1024 * 1024,
             max_total_entry_bytes: 48 * 1024 * 1024,
+            max_expansion_ratio: 1,
             max_path_bytes: 512,
+            max_image_bytes: 16 * 1024 * 1024,
             max_json_depth: 64,
             max_json_string_bytes: 1024 * 1024,
+            max_json_collection_items: 100_000,
             max_json_values: 1_000_000,
+            max_total_objects: 100_000,
         }
     }
 }
@@ -63,7 +75,7 @@ impl DecodeLimits {
         JsonLimits {
             max_depth: self.max_json_depth,
             max_string_bytes: self.max_json_string_bytes,
-            max_collection_items: self.max_entries,
+            max_collection_items: self.max_json_collection_items,
             max_total_values: self.max_json_values,
         }
     }
@@ -88,6 +100,7 @@ pub enum PackageError {
     InventoryMismatch(String),
     ProjectMismatch(String),
     InvalidProject,
+    InvalidExtension(String),
     IntegerOverflow,
 }
 
@@ -120,6 +133,9 @@ impl fmt::Display for PackageError {
             Self::ProjectMismatch(path) => write!(formatter, "project entry mismatch: {path}"),
             Self::InvalidProject => {
                 formatter.write_str("decoded project violates kernel invariants")
+            }
+            Self::InvalidExtension(namespace) => {
+                write!(formatter, "invalid simulator extension: {namespace}")
             }
             Self::IntegerOverflow => formatter.write_str("package integer overflow"),
         }
@@ -397,6 +413,9 @@ impl LogicalPackage {
             if data_len > limits.max_entry_bytes {
                 return Err(PackageError::LimitExceeded("entry bytes"));
             }
+            if data_len > 0 && limits.max_expansion_ratio < 1 {
+                return Err(PackageError::LimitExceeded("expansion ratio"));
+            }
             total = total
                 .checked_add(data_len)
                 .ok_or(PackageError::IntegerOverflow)?;
@@ -407,6 +426,9 @@ impl LogicalPackage {
                 .map_err(|_| PackageError::InvalidPath("non-UTF-8".to_owned()))?
                 .to_owned();
             validate_path(&path, limits.max_path_bytes)?;
+            if is_image_path(&path) && data_len > limits.max_image_bytes {
+                return Err(PackageError::LimitExceeded("image bytes"));
+            }
             if prior.as_ref().is_some_and(|value| value >= &path) {
                 return Err(PackageError::NonCanonicalOrder);
             }
@@ -455,6 +477,12 @@ pub fn encode_project_package(
         payload_entries.insert(
             format!("project/objects/{}.json", object.id),
             canonical_json(&project_object_to_json(object)),
+        );
+    }
+    for extension in project.simulator_extensions() {
+        payload_entries.insert(
+            extension_path(extension.namespace()),
+            canonical_json(&extension_json(extension)),
         );
     }
     let inventory = inventory_for(&payload_entries)?;
@@ -519,11 +547,24 @@ pub fn decode_project_package(
         .entry(PROJECT_PATH)
         .ok_or_else(|| PackageError::ProjectMismatch(PROJECT_PATH.to_owned()))?;
     let project_value = parse_canonical_json(PROJECT_PATH, project_bytes, limits)?;
+    let project_object = project_value
+        .as_object()
+        .map_err(|_| PackageError::ProjectMismatch(PROJECT_PATH.to_owned()))?;
+    let object_count = project_object
+        .get("objects")
+        .ok_or_else(|| PackageError::ProjectMismatch(PROJECT_PATH.to_owned()))?
+        .as_array()
+        .map_err(|_| PackageError::ProjectMismatch(PROJECT_PATH.to_owned()))?
+        .len();
+    if object_count > limits.max_total_objects {
+        return Err(PackageError::LimitExceeded("total objects"));
+    }
     let mut project = project_from_json(&project_value)
         .map_err(|_| PackageError::ProjectMismatch(PROJECT_PATH.to_owned()))?;
     if canonical_json(&project_to_json(&project, true)) != project_bytes {
         return Err(PackageError::NonCanonicalJson(PROJECT_PATH.to_owned()));
     }
+    project.simulator_extensions = decode_simulator_extensions(&logical, limits)?;
     project
         .validate()
         .map_err(|_| PackageError::InvalidProject)?;
@@ -726,6 +767,7 @@ fn schema_for_path(path: &str) -> Option<&'static str> {
         _ if path.starts_with("project/objects/") && is_json_path(path) => {
             Some("edu.project-object/1")
         }
+        _ if extension_namespace_from_path(path).is_some() => Some("edu.simulator-extension/1"),
         _ => None,
     }
 }
@@ -733,6 +775,13 @@ fn schema_for_path(path: &str) -> Option<&'static str> {
 fn is_json_path(path: &str) -> bool {
     path.rsplit_once('.')
         .is_some_and(|(_, extension)| extension == "json")
+}
+
+fn is_image_path(path: &str) -> bool {
+    path.starts_with("assets/images/")
+        && path.rsplit_once('.').is_some_and(|(_, extension)| {
+            matches!(extension, "gif" | "jpeg" | "jpg" | "png" | "webp")
+        })
 }
 
 fn manifest_json(manifest: &Manifest) -> JsonValue {
@@ -915,6 +964,73 @@ fn disposable_index_json(project: &Project) -> JsonValue {
     ])
 }
 
+fn extension_path(namespace: &str) -> String {
+    format!("{EXTENSION_PREFIX}{namespace}.json")
+}
+
+fn extension_namespace_from_path(path: &str) -> Option<&str> {
+    path.strip_prefix(EXTENSION_PREFIX)
+        .and_then(|tail| tail.strip_suffix(".json"))
+        .filter(|namespace| !namespace.is_empty() && !namespace.contains('/'))
+}
+
+fn extension_json(extension: &SimulatorExtension) -> JsonValue {
+    JsonValue::object([
+        (
+            "namespace".to_owned(),
+            JsonValue::from(extension.namespace().to_owned()),
+        ),
+        (
+            "schemaVersion".to_owned(),
+            JsonValue::from(extension.schema_version()),
+        ),
+        ("data".to_owned(), payload_value_to_json(extension.data())),
+    ])
+}
+
+fn decode_simulator_extensions(
+    package: &LogicalPackage,
+    limits: DecodeLimits,
+) -> Result<BTreeMap<String, SimulatorExtension>, PackageError> {
+    let mut extensions = BTreeMap::new();
+    for (path, bytes) in package
+        .entries()
+        .iter()
+        .filter(|(path, _)| path.starts_with(EXTENSION_PREFIX))
+    {
+        let path_namespace = extension_namespace_from_path(path)
+            .ok_or_else(|| PackageError::InvalidExtension(path.clone()))?;
+        let value = parse_canonical_json(path, bytes, limits)?;
+        let object = value
+            .as_object()
+            .map_err(|_| PackageError::InvalidExtension(path_namespace.to_owned()))?;
+        require_only_fields(object, &["namespace", "schemaVersion", "data"])
+            .map_err(|_| PackageError::InvalidExtension(path_namespace.to_owned()))?;
+        let namespace = required(object, "namespace")
+            .and_then(JsonValue::as_str)
+            .map_err(|_| PackageError::InvalidExtension(path_namespace.to_owned()))?;
+        let schema_version = required(object, "schemaVersion")
+            .and_then(JsonValue::as_u64)
+            .ok()
+            .and_then(|version| u32::try_from(version).ok())
+            .ok_or_else(|| PackageError::InvalidExtension(path_namespace.to_owned()))?;
+        if namespace != path_namespace {
+            return Err(PackageError::InvalidExtension(path_namespace.to_owned()));
+        }
+        let data = payload_value_from_json(
+            required(object, "data")
+                .map_err(|_| PackageError::InvalidExtension(path_namespace.to_owned()))?,
+        )
+        .map_err(|_| PackageError::InvalidExtension(path_namespace.to_owned()))?;
+        let extension = SimulatorExtension::new(namespace, schema_version, data)
+            .map_err(|_| PackageError::InvalidExtension(path_namespace.to_owned()))?;
+        if extensions.insert(namespace.to_owned(), extension).is_some() {
+            return Err(PackageError::InvalidExtension(namespace.to_owned()));
+        }
+    }
+    Ok(extensions)
+}
+
 fn profile_from_json(value: &JsonValue) -> Result<ProfilePin, PackageError> {
     let object = value
         .as_object()
@@ -1018,6 +1134,12 @@ fn validate_entry_paths(
         validate_path(path, limits.max_path_bytes)?;
         if bytes.len() > limits.max_entry_bytes {
             return Err(PackageError::LimitExceeded("entry bytes"));
+        }
+        if !bytes.is_empty() && limits.max_expansion_ratio < 1 {
+            return Err(PackageError::LimitExceeded("expansion ratio"));
+        }
+        if is_image_path(path) && bytes.len() > limits.max_image_bytes {
+            return Err(PackageError::LimitExceeded("image bytes"));
         }
         total = total
             .checked_add(bytes.len())

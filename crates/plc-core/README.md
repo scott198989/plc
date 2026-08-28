@@ -21,6 +21,14 @@ retention, and immutable backup storage. `save_package` performs construction
 and reopen verification before updating its in-session checkpoint, without
 incrementing any engineering revision.
 
+The decoder exposes independent package, entry, total-entry, expansion-ratio,
+path, image, JSON-depth, string, collection, value, and project-object limits.
+The physical format has no compression or link member type, so admitted
+members have expansion ratio one and cannot carry symlink behavior. Approved
+`edu.*` simulator extensions are closed-schema structured records: they are
+bounded, hashed, preserved across open/save/Save As/archive/retrieve, excluded
+from executable dispatch, and unavailable to ordinary engineering mutation.
+
 ## Explicitly staged outcomes
 
 - Vendor/native project import is not admitted by P2-01;
@@ -29,7 +37,10 @@ incrementing any engineering revision.
   rejected by mutation commands in Phase 2.
 - Migration mechanics and reports are implemented, but schema 1 is the only
   shipped document schema in this crate, so no historical migration callback
-  is registered here.
+  is registered here. The generic runner creates immutable in-memory source
+  evidence before callbacks, verifies each adjacent callback twice for
+  deterministic model/report output, requires exact changed-object reporting,
+  proves idempotence, and returns no partial candidate on failure.
 - Compression is intentionally absent. Expansion-ratio and link/symlink risks
   therefore do not exist in this physical codec; byte/member/string/nesting/
   collection/path/object limits are still enforced before interpretation.
@@ -52,3 +63,6 @@ The integration suite includes Journey D: rename identity, unresolved
 tombstone references, exact identity restoration through undo, copy-closure
 UUID remapping with external-reference preservation, canonical save/open/save,
 Save As identity, and corruption rejection without partial session mutation.
+`persistence_adversarial` adds checked-in migration goldens plus crash-tail,
+journal-chain, archive-limit, path/device/case, unknown-schema, extension,
+downgrade, corruption, identity, and inert hostile-text vectors.

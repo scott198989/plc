@@ -164,6 +164,62 @@ pub struct Payload {
     pub presentation: BTreeMap<String, PayloadValue>,
 }
 
+/// Bounded simulator-owned structured data preserved across package
+/// round-trips without becoming an executable class, external reference, or
+/// protocol adapter. Extension namespaces are deliberately restricted to the
+/// `edu.*` authority owned by this simulator.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SimulatorExtension {
+    namespace: String,
+    schema_version: u32,
+    data: PayloadValue,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SimulatorExtensionError;
+
+impl SimulatorExtension {
+    pub fn new(
+        namespace: impl Into<String>,
+        schema_version: u32,
+        data: PayloadValue,
+    ) -> Result<Self, SimulatorExtensionError> {
+        let extension = Self {
+            namespace: namespace.into(),
+            schema_version,
+            data,
+        };
+        if extension.is_valid() {
+            Ok(extension)
+        } else {
+            Err(SimulatorExtensionError)
+        }
+    }
+
+    #[must_use]
+    pub fn namespace(&self) -> &str {
+        &self.namespace
+    }
+
+    #[must_use]
+    pub const fn schema_version(&self) -> u32 {
+        self.schema_version
+    }
+
+    #[must_use]
+    pub const fn data(&self) -> &PayloadValue {
+        &self.data
+    }
+
+    fn is_valid(&self) -> bool {
+        let mut count = 0_usize;
+        self.schema_version == 1
+            && valid_extension_namespace(&self.namespace)
+            && matches!(self.data, PayloadValue::Record(_))
+            && valid_payload_value(&self.data, 0, &mut count)
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ProjectObjectKind {
     Project,
@@ -439,6 +495,7 @@ pub struct Project {
     pub(crate) objects: BTreeMap<ObjectId, ProjectObject>,
     pub(crate) references: BTreeSet<ReferenceEdge>,
     pub(crate) dependencies: BTreeSet<DependencyEdge>,
+    pub(crate) simulator_extensions: BTreeMap<String, SimulatorExtension>,
     pub(crate) saved_checkpoint: Option<SavedCheckpoint>,
 }
 
@@ -486,8 +543,34 @@ impl Project {
             objects: BTreeMap::from([(root_id, root)]),
             references: BTreeSet::new(),
             dependencies: BTreeSet::new(),
+            simulator_extensions: BTreeMap::new(),
             saved_checkpoint: None,
         }
+    }
+
+    /// Creates a new project with explicitly admitted simulator-owned
+    /// structured extensions. Loaded projects preserve these through the
+    /// package codec; ordinary engineering commands cannot mutate them.
+    pub fn new_with_simulator_extensions(
+        document_id: Uuid,
+        root_id: ObjectId,
+        display_name: impl Into<String>,
+        profile: ProfilePin,
+        extensions: Vec<SimulatorExtension>,
+    ) -> Result<Self, SimulatorExtensionError> {
+        let mut project = Self::new(document_id, root_id, display_name, profile);
+        for extension in extensions {
+            let namespace = extension.namespace.clone();
+            if !extension.is_valid()
+                || project
+                    .simulator_extensions
+                    .insert(namespace, extension)
+                    .is_some()
+            {
+                return Err(SimulatorExtensionError);
+            }
+        }
+        Ok(project)
     }
 
     #[must_use]
@@ -530,6 +613,10 @@ impl Project {
 
     pub fn dependencies(&self) -> impl Iterator<Item = &DependencyEdge> {
         self.dependencies.iter()
+    }
+
+    pub fn simulator_extensions(&self) -> impl Iterator<Item = &SimulatorExtension> {
+        self.simulator_extensions.values()
     }
 
     /// Rebuilds every graph index owned by this kernel slice exclusively from
@@ -623,7 +710,7 @@ impl Project {
 
     #[must_use]
     pub fn document_hash(&self) -> Sha256Digest {
-        sha256(&canonical_json(&project_to_json(self, true)))
+        sha256(&canonical_json(&document_project_json(self)))
     }
 
     #[must_use]
@@ -789,6 +876,15 @@ impl Project {
                 return Err(ProjectValidationError::InvalidDependency);
             }
         }
+        if self
+            .simulator_extensions
+            .iter()
+            .any(|(namespace, extension)| {
+                namespace != extension.namespace() || !extension.is_valid()
+            })
+        {
+            return Err(ProjectValidationError::InvalidExtension);
+        }
         Ok(())
     }
 
@@ -882,6 +978,7 @@ pub enum ProjectValidationError {
     ContainmentCycle,
     InvalidReference,
     InvalidDependency,
+    InvalidExtension,
 }
 
 fn valid_payload_map(values: &BTreeMap<String, PayloadValue>) -> bool {
@@ -898,6 +995,26 @@ fn valid_payload_key(key: &str) -> bool {
         && key
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+}
+
+fn valid_extension_namespace(namespace: &str) -> bool {
+    namespace.len() <= 128
+        && namespace.starts_with("edu.")
+        && namespace.split('.').all(|segment| {
+            !segment.is_empty()
+                && segment.len() <= 63
+                && segment
+                    .as_bytes()
+                    .first()
+                    .is_some_and(u8::is_ascii_lowercase)
+                && segment
+                    .as_bytes()
+                    .last()
+                    .is_some_and(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                && segment
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+        })
 }
 
 fn valid_payload_value(value: &PayloadValue, depth: usize, count: &mut usize) -> bool {
@@ -1095,6 +1212,37 @@ pub(crate) fn project_to_json(project: &Project, include_revisions: bool) -> Jso
     JsonValue::Object(entries)
 }
 
+fn document_project_json(project: &Project) -> JsonValue {
+    let JsonValue::Object(mut entries) = project_to_json(project, true) else {
+        unreachable!("project serialization is always an object");
+    };
+    if !project.simulator_extensions.is_empty() {
+        entries.insert(
+            "simulatorExtensions".to_owned(),
+            JsonValue::Array(
+                project
+                    .simulator_extensions
+                    .values()
+                    .map(|extension| {
+                        JsonValue::object([
+                            (
+                                "namespace".to_owned(),
+                                JsonValue::from(extension.namespace.clone()),
+                            ),
+                            (
+                                "schemaVersion".to_owned(),
+                                JsonValue::from(extension.schema_version),
+                            ),
+                            ("data".to_owned(), payload_value_to_json(&extension.data)),
+                        ])
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    JsonValue::Object(entries)
+}
+
 fn semantic_project_json(project: &Project) -> JsonValue {
     let objects = project
         .objects
@@ -1236,6 +1384,7 @@ pub(crate) fn project_from_json(value: &JsonValue) -> Result<Project, JsonError>
         objects,
         references,
         dependencies,
+        simulator_extensions: BTreeMap::new(),
         saved_checkpoint: None,
     })
 }
@@ -1376,7 +1525,7 @@ fn payload_map_from_json(value: &JsonValue) -> Result<BTreeMap<String, PayloadVa
         .collect()
 }
 
-fn payload_value_to_json(value: &PayloadValue) -> JsonValue {
+pub(crate) fn payload_value_to_json(value: &PayloadValue) -> JsonValue {
     match value {
         PayloadValue::Null => JsonValue::Null,
         PayloadValue::Bool(value) => JsonValue::Bool(*value),
@@ -1407,7 +1556,7 @@ fn payload_value_to_json(value: &PayloadValue) -> JsonValue {
     }
 }
 
-fn payload_value_from_json(value: &JsonValue) -> Result<PayloadValue, JsonError> {
+pub(crate) fn payload_value_from_json(value: &JsonValue) -> Result<PayloadValue, JsonError> {
     match value {
         JsonValue::Null => Ok(PayloadValue::Null),
         JsonValue::Bool(value) => Ok(PayloadValue::Bool(*value)),
