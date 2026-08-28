@@ -6,6 +6,7 @@ members = [
     "crates/plc-core",
     "crates/plc-engineering-wasm",
     "crates/plc-hardware",
+    "crates/plc-lad",
     "crates/plc-language-tools",
     "crates/plc-program",
     "crates/plc-runtime",
