@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "requirements": [
+    {
+      "id": "PES-ACC-0001",
+      "atomicRequirement": "MUST retain the earlier Phase 1 meaning.",
+      "truthState": "NOT_STARTED",
+      "lifecycle": {
+        "status": "ACTIVE"
+      }
+    }
+  ]
+}

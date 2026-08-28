@@ -1,0 +1,509 @@
+{
+  "schemaVersion": 1,
+  "auditKind": "PHASE_2_REQUIREMENT_EXTRACTION_AUDIT",
+  "generatedBy": "tools/phase2/extract_phase2_requirements.py",
+  "generatorSha256": "8BA0D58697D0CE807B3149B8C054D4943242387DA8B08F6B03C12BAD2A08F6A6",
+  "directive": {
+    "path": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+    "sha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+    "bytes": 166810,
+    "scopeStart": "14. Phase 2 Authorization, Outcome, and Execution Order"
+  },
+  "extractionStatus": "PASS",
+  "governanceReviewStatus": "REUSED_PHASE1_IDS_DETECTED",
+  "counts": {
+    "requirementDefinitionOccurrences": 937,
+    "uniqueRequirementCount": 937,
+    "normativeRecordCount": 160,
+    "normativeTableCount": 38,
+    "areaCount": 52,
+    "verificationRecordCount": 44,
+    "notStartedRequirementCount": 936,
+    "implementedUnverifiedRequirementCount": 1,
+    "verifiedRequirementCount": 0,
+    "hardFindingCount": 0,
+    "duplicateRequirementDefinitionCount": 0,
+    "unknownAreaTokenCount": 0,
+    "unknownRequirementReferenceCount": 0,
+    "reusedPhase1IdCount": 22,
+    "reusedRetiredPhase1IdCount": 1,
+    "unresolvedNormativePlaceholderCount": 0,
+    "orphanVerificationRecordCount": 0
+  },
+  "findings": {
+    "duplicateRequirementDefinitions": [],
+    "unknownAreaTokens": [],
+    "unknownRequirementReferences": [],
+    "reusedPhase1Ids": [
+      {
+        "requirementId": "PES-ACC-0008",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST define an objective accessibility conformance target before experience acceptance.",
+        "phase2Text": "MUST count Phase 2 as implemented only when the same canonical project objects drive validation, LAD/FBD/SCL frontends, dependency analysis, compiler, typed IR, runtime, commissioning, monitoring, force, trace, diagnostics, persistence, and the functional workbench.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 83,
+          "paragraphOrdinal": 80,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.2 Controlling Phase 2 outcome"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-ACC-0009",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST define an objective performance budget before experience acceptance.",
+        "phase2Text": "MUST NOT accept editor-only coloring, rendered ladder geometry, disconnected FBD boxes, regex compilation, canned diagnostics, scripted scan animation, sample-specific simulation, hard-coded demonstration values, table-local forces, screenshots, test names, mocks, or dormant controls as implementation.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 84,
+          "paragraphOrdinal": 81,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.2 Controlling Phase 2 outcome"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-ACC-0010",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST define an objective capacity budget before experience acceptance.",
+        "phase2Text": "MUST map every Phase 2 MUST/MUST NOT to at least one executable positive or negative case and include integration cases crossing project, compiler, runtime, commissioning, observation, persistence, and UI boundaries.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 1221,
+          "paragraphOrdinal": 1192,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "30. Phase 2 Verification and Implementation Exit Gate",
+            "30.2 Required verification classes"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0021",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST interpret this project using the following order:\nApplicable law, binding licenses, and the immutable product safety constraints in this directive form the outer boundary.",
+        "phase2Text": "MUST treat this Phase 2 directive as the controlling implementation order for Sections 14-30 and Appendices A-L, subordinate to Scott's explicit product decisions and every applicable Phase 1 safety, clean-room, identity, determinism, causality, traceability, and no-placeholder invariant.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 63,
+          "paragraphOrdinal": 60,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.1 Scott's acceptance and authorization"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0022",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST interpret this project using the following order:\nScott's explicit, approved product decisions govern product intent.",
+        "phase2Text": "MUST treat the accepted Phase 1 repository state, its history, its corrective evidence, and its closure controls as the incoming baseline. Do not rewrite, replace, squash, or re-author that history.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 64,
+          "paragraphOrdinal": 61,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.1 Scott's acceptance and authorization"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0023",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST interpret this project using the following order:\nThis living Codex Master Implementation Directive governs what shall be built.",
+        "phase2Text": "MUST NOT construe a virtual controller, virtual interface, virtual address, virtual discovery result, online session, download, watch, force, trace, or diagnostic as permission to create a hostname, URL, port, host endpoint, transport, adapter, driver, device handle, physical artifact, or protocol payload.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 86,
+          "paragraphOrdinal": 83,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.3 Safety and semantic boundaries remain absolute"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0024",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST interpret this project using the following order:\nThe frozen research report supplies technical, workflow, and risk evidence.",
+        "phase2Text": "MUST preserve syntactically representable invalid work as editable engineering state when safe, while refusing verified IR, a successful artifact, or a virtual load from invalid state.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 87,
+          "paragraphOrdinal": 84,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.3 Safety and semantic boundaries remain absolute"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0025",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST interpret this project using the following order:\nApproved decision records and ADRs govern implementation choices only within the authority left to them.",
+        "phase2Text": "MUST use the explicit EDU-21 Core 1.0 default when the research leaves an edge unresolved. Only fields declared profile-controlled may vary later, and only through evidence, tests, migration impact, and approved change control.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 88,
+          "paragraphOrdinal": 85,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.3 Safety and semantic boundaries remain absolute"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0026",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST interpret this project using the following order:\nCode, tests, tickets, comments, mockups, and developer assumptions are subordinate to all items above.",
+        "phase2Text": "MUST keep VirtualNetwork an in-memory typed domain graph and Virtual Download an internal atomic deployment keyed only by VirtualControllerId. Do not introduce a generic transport, localhost service, embedded server, host-NIC path, packet simulator, external protocol, or physical-device abstraction.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 89,
+          "paragraphOrdinal": 86,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.3 Safety and semantic boundaries remain absolute"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0027",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST treat the research report's labels accurately:\nDOCUMENTED identifies publicly supported behavior or facts.",
+        "phase2Text": "MUST expose later-phase consumers only through typed domain data, source maps, probes, InternalTagBus seams, VirtualIOBoundary state, and read-only observation contracts genuinely required by Phase 2. Do not add user-visible placeholder panes or empty future services.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 90,
+          "paragraphOrdinal": 87,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.3 Safety and semantic boundaries remain absolute"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0028",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST treat the research report's labels accurately:\nINFERENCE identifies a reasoned conclusion, not a documented exact behavior.",
+        "phase2Text": "MUST classify unlisted vendor-specific instructions, lexical extensions, graphical edge cases, recursion behavior, controller-family behavior, or proprietary artifacts as unsupported rather than guessing.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 91,
+          "paragraphOrdinal": 88,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.3 Safety and semantic boundaries remain absolute"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0029",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST treat the research report's labels accurately:\nPROPOSED identifies simulator behavior recommended by the report.",
+        "phase2Text": "MUST emit an original, navigable unsupported-capability diagnostic when authored state requests behavior outside the selected TrainingProfile.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 92,
+          "paragraphOrdinal": 89,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.3 Safety and semantic boundaries remain absolute"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0030",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST treat the research report's labels accurately:\nLEGAL INTERPRETATION is risk analysis, not legal advice.",
+        "phase2Text": "MUST NOT silently accept unsupported syntax, configuration, or project data while changing its meaning to something convenient.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 93,
+          "paragraphOrdinal": 90,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.3 Safety and semantic boundaries remain absolute"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0031",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST treat the research report's labels accurately:\nENGINEERING RECOMMENDATION is an implementation or product judgment.",
+        "phase2Text": "MUST track the directive lifecycle separately from every software requirement truth state.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 1215,
+          "paragraphOrdinal": 1186,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "30. Phase 2 Verification and Implementation Exit Gate",
+            "30.1 Software truth, not document truth"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0032",
+        "phase1LifecycleStatus": "SUPERSEDED",
+        "phase1Text": "MUST append and revise this same document for Phases 2-4 while preserving:\nexact filename;",
+        "phase2Text": "MUST mark a Phase 2 requirement IMPLEMENTED_UNVERIFIED only when its production code path exists, and VERIFIED only when mapped positive, negative, integration, and applicable isolation evidence pass against the candidate.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 1216,
+          "paragraphOrdinal": 1187,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "30. Phase 2 Verification and Implementation Exit Gate",
+            "30.1 Software truth, not document truth"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0033",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST append and revise this same document for Phases 2-4 while preserving:\nstyle system;",
+        "phase2Text": "MUST NOT infer implementation from authored prose, schemas, types, interfaces, package roots, test names, fixtures, mocks, screenshots, UI renderings, file counts, or a successful build that never exercises the behavior.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 1217,
+          "paragraphOrdinal": 1188,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "30. Phase 2 Verification and Implementation Exit Gate",
+            "30.1 Software truth, not document truth"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0034",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST append and revise this same document for Phases 2-4 while preserving:\nrequirement IDs;",
+        "phase2Text": "MUST stop after reporting a Phase 2 implementation candidate. Codex cannot begin Phase 3, add Phase 3 placeholders, or treat its own test result as Scott's acceptance.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 1218,
+          "paragraphOrdinal": 1189,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "30. Phase 2 Verification and Implementation Exit Gate",
+            "30.1 Software truth, not document truth"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0035",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST append and revise this same document for Phases 2-4 while preserving:\ncross references;",
+        "phase2Text": "MUST run a machine-readable audit for duplicate requirement definitions, unknown references, missing area entries, reused retired IDs, unresolved normative placeholders, and orphan verification records. This is a release check on the implemented phase, not authorization for another governance program.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 1231,
+          "paragraphOrdinal": 1202,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "30. Phase 2 Verification and Implementation Exit Gate",
+            "30.3 Cross-phase contradiction and coverage control"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0036",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST append and revise this same document for Phases 2-4 while preserving:\nsource hash history;",
+        "phase2Text": "MUST record intentional clarification of an earlier requirement without renumbering or silently rewriting the original.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 1232,
+          "paragraphOrdinal": 1203,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "30. Phase 2 Verification and Implementation Exit Gate",
+            "30.3 Cross-phase contradiction and coverage control"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0037",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST append and revise this same document for Phases 2-4 while preserving:\nchange ledger;",
+        "phase2Text": "MUST treat Sections 15-29 defaults as controlling for EDU-21 Core 1.0. A later profile variance requires an approved manifest field, evidence, tests, and migration impact.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 1233,
+          "paragraphOrdinal": 1204,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "30. Phase 2 Verification and Implementation Exit Gate",
+            "30.3 Cross-phase contradiction and coverage control"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0038",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST append and revise this same document for Phases 2-4 while preserving:\nsuperseded requirement tombstones;",
+        "phase2Text": "MUST stop and request a decision when later work would change the no-physical-equipment wall, clean-room boundary, identity model, one-IR/one-runtime rule, deterministic time, command causality, state separation, or the four-phase allocation.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 1234,
+          "paragraphOrdinal": 1205,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "30. Phase 2 Verification and Implementation Exit Gate",
+            "30.3 Cross-phase contradiction and coverage control"
+          ]
+        }
+      },
+      {
+        "requirementId": "PES-GOV-0039",
+        "phase1LifecycleStatus": "ACTIVE",
+        "phase1Text": "MUST append and revise this same document for Phases 2-4 while preserving:\nopen decisions and risk records.",
+        "phase2Text": "MUST preserve the four-directive structure chosen by Scott: Phase 1 remains its own historical directive; this is the separate Phase 2 directive; Phases 3 and 4 require their own later documents and explicit start orders.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 65,
+          "paragraphOrdinal": 62,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "14. Phase 2 Authorization, Outcome, and Execution Order",
+            "14.1 Scott's acceptance and authorization"
+          ]
+        }
+      }
+    ],
+    "reusedRetiredPhase1Ids": [
+      {
+        "requirementId": "PES-GOV-0032",
+        "phase1LifecycleStatus": "SUPERSEDED",
+        "phase1Text": "MUST append and revise this same document for Phases 2-4 while preserving:\nexact filename;",
+        "phase2Text": "MUST mark a Phase 2 requirement IMPLEMENTED_UNVERIFIED only when its production code path exists, and VERIFIED only when mapped positive, negative, integration, and applicable isolation evidence pass against the candidate.",
+        "sameNormalizedText": false,
+        "phase2SourcePointer": {
+          "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+          "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+          "bodyBlockIndex": 1216,
+          "paragraphOrdinal": 1187,
+          "styleId": "Normal",
+          "styleName": "Normal",
+          "headingPath": [
+            "30. Phase 2 Verification and Implementation Exit Gate",
+            "30.1 Software truth, not document truth"
+          ]
+        }
+      }
+    ],
+    "unresolvedNormativePlaceholders": [],
+    "duplicateVerificationRecords": [],
+    "unknownVerificationAreaTokens": [],
+    "unknownVerificationReferences": [],
+    "orphanVerificationRecords": [],
+    "requirementsWithoutVerificationCandidates": [],
+    "p2EntryEvidence": []
+  },
+  "areaRegistrySourcePointer": {
+    "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+    "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+    "bodyBlockIndex": 1293,
+    "tableOrdinal": 33,
+    "headingPath": [
+      "Appendix G. Requirement Area Registry Through Phase 2"
+    ]
+  },
+  "verificationCatalogSourcePointer": {
+    "documentPath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+    "documentSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+    "bodyBlockIndex": 1297,
+    "tableOrdinal": 34,
+    "headingPath": [
+      "Appendix H. Phase 2 Minimum Verification Catalog"
+    ]
+  },
+  "notes": [
+    "Reused Phase 1 IDs are reported without silently renumbering or rewriting either source.",
+    "Detected governance findings do not self-promote or verify product requirements.",
+    "A passing deterministic extraction check is not a Phase 2 product gate."
+  ]
+}

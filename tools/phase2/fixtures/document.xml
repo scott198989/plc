@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+  <w:body>
+    <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>14. Phase 2 Authorization, Outcome, and Execution Order</w:t></w:r></w:p>
+    <w:p><w:r><w:t>[PES-GOV-0040] MUST perform the entry gate.</w:t></w:r></w:p>
+    <w:p><w:r><w:t>[PES-ACC-0001] MUST provide a real journey.</w:t></w:r></w:p>
+    <w:p><w:r><w:t>[PES-ACC-0001] MUST provide the duplicate journey.</w:t></w:r></w:p>
+    <w:p><w:r><w:t>[PES-ZZZ-0001] MUST expose an unknown area for audit.</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Normative placeholder: TBD.</w:t></w:r></w:p>
+    <w:p><w:r><w:t>References to PES-GOV-9999 and VER-GOV-9999 must be detected as unknown.</w:t></w:r></w:p>
+    <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Appendix G. Requirement Area Registry Through Phase 2</w:t></w:r></w:p>
+    <w:tbl>
+      <w:tr><w:tc><w:p><w:r><w:t>Area</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Domain</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Area</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Domain</w:t></w:r></w:p></w:tc></w:tr>
+      <w:tr><w:tc><w:p><w:r><w:t>ACC</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Acceptance</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>GOV</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Governance</w:t></w:r></w:p></w:tc></w:tr>
+      <w:tr><w:tc><w:p><w:r><w:t>NAV</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Navigation</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>SEC</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Security</w:t></w:r></w:p></w:tc></w:tr>
+    </w:tbl>
+    <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Appendix H. Phase 2 Minimum Verification Catalog</w:t></w:r></w:p>
+    <w:tbl>
+      <w:tr><w:tc><w:p><w:r><w:t>Verification ID</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Minimum proof</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Primary requirement areas</w:t></w:r></w:p></w:tc></w:tr>
+      <w:tr><w:tc><w:p><w:r><w:t>VER-GOV-0001</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Governance proof</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>GOV</w:t></w:r></w:p></w:tc></w:tr>
+      <w:tr><w:tc><w:p><w:r><w:t>VER-ACC-0001</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Acceptance proof</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>ACC</w:t></w:r></w:p></w:tc></w:tr>
+      <w:tr><w:tc><w:p><w:r><w:t>VER-NAV-0001</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Orphan navigation proof</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>NAV</w:t></w:r></w:p></w:tc></w:tr>
+    </w:tbl>
+    <w:sectPr/>
+  </w:body>
+</w:document>
