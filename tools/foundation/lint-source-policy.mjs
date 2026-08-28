@@ -9,8 +9,12 @@ const sourceRoots = [
 ];
 const rustRoots = [
   resolveInProject("crates", "foundation-wasm", "src"),
+  resolveInProject("crates", "plc-commissioning", "src"),
   resolveInProject("crates", "plc-core", "src"),
   resolveInProject("crates", "plc-engineering-wasm", "src"),
+  resolveInProject("crates", "plc-hardware", "src"),
+  resolveInProject("crates", "plc-program", "src"),
+  resolveInProject("crates", "plc-runtime", "src"),
 ];
 const failures = [];
 

@@ -1,0 +1,17 @@
+[package]
+name = "plc-commissioning"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+publish = false
+license = "UNLICENSED"
+description = "Deterministic virtual commissioning state machines for the PLC Engineering Simulator"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+plc-runtime = { path = "../plc-runtime" }
+
+[lints.rust]
+unsafe_code = "forbid"

@@ -1,0 +1,16 @@
+[package]
+name = "plc-runtime"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.94.0"
+publish = false
+license = "UNLICENSED"
+description = "Capability-free deterministic VirtualController runtime for the PLC Engineering Simulator"
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[lints.rust]
+unsafe_code = "forbid"

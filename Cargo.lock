@@ -7,6 +7,13 @@ name = "foundation-wasm"
 version = "0.0.0"
 
 [[package]]
+name = "plc-commissioning"
+version = "0.1.0"
+dependencies = [
+ "plc-runtime",
+]
+
+[[package]]
 name = "plc-core"
 version = "0.1.0"
 
@@ -16,3 +23,18 @@ version = "0.0.0"
 dependencies = [
  "plc-core",
 ]
+
+[[package]]
+name = "plc-hardware"
+version = "0.1.0"
+dependencies = [
+ "plc-core",
+]
+
+[[package]]
+name = "plc-program"
+version = "0.1.0"
+
+[[package]]
+name = "plc-runtime"
+version = "0.1.0"

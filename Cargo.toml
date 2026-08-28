@@ -1,5 +1,13 @@
 [workspace]
-members = ["crates/foundation-wasm", "crates/plc-core", "crates/plc-engineering-wasm"]
+members = [
+    "crates/foundation-wasm",
+    "crates/plc-commissioning",
+    "crates/plc-core",
+    "crates/plc-engineering-wasm",
+    "crates/plc-hardware",
+    "crates/plc-program",
+    "crates/plc-runtime",
+]
 resolver = "3"
 
 [workspace.package]
