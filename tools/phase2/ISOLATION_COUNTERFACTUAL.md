@@ -105,6 +105,39 @@ are fixed in `tools/phase2/LIVE_LAN_TOPOLOGY_PROTOCOL.md`. It deliberately
 contains no adapter mutation command and grants no credit without two real,
 stable, exact-candidate scenario runs.
 
+## Runtime closure assembly
+
+`assemble_isolation_closure.mjs` is the only supported way to produce a
+runtime-credit closure from external proof records. It accepts two independently
+finalized live-LAN scenario records plus separate raw records for the native
+backing matrix, adapters-off packaged run, all ten fuzz boundaries, and all
+four vendor/deployable export surfaces. Every raw record has a sibling
+`<record>.bundle.json` content bundle. The assembler re-hashes every bounded
+regular file listed by that bundle and requires its declared command and log
+hashes to be actual listed content; hand-authored hash-shaped JSON is rejected
+by the CLI. The adapters-off bundle additionally requires `pre-adapters.json`
+and `post-adapters.json` Windows snapshots showing every adapter disabled or
+absent.
+
+```powershell
+pnpm assemble:phase2:isolation -- `
+  --candidate-commit <40-lowercase-hex> --candidate-tree <40-lowercase-hex> `
+  --approval-decision-id P2-DEC-ISO-NATIVE-001 --approval-sha256 <64-uppercase-hex> `
+  --live-lan-scenario C:\lab\A-scenario.json --live-lan-scenario C:\lab\B-scenario.json `
+  --native-backing-raw C:\lab\native-backing.json `
+  --adapters-off-raw C:\lab\adapters-off.json `
+  --boundary-fuzz-raw C:\lab\boundary-fuzz.json `
+  --export-rejection-raw C:\lab\export-rejection.json `
+  --output C:\lab\phase2-isolation-closure.json
+```
+
+This uses a safe two-pass graph: raw adapters-off evidence is content-addressed
+before the closure exists, then the eventual counterfactual aggregate may
+consume the finalized closure. The closure never needs (and must not reference)
+the aggregate manifest that will itself hash the closure, so no circular hash
+is introduced. Unit-test fixtures model field validation only and cannot be
+passed to this command without real content bundles.
+
 During implementation, `--development-run` permits an explicitly inconclusive
 run. It never turns dirty-worktree output into candidate evidence:
 

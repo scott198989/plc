@@ -41,6 +41,13 @@ WINDOWS_SHELL_SOURCES = {
 }
 WINDOWS_SHELL_BUILD_PATH = "tools/phase2/build_windows_shell.mjs"
 WINDOWS_SHELL_TEXT_PATHS = WINDOWS_SHELL_SOURCES | {WINDOWS_SHELL_BUILD_PATH}
+# External evidence collectors are deliberately not production sources.  They
+# may read completed logs on an operator-controlled Windows host, but cannot
+# become an application capability simply by being added to the repository.
+EXTERNAL_EVIDENCE_TOOL_PATHS = {
+    "tools/phase2/assemble_isolation_closure.mjs",
+    "tools/phase2/collect_live_lan_topology.mjs",
+}
 
 # These are capability-bearing production dependencies, not merely strings
 # which happen to resemble a virtual address.  Address-like strings are valid
@@ -352,6 +359,9 @@ def production_paths(
             path.startswith(prefix + "/") for prefix in ("apps", "packages")
         ):
             selected.add(path)
+    # Keep an explicit invariant alongside the normal root selection.  These
+    # programs are verification-only even though they use host inspection APIs.
+    selected.difference_update(EXTERNAL_EVIDENCE_TOOL_PATHS)
     return tuple(sorted(selected))
 
 

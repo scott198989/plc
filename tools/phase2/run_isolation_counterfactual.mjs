@@ -74,6 +74,8 @@ const candidate = await captureCandidateBinding(projectRoot, candidateRef, entry
   "tools/phase2/isolation-counterfactual-lib.d.mts",
   "tools/phase2/isolation-fuzz-corpus.tsv",
   "tools/phase2/transform_isolation_closure.mjs",
+  "tools/phase2/assemble_isolation_closure.mjs",
+  "tools/phase2/collect_live_lan_topology.mjs",
   "tools/phase2/isolation-closure-evidence.schema.json",
   "tools/phase2/ISOLATION_COUNTERFACTUAL.md",
   "tools/phase2/LIVE_LAN_TOPOLOGY_PROTOCOL.md",

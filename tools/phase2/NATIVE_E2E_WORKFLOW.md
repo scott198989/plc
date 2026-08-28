@@ -35,3 +35,10 @@ The finalizer is intentionally not coupled to a task-owned process launch.
 Missing observer evidence, a constrained-identity failure, stale/tampered
 bytes, malformed or truncated NetLog, an unclassified target, or any external
 DNS/URL/socket/UDP observation fails closed.
+
+For a controlled live-LAN topology scenario, retain this entire finalized
+directory unchanged as that scenario's evidence bundle. Do not reuse its final
+manifest for a second topology: each LAN fixture requires a separately launched
+and separately finalized native run. The external topology collector only
+reads this directory and verifies every listed log hash; it never launches the
+candidate or modifies this directory.

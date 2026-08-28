@@ -309,6 +309,17 @@ const reviewedRequirementMappingSha256 = hash(reviewedMapping);
             )
         )
 
+    def test_external_evidence_collectors_are_never_production_paths(self) -> None:
+        sources, crates = self.fixture()
+        sources.update({
+            "tools/phase2/assemble_isolation_closure.mjs": 'import "node:child_process";\n',
+            "tools/phase2/collect_live_lan_topology.mjs": 'import "node:child_process";\n',
+        })
+        selected = source_policy.production_paths(sources, crates)
+        self.assertFalse(
+            source_policy.EXTERNAL_EVIDENCE_TOOL_PATHS & set(selected), selected
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

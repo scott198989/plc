@@ -12,3 +12,4 @@ export const ISOLATION_APPROVAL_PATH: string;
 export const REQUIRED_FUZZ_BOUNDARY_IDS: readonly string[];
 export const SUPPORTED_CHROMIUM_RUNTIME_PRODUCTS: readonly string[];
 export const SUPPORTED_WINDOWS_CONFIGURATION_IDS: readonly string[];
+export const REQUIRED_EXPORT_SURFACE_IDS: readonly string[];

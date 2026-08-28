@@ -60,6 +60,31 @@ output hashes, and zero external attempts. The closure validator rejects a
 duplicate topology, changed input, changed output, partial log set, stale
 candidate, or non-PASS run.
 
+## External collector procedure
+
+The collector is verification tooling, never product code. It invokes only
+read-only Windows adapter/IP/profile cmdlets and must not be used to enable,
+disable, configure, discover, probe, resolve, or connect through an adapter.
+It also never builds or launches the candidate. For each independently run
+fixture, use the fixed collector bytes from the exact candidate:
+
+```powershell
+pnpm collect:phase2:live-lan -- snapshot --boundary pre --output C:\lab\A-pre.json
+# A local lab operator manually runs and finalizes one native E2E bundle here.
+pnpm collect:phase2:live-lan -- snapshot --boundary post --output C:\lab\A-post.json
+pnpm collect:phase2:live-lan -- assemble-scenario --scenario-id A `
+  --pre C:\lab\A-pre.json --post C:\lab\A-post.json `
+  --native-bundle C:\lab\native-A --output C:\lab\A-scenario.json
+```
+
+Repeat the three capture steps for B after a genuine operator-controlled LAN
+change and a second native E2E run. The scenario assembler recomputes the
+canonical fingerprint from both snapshots, verifies the collector's actual
+source SHA-256, and re-hashes the seven finalized native-bundle files. It
+rejects changed pre/post topology, a reused final evidence manifest or raw host
+receipt across A/B, missing files, symlinks, or mismatched bytes. It does not
+copy, delete, or modify a finalized bundle.
+
 ## Separate adapters-off configuration
 
 The second supported row,

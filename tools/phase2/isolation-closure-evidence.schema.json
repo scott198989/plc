@@ -295,6 +295,38 @@
         "result": { "const": "PASS" }
       }
     },
+    "runtimeContentFile": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bytes", "path", "sha256"],
+      "properties": {
+        "bytes": { "type": "integer", "minimum": 1 },
+        "path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "runtimeContentBundle": {
+      "description": "Required sidecar shape for the assembler's raw runtime inputs; its files are re-hashed before closure assembly.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["schemaVersion", "evidenceKind", "command", "log", "files"],
+      "properties": {
+        "schemaVersion": { "const": "1.0" },
+        "evidenceKind": { "const": "PHASE2_EXTERNAL_RUNTIME_CONTENT_BUNDLE" },
+        "command": { "$ref": "#/$defs/runtimeContentPointer" },
+        "log": { "$ref": "#/$defs/runtimeContentPointer" },
+        "files": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/runtimeContentFile" } }
+      }
+    },
+    "runtimeContentPointer": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["path", "sha256"],
+      "properties": {
+        "path": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$" },
+        "sha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
     "vendorDeployableExportRejection": {
       "unevaluatedProperties": false,
       "allOf": [
