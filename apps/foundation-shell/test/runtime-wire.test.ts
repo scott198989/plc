@@ -77,6 +77,18 @@ describe("runtime WASM wire", () => {
     })).toThrow(RuntimeWireError);
   });
 
+  it("rejects endpoint-like Virtual Download targets before WASM", () => {
+    expect(() => parseRuntimeOperation({
+      endpoint: "192.0.2.1",
+      kind: "runtime.commit-load",
+    })).toThrow(RuntimeWireError);
+    expect(() => parseRuntimeOperation({
+      kind: "runtime.preview-load",
+      postLoadMode: "STOP",
+      target: "https://example.invalid/controller",
+    })).toThrow(RuntimeWireError);
+  });
+
   it("accepts an exact unavailable read model and rejects extra fields", () => {
     const view = {
       availability: "UNAVAILABLE",
