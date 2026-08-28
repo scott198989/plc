@@ -4,33 +4,37 @@ use alloc::{
 };
 
 use plc_program::{
-    ADD, BOOL_AND, BOOL_NOT, BOOL_OR, BOOL_XOR, BREAKPOINT_MARKER, BlockId as ProgramBlockId,
-    CALL_FB, CALL_FC, COMPARE_EQ, COMPARE_GE, COMPARE_GT, COMPARE_LE, COMPARE_LT, COMPARE_NE,
-    COUNTER_DOWN, COUNTER_UP, COUNTER_UP_DOWN, CanonicalValue as ProgramValue, ControllerProgram,
-    DIVIDE, DataType, DisabledExecutionBehavior, FALLING_EDGE, InterfaceMember, InterfaceMemberId,
-    InterfaceRole, MODULO, MOVE, MULTIPLY, NO_OP, ObDeclaration, PROBE, ProgramUnitKind,
-    RISING_EDGE, RetainPolicy, SUBTRACT, StateKind, TIMER_OFF_DELAY, TIMER_ON_DELAY, TIMER_PULSE,
-    TRACE_SAMPLE,
+    ADD, BLKMOVE, BOOL_AND, BOOL_NOT, BOOL_OR, BOOL_XOR, BREAKPOINT_MARKER,
+    BlockId as ProgramBlockId, CALL_FB, CALL_FC, COMPARE_EQ, COMPARE_GE, COMPARE_GT, COMPARE_LE,
+    COMPARE_LT, COMPARE_NE, COUNTER_DOWN, COUNTER_UP, COUNTER_UP_DOWN,
+    CanonicalValue as ProgramValue, ControllerProgram, DIVIDE, DataType, DisabledExecutionBehavior,
+    FALLING_EDGE, FILL, InterfaceMember, InterfaceMemberId, InterfaceRole, LIMIT, MODULO, MOVE,
+    MULTIPLY, NO_OP, ObDeclaration, PROBE, ProgramUnitKind, RISING_EDGE, RetainPolicy, SUBTRACT,
+    StateKind, TIMER_OFF_DELAY, TIMER_ON_DELAY, TIMER_PULSE, TRACE_SAMPLE,
 };
 use plc_runtime::{
-    ArtifactError, ArtifactPackage, ArtifactSpec, BlockId as RuntimeBlockId,
-    CanonicalValue as RuntimeValue, Instruction as RuntimeInstruction, MemoryDefinition, MemoryId,
-    Operand as RuntimeOperand, Operation as RuntimeOperation, ProgramBlock as RuntimeProgramBlock,
-    ProgramImage, RuntimeActivation, RuntimeBinaryOperator, RuntimeBlockCall, RuntimeBoundInput,
-    RuntimeCallKind, RuntimeDeclaredOutput, RuntimeDisabledBehavior, RuntimeFormalRef,
-    RuntimeFrameMember, RuntimeFrameMemberRole, RuntimeFunctionBlockInstance,
-    RuntimeInstructionCode, RuntimeInstructionInstance, RuntimeInstructionInvocation,
-    RuntimeInstructionStateKind, RuntimeUnaryOperator, TaskId, TimedTask, ValueType,
-    runtime_block_signature_fingerprint,
+    AggregateMemoryDefinition, ArtifactError, ArtifactPackage, ArtifactSpec,
+    BlockId as RuntimeBlockId, CanonicalValue as RuntimeValue, Instruction as RuntimeInstruction,
+    MemoryDefinition, MemoryId, Operand as RuntimeOperand, Operation as RuntimeOperation,
+    ProgramBlock as RuntimeProgramBlock, ProgramImage, RuntimeActivation,
+    RuntimeAggregateInstructionCode, RuntimeAggregateSource, RuntimeBinaryOperator,
+    RuntimeBlockCall, RuntimeBoundInput, RuntimeCallKind, RuntimeDeclaredOutput,
+    RuntimeDisabledBehavior, RuntimeFormalRef, RuntimeFrameMember, RuntimeFrameMemberRole,
+    RuntimeFunctionBlockInstance, RuntimeInstructionCode, RuntimeInstructionInstance,
+    RuntimeInstructionInvocation, RuntimeInstructionStateKind, RuntimeUnaryOperator, TaskId,
+    TimedTask, ValueType, runtime_block_signature_fingerprint,
 };
-use plc_types::{CanonicalF32, CanonicalF64};
+use plc_types::{
+    AggregateLimits, CanonicalF32, CanonicalF64, CanonicalType, PlcValue, PrimitiveType,
+    ScalarValue, TypedScalar,
+};
 
 use crate::{
-    BinaryOperator, IrActivation, IrBasicBlockId, IrBoundInput, IrDeclaredOutput, IrFormalRef,
-    IrInstanceIdentity, IrOperation, IrOperationId, IrOperationKind, IrTerminator,
-    IrTerminatorKind, IrType, IrValueId, ProbeId, ProbeKind, ProbeTable, RuntimeOperationId,
-    SourceAnchor, SourceMapId, SourceMapSite, SourceMapTable, TypedIrProgram, UnaryOperator,
-    VerifiedIr,
+    BinaryOperator, IrActivation, IrAggregateSource, IrBasicBlockId, IrBoundInput,
+    IrDeclaredOutput, IrFormalRef, IrInstanceIdentity, IrOperation, IrOperationId, IrOperationKind,
+    IrTerminator, IrTerminatorKind, IrType, IrValueId, ProbeId, ProbeKind, ProbeTable,
+    RuntimeOperationId, SourceAnchor, SourceMapId, SourceMapSite, SourceMapTable, TypedIrProgram,
+    UnaryOperator, VerifiedIr,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -39,6 +43,14 @@ pub struct RuntimeMemoryBinding {
     pub member: InterfaceMemberId,
     pub memory: MemoryId,
     pub value_type: ValueType,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RuntimeAggregateMemoryBinding {
+    pub owner: ProgramBlockId,
+    pub member: InterfaceMemberId,
+    pub memory: MemoryId,
+    pub data_type: CanonicalType,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -78,6 +90,7 @@ pub struct RuntimeSourceBinding {
 pub struct RuntimeArtifactProjection {
     package: ArtifactPackage,
     memory_bindings: Vec<RuntimeMemoryBinding>,
+    aggregate_memory_bindings: Vec<RuntimeAggregateMemoryBinding>,
     block_bindings: Vec<RuntimeBlockBinding>,
     source_bindings: Vec<RuntimeSourceBinding>,
 }
@@ -91,6 +104,11 @@ impl RuntimeArtifactProjection {
     #[must_use]
     pub fn memory_bindings(&self) -> &[RuntimeMemoryBinding] {
         &self.memory_bindings
+    }
+
+    #[must_use]
+    pub fn aggregate_memory_bindings(&self) -> &[RuntimeAggregateMemoryBinding] {
+        &self.aggregate_memory_bindings
     }
 
     #[must_use]
@@ -117,6 +135,18 @@ impl RuntimeArtifactProjection {
             .binary_search_by_key(&owner, |binding| binding.owner)
             .ok()
             .map(|index| self.block_bindings[index].block)
+    }
+
+    #[must_use]
+    pub fn aggregate_memory_for(
+        &self,
+        owner: ProgramBlockId,
+        member: InterfaceMemberId,
+    ) -> Option<MemoryId> {
+        self.aggregate_memory_bindings
+            .binary_search_by_key(&(owner, member), |binding| (binding.owner, binding.member))
+            .ok()
+            .map(|index| self.aggregate_memory_bindings[index].memory)
     }
 
     #[must_use]
@@ -190,6 +220,15 @@ impl From<ArtifactError> for RuntimeAdapterError {
     }
 }
 
+struct MemberMemoryProjection {
+    next_memory: u32,
+    memory: Vec<MemoryDefinition>,
+    aggregate_memory: Vec<AggregateMemoryDefinition>,
+    memory_bindings: Vec<RuntimeMemoryBinding>,
+    aggregate_memory_bindings: Vec<RuntimeAggregateMemoryBinding>,
+    member_memory: BTreeMap<(ProgramBlockId, InterfaceMemberId), MemoryId>,
+}
+
 /// Projects independently verified IR into the Phase 2 runtime operation set.
 /// Unsupported semantic operations fail with a stable typed gap; they are
 /// never approximated or interpreted in the compiler.
@@ -214,33 +253,14 @@ pub fn project_verified_ir_to_runtime(
         .map(|binding| (binding.owner, binding.block))
         .collect();
 
-    let mut next_memory = 1_u32;
-    let mut memory = Vec::new();
-    let mut memory_bindings = Vec::new();
-    let mut member_memory = BTreeMap::new();
-    for &owner in &reachable_blocks {
-        let block = program
-            .block(owner)
-            .ok_or(RuntimeAdapterError::MissingCallableBody(owner))?;
-        for member in block.interface.members.values() {
-            let memory_id = allocate_memory_id(&mut next_memory)?;
-            let value_type = member_value_type(owner, member)?;
-            let loaded_start = member_loaded_start(owner, member, value_type)?;
-            memory.push(MemoryDefinition {
-                id: memory_id,
-                value_type,
-                loaded_start,
-                retentive: member.retain_policy == Some(RetainPolicy::Retentive),
-            });
-            memory_bindings.push(RuntimeMemoryBinding {
-                owner,
-                member: member.id,
-                memory: memory_id,
-                value_type,
-            });
-            member_memory.insert((owner, member.id), memory_id);
-        }
-    }
+    let MemberMemoryProjection {
+        mut next_memory,
+        mut memory,
+        aggregate_memory,
+        memory_bindings,
+        aggregate_memory_bindings,
+        member_memory,
+    } = project_member_memory(&reachable_blocks, program)?;
 
     let mut value_memory = BTreeMap::new();
     for &owner in &reachable_blocks {
@@ -285,9 +305,10 @@ pub fn project_verified_ir_to_runtime(
     }
 
     let program_image = build_program_image(&organization_blocks, program, &mut lowered_blocks)?;
-    let package = ArtifactPackage::seal_verified(ArtifactSpec::edu21(
+    let package = ArtifactPackage::seal_verified(ArtifactSpec::edu21_with_aggregates(
         profile_fingerprint,
         memory,
+        aggregate_memory,
         Vec::new(),
         Vec::new(),
         program_image,
@@ -295,9 +316,71 @@ pub fn project_verified_ir_to_runtime(
     Ok(RuntimeArtifactProjection {
         package,
         memory_bindings,
+        aggregate_memory_bindings,
         block_bindings,
         source_bindings,
     })
+}
+
+fn project_member_memory(
+    reachable_blocks: &[ProgramBlockId],
+    program: &ControllerProgram,
+) -> Result<MemberMemoryProjection, RuntimeAdapterError> {
+    let mut projection = MemberMemoryProjection {
+        next_memory: 1,
+        memory: Vec::new(),
+        aggregate_memory: Vec::new(),
+        memory_bindings: Vec::new(),
+        aggregate_memory_bindings: Vec::new(),
+        member_memory: BTreeMap::new(),
+    };
+    for &owner in reachable_blocks {
+        let block = program
+            .block(owner)
+            .ok_or(RuntimeAdapterError::MissingCallableBody(owner))?;
+        for member in block.interface.members.values() {
+            let memory_id = allocate_memory_id(&mut projection.next_memory)?;
+            if let Ok(value_type) = member_value_type(owner, member) {
+                projection.memory.push(MemoryDefinition {
+                    id: memory_id,
+                    value_type,
+                    loaded_start: member_loaded_start(owner, member, value_type)?,
+                    retentive: member.retain_policy == Some(RetainPolicy::Retentive),
+                });
+                projection.memory_bindings.push(RuntimeMemoryBinding {
+                    owner,
+                    member: member.id,
+                    memory: memory_id,
+                    value_type,
+                });
+            } else if let Some(data_type) = member.data_type.canonical_type() {
+                projection.aggregate_memory.push(AggregateMemoryDefinition {
+                    id: memory_id,
+                    loaded_start: member_aggregate_loaded_start(owner, member, &data_type)?,
+                    data_type: data_type.clone(),
+                    retentive: member.retain_policy == Some(RetainPolicy::Retentive),
+                });
+                projection
+                    .aggregate_memory_bindings
+                    .push(RuntimeAggregateMemoryBinding {
+                        owner,
+                        member: member.id,
+                        memory: memory_id,
+                        data_type,
+                    });
+            } else {
+                return Err(RuntimeAdapterError::UnsupportedMemberType {
+                    owner,
+                    member: member.id,
+                    data_type: member.data_type.clone(),
+                });
+            }
+            projection
+                .member_memory
+                .insert((owner, member.id), memory_id);
+        }
+    }
+    Ok(projection)
 }
 
 fn collect_reachable_blocks(
@@ -717,16 +800,24 @@ fn lower_operation(
             right: value(*right)?,
             target: result()?,
         }),
+        IrOperationKind::ForCondition {
+            current,
+            terminal,
+            step,
+        } => Ok(RuntimeOperation::ForCondition {
+            current: value(*current)?,
+            terminal: value(*terminal)?,
+            step: value(*step)?,
+            target: result()?,
+        }),
         IrOperationKind::ForNextWithin {
             current,
             terminal,
             step,
-            ascending,
         } => Ok(RuntimeOperation::ForNextWithin {
             current: value(*current)?,
             terminal: value(*terminal)?,
             step: value(*step)?,
-            ascending: *ascending,
             target: result()?,
         }),
         IrOperationKind::Convert {
@@ -737,6 +828,72 @@ fn lower_operation(
             destination: ir_value_type(owner, operation.id, destination)?,
             target: result()?,
         }),
+        IrOperationKind::AggregateInstruction {
+            instruction,
+            input,
+            target,
+            activation,
+        } => {
+            let source = match input {
+                IrAggregateSource::Scalar(source) => {
+                    RuntimeAggregateSource::Scalar(value(*source)?)
+                }
+                IrAggregateSource::Member(member) => {
+                    RuntimeAggregateSource::AggregateMemory(*members.get(&(owner, *member)).ok_or(
+                        RuntimeAdapterError::UnknownMember {
+                            owner,
+                            member: *member,
+                        },
+                    )?)
+                }
+            };
+            let target_memory =
+                *members
+                    .get(&(owner, *target))
+                    .ok_or(RuntimeAdapterError::UnknownMember {
+                        owner,
+                        member: *target,
+                    })?;
+            let target_member = program
+                .block(owner)
+                .and_then(|block| block.interface.member(*target))
+                .ok_or(RuntimeAdapterError::UnknownMember {
+                    owner,
+                    member: *target,
+                })?;
+            let target_type = target_member.data_type.canonical_type().ok_or(
+                RuntimeAdapterError::UnsupportedMemberType {
+                    owner,
+                    member: *target,
+                    data_type: target_member.data_type.clone(),
+                },
+            )?;
+            let scalar_leaves = u32::try_from(aggregate_scalar_leaf_count(&target_type).ok_or(
+                RuntimeAdapterError::UnsupportedMemberType {
+                    owner,
+                    member: *target,
+                    data_type: target_member.data_type.clone(),
+                },
+            )?)
+            .map_err(|_| RuntimeAdapterError::IdentityExhausted("aggregate scalar leaves"))?;
+            Ok(RuntimeOperation::AggregateInstruction {
+                instruction: runtime_aggregate_instruction(*instruction).ok_or(
+                    RuntimeAdapterError::UnsupportedOperation {
+                        owner,
+                        operation: operation.id,
+                        semantic_operation: operation.kind.runtime_operation(),
+                    },
+                )?,
+                input: source,
+                target: target_memory,
+                activation: activation
+                    .as_ref()
+                    .map(|activation| value(activation.enable))
+                    .transpose()?,
+                status: result()?,
+                scalar_leaves,
+            })
+        }
         IrOperationKind::InvokeInstruction {
             instruction,
             inputs,
@@ -845,6 +1002,38 @@ const fn runtime_binary(operator: BinaryOperator) -> RuntimeBinaryOperator {
     }
 }
 
+fn runtime_aggregate_instruction(
+    code: plc_program::InstructionCode,
+) -> Option<RuntimeAggregateInstructionCode> {
+    if code == FILL {
+        Some(RuntimeAggregateInstructionCode::Fill)
+    } else if code == BLKMOVE {
+        Some(RuntimeAggregateInstructionCode::BlockMove)
+    } else {
+        None
+    }
+}
+
+fn aggregate_scalar_leaf_count(data_type: &CanonicalType) -> Option<u64> {
+    match data_type {
+        CanonicalType::Primitive(_) => Some(1),
+        CanonicalType::Array {
+            dimensions,
+            element_type,
+        } => dimensions
+            .iter()
+            .try_fold(1_u64, |count, bound| {
+                count.checked_mul(bound.element_count().ok()?)
+            })?
+            .checked_mul(aggregate_scalar_leaf_count(element_type)?),
+        CanonicalType::AnonymousStruct { members } | CanonicalType::NamedStruct { members, .. } => {
+            members.iter().try_fold(0_u64, |count, member| {
+                count.checked_add(aggregate_scalar_leaf_count(&member.data_type)?)
+            })
+        }
+    }
+}
+
 fn runtime_instruction(code: plc_program::InstructionCode) -> Option<RuntimeInstructionCode> {
     Some(if code == NO_OP {
         RuntimeInstructionCode::NoOp
@@ -880,6 +1069,8 @@ fn runtime_instruction(code: plc_program::InstructionCode) -> Option<RuntimeInst
         RuntimeInstructionCode::Divide
     } else if code == MODULO {
         RuntimeInstructionCode::Modulo
+    } else if code == LIMIT {
+        RuntimeInstructionCode::Limit
     } else if code == RISING_EDGE {
         RuntimeInstructionCode::RisingEdge
     } else if code == FALLING_EDGE {
@@ -1234,6 +1425,63 @@ fn member_loaded_start(
     })
 }
 
+fn member_aggregate_loaded_start(
+    owner: ProgramBlockId,
+    member: &InterfaceMember,
+    data_type: &CanonicalType,
+) -> Result<PlcValue, RuntimeAdapterError> {
+    let initial = member
+        .constant_value
+        .as_ref()
+        .or(member.start_value.as_ref())
+        .or(member.default_value.as_ref());
+    let value = match initial {
+        Some(ProgramValue::Aggregate(value)) => value.clone(),
+        Some(ProgramValue::StringBytes(value)) => {
+            let DataType::String { capacity } = member.data_type else {
+                return Err(RuntimeAdapterError::UnsupportedMemberValue {
+                    owner,
+                    member: member.id,
+                });
+            };
+            PlcValue::Scalar(
+                TypedScalar::new(
+                    PrimitiveType::String(u8::try_from(capacity).map_err(|_| {
+                        RuntimeAdapterError::UnsupportedMemberValue {
+                            owner,
+                            member: member.id,
+                        }
+                    })?),
+                    ScalarValue::String(value.clone()),
+                )
+                .map_err(|_| RuntimeAdapterError::UnsupportedMemberValue {
+                    owner,
+                    member: member.id,
+                })?,
+            )
+        }
+        Some(_) => {
+            return Err(RuntimeAdapterError::UnsupportedMemberValue {
+                owner,
+                member: member.id,
+            });
+        }
+        None => data_type
+            .canonical_default(AggregateLimits::edu21())
+            .map_err(|_| RuntimeAdapterError::UnsupportedMemberValue {
+                owner,
+                member: member.id,
+            })?,
+    };
+    data_type
+        .validate_value(&value, AggregateLimits::edu21())
+        .map_err(|_| RuntimeAdapterError::UnsupportedMemberValue {
+            owner,
+            member: member.id,
+        })?;
+    Ok(value)
+}
+
 fn ir_value_type(
     owner: ProgramBlockId,
     operation: IrOperationId,
@@ -1292,6 +1540,6 @@ fn convert_value(value: &ProgramValue) -> Option<RuntimeValue> {
         ProgramValue::LRealBits(value) => Some(RuntimeValue::F64(CanonicalF64::from_bits(*value))),
         ProgramValue::Char(value) => Some(RuntimeValue::Char(*value)),
         ProgramValue::TimeMilliseconds(value) => Some(RuntimeValue::TimeMs(*value)),
-        ProgramValue::StringBytes(_) => None,
+        ProgramValue::StringBytes(_) | ProgramValue::Aggregate(_) => None,
     }
 }

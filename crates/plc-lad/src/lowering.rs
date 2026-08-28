@@ -5,16 +5,17 @@ use alloc::{
 };
 
 use plc_compiler::{
-    BinaryOperator, GraphSourceIds, Hash32, IrActivation, IrBasicBlock, IrBasicBlockId,
-    IrBoundInput, IrDeclaredOutput, IrFormalRef, IrFunction, IrInstanceIdentity, IrOperation,
-    IrOperationId, IrOperationKind, IrTerminator, IrTerminatorKind, IrType, IrValue, IrValueId,
-    ProbeDefinition, ProbeId, ProbeKind, ProbeTable, SemanticNodeId, SourceAnchor, SourceLanguage,
-    SourceMapEntry, SourceMapId, SourceMapSite, SourceMapTable, TYPED_IR_VERSION, TypedIrProgram,
-    UnaryOperator, VerificationError, VerifiedIr, verify_typed_ir,
+    BinaryOperator, GraphSourceIds, Hash32, IrActivation, IrAggregateSource, IrBasicBlock,
+    IrBasicBlockId, IrBoundInput, IrDeclaredOutput, IrFormalRef, IrFunction, IrInstanceIdentity,
+    IrOperation, IrOperationId, IrOperationKind, IrTerminator, IrTerminatorKind, IrType, IrValue,
+    IrValueId, ProbeDefinition, ProbeId, ProbeKind, ProbeTable, SemanticNodeId, SourceAnchor,
+    SourceLanguage, SourceMapEntry, SourceMapId, SourceMapSite, SourceMapTable, TYPED_IR_VERSION,
+    TypedIrProgram, UnaryOperator, VerificationError, VerifiedIr, verify_typed_ir,
 };
 use plc_program::{
-    BlockId, CALL_FB, CanonicalValue, ControllerProgram, DataType, InstructionActivationPolicy,
-    InstructionCode, InterfaceMemberId, VariableRef, phase2_instruction_registry,
+    BLKMOVE, BlockId, CALL_FB, CanonicalValue, ControllerProgram, DataType, FILL, FORMAL_INPUT,
+    FORMAL_OUTPUT, InstructionActivationPolicy, InstructionCode, InterfaceMemberId, VariableRef,
+    phase2_instruction_registry,
 };
 
 use crate::{
@@ -714,6 +715,17 @@ impl<'a> LoweringContext<'a> {
                 value.instruction,
             ))?;
         let input_power = incoming_value(network, node, port_values)?;
+        if matches!(value.instruction, FILL | BLKMOVE) {
+            return self.lower_aggregate_box(
+                network,
+                basic_block,
+                node,
+                value,
+                input_power,
+                port_values,
+                operations,
+            );
+        }
         let mut inputs = Vec::new();
         let mut outputs = Vec::new();
         let mut output_pins = BTreeMap::<IrFormalRef, &LadPin>::new();
@@ -830,6 +842,104 @@ impl<'a> LoweringContext<'a> {
             input_power
         };
         port_values.insert(single_output(network.id, node)?, power_output);
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn lower_aggregate_box(
+        &mut self,
+        network: &LadNetwork,
+        basic_block: IrBasicBlockId,
+        node: &LadNode,
+        value: &crate::LadBox,
+        input_power: IrValueId,
+        port_values: &mut BTreeMap<LadPortId, IrValueId>,
+        operations: &mut Vec<IrOperation>,
+    ) -> Result<(), LadLowerError> {
+        let definition = phase2_instruction_registry()
+            .lookup(value.instruction)
+            .ok_or(LadLowerError::MissingInstructionDefinition(
+                value.instruction,
+            ))?;
+        let (input_pin, output_pin) =
+            aggregate_box_pins(value).ok_or(LadLowerError::InvalidOperand {
+                network: network.id,
+                node: node.id,
+            })?;
+        let output_operand = output_pin
+            .binding
+            .as_ref()
+            .ok_or(LadLowerError::InvalidOperand {
+                network: network.id,
+                node: node.id,
+            })?;
+        let LadOperand::Variable(VariableRef::CallerMember(target)) = output_operand.value else {
+            return Err(LadLowerError::InvalidOperand {
+                network: network.id,
+                node: node.id,
+            });
+        };
+        let input = if matches!(
+            input_pin.data_type,
+            DataType::Aggregate(_) | DataType::String { .. }
+        ) {
+            let operand = input_pin
+                .binding
+                .as_ref()
+                .ok_or(LadLowerError::InvalidOperand {
+                    network: network.id,
+                    node: node.id,
+                })?;
+            let LadOperand::Variable(VariableRef::CallerMember(member)) = operand.value else {
+                return Err(LadLowerError::InvalidOperand {
+                    network: network.id,
+                    node: node.id,
+                });
+            };
+            IrAggregateSource::Member(member)
+        } else {
+            IrAggregateSource::Scalar(self.lower_pin_operand(
+                network,
+                basic_block,
+                node,
+                input_pin,
+                None,
+                operations,
+            )?)
+        };
+        let (activation, _) =
+            activation_contract(definition.activation, input_power, &mut Vec::new());
+        let status = self.push_value(
+            basic_block,
+            IrOperationKind::AggregateInstruction {
+                instruction: value.instruction,
+                input,
+                target,
+                activation,
+            },
+            IrType::Bool,
+            vec![Self::node_anchor(network, node, None, None, None, None)],
+            ProbeKind::Expression,
+            operations,
+        )?;
+        for pin in value
+            .pins
+            .values()
+            .filter(|pin| pin.direction == LadPinDirection::Status)
+        {
+            if let Some(operand) = &pin.binding {
+                self.store_operand(
+                    network,
+                    basic_block,
+                    node,
+                    operand,
+                    status,
+                    None,
+                    operations,
+                )?;
+            }
+        }
+        port_values.insert(single_output(network.id, node)?, status);
         Ok(())
     }
 
@@ -1426,6 +1536,21 @@ impl<'a> LoweringContext<'a> {
     }
 }
 
+fn aggregate_box_pins(value: &crate::LadBox) -> Option<(&LadPin, &LadPin)> {
+    let input = value.pins.values().find(|pin| {
+        pin.formal == Some(LadFormalRef::Instruction(FORMAL_INPUT))
+            && pin.direction == LadPinDirection::Input
+    })?;
+    let output = value.pins.values().find(|pin| {
+        pin.formal == Some(LadFormalRef::Instruction(FORMAL_OUTPUT))
+            && matches!(
+                pin.direction,
+                LadPinDirection::Output | LadPinDirection::InOut
+            )
+    })?;
+    Some((input, output))
+}
+
 fn activation_contract(
     policy: InstructionActivationPolicy,
     enable_value: IrValueId,
@@ -1559,6 +1684,9 @@ fn ir_type(value: &DataType) -> Option<IrType> {
         DataType::String { capacity } => Some(IrType::String {
             capacity: *capacity,
         }),
-        DataType::Named(_) | DataType::BlockInstance(_) | DataType::InstructionState(_) => None,
+        DataType::Named(_)
+        | DataType::BlockInstance(_)
+        | DataType::InstructionState(_)
+        | DataType::Aggregate(_) => None,
     }
 }

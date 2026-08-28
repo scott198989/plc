@@ -43,23 +43,24 @@ pub use ids::{
     BuildAttemptId, IrBasicBlockId, IrOperationId, IrValueId, ProbeId, SemanticNodeId, SourceMapId,
 };
 pub use ir::{
-    BinaryOperator, IrActivation, IrBasicBlock, IrBoundInput, IrDeclaredOutput, IrFormalRef,
-    IrFunction, IrInstanceIdentity, IrOperation, IrOperationKind, IrTerminator, IrTerminatorKind,
-    IrType, IrValue, ProbeDefinition, ProbeKind, ProbeTable, RuntimeOperationId, SourceMapEntry,
-    SourceMapSite, SourceMapTable, TypedIrProgram, UnaryOperator, VerificationError, VerifiedIr,
-    verify_typed_ir,
+    BinaryOperator, IrActivation, IrAggregateSource, IrBasicBlock, IrBoundInput, IrDeclaredOutput,
+    IrFormalRef, IrFunction, IrInstanceIdentity, IrOperation, IrOperationKind, IrTerminator,
+    IrTerminatorKind, IrType, IrValue, ProbeDefinition, ProbeKind, ProbeTable, RuntimeOperationId,
+    SourceMapEntry, SourceMapSite, SourceMapTable, TypedIrProgram, UnaryOperator,
+    VerificationError, VerifiedIr, verify_typed_ir,
 };
 pub use limits::{CancellationToken, ResourceLimit, ResourceLimits, ResourceProfileError};
 pub use plc_runtime::Hash32;
 pub use runtime_adapter::{
-    RuntimeAdapterError, RuntimeArtifactProjection, RuntimeBlockBinding, RuntimeMappedSite,
-    RuntimeMemoryBinding, RuntimeSourceBinding, project_verified_ir_to_runtime,
+    RuntimeAdapterError, RuntimeAggregateMemoryBinding, RuntimeArtifactProjection,
+    RuntimeBlockBinding, RuntimeMappedSite, RuntimeMemoryBinding, RuntimeSourceBinding,
+    project_verified_ir_to_runtime,
 };
 pub use source::{GraphSourceIds, LineColumn, SclSource, SourceAnchor, SourceLanguage, TextRange};
 
 /// Compiler semantics are immutable build input. Any semantic change requires
 /// a new value.
-pub const COMPILER_SEMANTICS_VERSION: &str = "EDU-CMP-1";
+pub const COMPILER_SEMANTICS_VERSION: &str = "EDU-CMP-2";
 
 /// Canonical type and conversion identities pinned into every report/artifact.
 pub const TYPE_SYSTEM_VERSION: &str = "EDU-TYPE-1";
@@ -67,6 +68,6 @@ pub const ARITHMETIC_POLICY_VERSION: &str = "EDU-ARITH-1";
 pub const CONVERSION_POLICY_VERSION: &str = "EDU-CONVERT-1";
 
 /// Initial typed IR and probe schema identities.
-pub const TYPED_IR_VERSION: &str = "EDU-IR-1";
+pub const TYPED_IR_VERSION: &str = "EDU-IR-2";
 pub const PROBE_SCHEMA_VERSION: &str = "EDU-PROBE-1";
 pub const BUILD_ARTIFACT_SCHEMA: &str = "EDU-BUILD-ARTIFACT-1";

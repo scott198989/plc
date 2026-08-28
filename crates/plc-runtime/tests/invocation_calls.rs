@@ -1,4 +1,5 @@
 use plc_runtime::*;
+use plc_types::CanonicalF32;
 
 const UNIVERSE: UniverseId = UniverseId(0xCA11);
 const CONTROLLER: VirtualControllerId = VirtualControllerId(0xC011);
@@ -10,6 +11,10 @@ const FORMAL_OUTPUT: u16 = 0x0011;
 const FORMAL_CLOCK: u16 = 0x0030;
 const FORMAL_PRESET_TIME: u16 = 0x0031;
 const FORMAL_ELAPSED_TIME: u16 = 0x0032;
+const FORMAL_MINIMUM: u16 = 0x0050;
+const FORMAL_LIMIT_INPUT: u16 = 0x0051;
+const FORMAL_MAXIMUM: u16 = 0x0052;
+const FORMAL_LIMIT_OUTPUT: u16 = 0x0053;
 
 fn memory(id: u32, value: CanonicalValue, retentive: bool) -> MemoryDefinition {
     MemoryDefinition {
@@ -49,6 +54,194 @@ fn running(package: &ArtifactPackage) -> VirtualController {
         .request_run(RestartKind::Resume)
         .expect("RUN transition");
     controller
+}
+
+fn limit_invocation(
+    minimum: Operand,
+    input: Operand,
+    maximum: Operand,
+    value_type: ValueType,
+    activation: Option<RuntimeActivation>,
+) -> RuntimeInstructionInvocation {
+    let mut outputs = vec![RuntimeDeclaredOutput {
+        formal: RuntimeFormalRef::Instruction(FORMAL_LIMIT_OUTPUT),
+        value_type,
+    }];
+    if activation.is_some() {
+        outputs.insert(
+            0,
+            RuntimeDeclaredOutput {
+                formal: RuntimeFormalRef::Instruction(FORMAL_ENABLE_OUTPUT),
+                value_type: ValueType::Bool,
+            },
+        );
+    }
+    RuntimeInstructionInvocation {
+        instruction: RuntimeInstructionCode::Limit,
+        inputs: vec![
+            RuntimeBoundInput {
+                formal: RuntimeFormalRef::Instruction(FORMAL_MINIMUM),
+                source: minimum,
+            },
+            RuntimeBoundInput {
+                formal: RuntimeFormalRef::Instruction(FORMAL_LIMIT_INPUT),
+                source: input,
+            },
+            RuntimeBoundInput {
+                formal: RuntimeFormalRef::Instruction(FORMAL_MAXIMUM),
+                source: maximum,
+            },
+        ],
+        outputs,
+        instance: None,
+        activation,
+    }
+}
+
+#[test]
+fn limit_clamps_and_runtime_invalid_range_faults_before_output_store() {
+    let output = MemoryId(1);
+    let invalid_output = MemoryId(2);
+    let artifact = package(
+        vec![
+            memory(1, CanonicalValue::I32(-1), false),
+            memory(2, CanonicalValue::I32(77), false),
+        ],
+        ProgramBlock {
+            id: BlockId(1),
+            instructions: vec![
+                instruction(
+                    1,
+                    0x501,
+                    Operation::InvokeInstruction(limit_invocation(
+                        Operand::Constant(CanonicalValue::I32(10)),
+                        Operand::Constant(CanonicalValue::I32(99)),
+                        Operand::Constant(CanonicalValue::I32(20)),
+                        ValueType::I32,
+                        None,
+                    )),
+                ),
+                invocation_projection(2, 1, FORMAL_LIMIT_OUTPUT, output),
+                instruction(
+                    3,
+                    0x503,
+                    Operation::InvokeInstruction(limit_invocation(
+                        Operand::Constant(CanonicalValue::I32(20)),
+                        Operand::Constant(CanonicalValue::I32(15)),
+                        Operand::Constant(CanonicalValue::I32(10)),
+                        ValueType::I32,
+                        None,
+                    )),
+                ),
+                invocation_projection(4, 3, FORMAL_LIMIT_OUTPUT, invalid_output),
+            ],
+        },
+    );
+    let mut controller = running(&artifact);
+    let event = match controller.run_scan().expect("scan") {
+        RunOutcome::Faulted(event) => event,
+        RunOutcome::Completed(_) => panic!("dynamic MN greater than MX must fault"),
+    };
+    assert_eq!(event.code, DiagnosticCode::InvalidArgument);
+    assert_eq!(
+        controller.actual_memory(output),
+        Some(CanonicalValue::I32(20))
+    );
+    assert_eq!(
+        controller.actual_memory(invalid_output),
+        Some(CanonicalValue::I32(77)),
+        "the failing LIMIT must not publish or project an OUT value"
+    );
+}
+
+#[test]
+fn floating_limit_canonicalizes_any_nan_without_range_fault() {
+    let output = MemoryId(1);
+    let artifact = package(
+        vec![memory(
+            1,
+            CanonicalValue::F32(CanonicalF32::new(1.0)),
+            false,
+        )],
+        ProgramBlock {
+            id: BlockId(1),
+            instructions: vec![
+                instruction(
+                    1,
+                    0x511,
+                    Operation::InvokeInstruction(limit_invocation(
+                        Operand::Constant(CanonicalValue::F32(CanonicalF32::new(20.0))),
+                        Operand::Constant(CanonicalValue::F32(CanonicalF32::new(f32::NAN))),
+                        Operand::Constant(CanonicalValue::F32(CanonicalF32::new(10.0))),
+                        ValueType::F32,
+                        None,
+                    )),
+                ),
+                invocation_projection(2, 1, FORMAL_LIMIT_OUTPUT, output),
+            ],
+        },
+    );
+    let mut controller = running(&artifact);
+    assert!(matches!(
+        controller.run_scan(),
+        Ok(RunOutcome::Completed(_))
+    ));
+    assert_eq!(
+        controller.actual_memory(output),
+        Some(CanonicalValue::F32(CanonicalF32::new(f32::NAN)))
+    );
+    assert!(controller.diagnostics().is_empty());
+}
+
+#[test]
+fn disabled_limit_publishes_default_out_and_false_eno_without_reading_values() {
+    let output = MemoryId(2);
+    let eno = MemoryId(3);
+    let activation = RuntimeActivation {
+        enable: Operand::Memory(MemoryId(1)),
+        enable_formal: FORMAL_ENABLE,
+        status_formal: FORMAL_ENABLE_OUTPUT,
+        status_when_disabled: false,
+        when_disabled: RuntimeDisabledBehavior::DefaultOutputsNoStateChange,
+    };
+    let artifact = package(
+        vec![
+            memory(1, CanonicalValue::Bool(false), false),
+            memory(2, CanonicalValue::I64(91), false),
+            memory(3, CanonicalValue::Bool(true), false),
+        ],
+        ProgramBlock {
+            id: BlockId(1),
+            instructions: vec![
+                instruction(
+                    1,
+                    0x521,
+                    Operation::InvokeInstruction(limit_invocation(
+                        Operand::Constant(CanonicalValue::I64(100)),
+                        Operand::Constant(CanonicalValue::I64(0)),
+                        Operand::Constant(CanonicalValue::I64(-100)),
+                        ValueType::I64,
+                        Some(activation),
+                    )),
+                ),
+                invocation_projection(2, 1, FORMAL_ENABLE_OUTPUT, eno),
+                invocation_projection(3, 1, FORMAL_LIMIT_OUTPUT, output),
+            ],
+        },
+    );
+    let mut controller = running(&artifact);
+    assert!(matches!(
+        controller.run_scan(),
+        Ok(RunOutcome::Completed(_))
+    ));
+    assert_eq!(
+        controller.actual_memory(output),
+        Some(CanonicalValue::I64(0))
+    );
+    assert_eq!(
+        controller.actual_memory(eno),
+        Some(CanonicalValue::Bool(false))
+    );
 }
 
 #[test]

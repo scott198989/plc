@@ -45,7 +45,12 @@ pub enum DataType {
     LReal,
     Char,
     Time,
-    String { capacity: u16 },
+    String {
+        capacity: u16,
+    },
+    /// One already-validated recursive PLC aggregate shape. The canonical
+    /// authority remains `plc_types::CanonicalType`.
+    Aggregate(CanonicalType),
     Named(String),
     BlockInstance(BlockId),
     InstructionState(StateKind),
@@ -76,7 +81,10 @@ impl DataType {
                 .ok()
                 .filter(|capacity| *capacity <= 254)
                 .map(PrimitiveType::String),
-            Self::Named(_) | Self::BlockInstance(_) | Self::InstructionState(_) => None,
+            Self::Aggregate(_)
+            | Self::Named(_)
+            | Self::BlockInstance(_)
+            | Self::InstructionState(_) => None,
         }
     }
 
@@ -113,6 +121,16 @@ impl DataType {
     pub fn canonical_scalar_type(&self) -> Option<CanonicalType> {
         self.primitive_type().map(CanonicalType::Primitive)
     }
+
+    /// Projects a value declaration into the single shared recursive type
+    /// authority. Unresolved named and runtime-instance types remain blocked.
+    #[must_use]
+    pub fn canonical_type(&self) -> Option<CanonicalType> {
+        match self {
+            Self::Aggregate(data_type) => Some(data_type.clone()),
+            _ => self.canonical_scalar_type(),
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -135,11 +153,17 @@ pub enum CanonicalValue {
     Char(u8),
     TimeMilliseconds(i64),
     StringBytes(Vec<u8>),
+    Aggregate(PlcValue),
 }
 
 impl CanonicalValue {
     #[must_use]
     pub fn is_compatible_with(&self, data_type: &DataType) -> bool {
+        if let (Self::Aggregate(value), Some(canonical_type)) = (self, data_type.canonical_type()) {
+            return canonical_type
+                .validate_value(value, plc_types::AggregateLimits::edu21())
+                .is_ok();
+        }
         data_type
             .primitive_type()
             .and_then(|primitive| {
@@ -204,6 +228,13 @@ impl CanonicalValue {
     /// into the shared recursive value authority without conversion.
     #[must_use]
     pub fn plc_value_for(&self, data_type: &DataType) -> Option<PlcValue> {
+        if let Self::Aggregate(value) = self {
+            let data_type = data_type.canonical_type()?;
+            return data_type
+                .validate_value(value, plc_types::AggregateLimits::edu21())
+                .is_ok()
+                .then(|| value.clone());
+        }
         let primitive = data_type.primitive_type()?;
         let value = self.scalar_value_for(primitive)?;
         TypedScalar::new(primitive, value)

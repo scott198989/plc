@@ -229,7 +229,6 @@ pub(crate) enum TypedStatementKind {
         initial: alloc::boxed::Box<TypedExpr>,
         limit: alloc::boxed::Box<TypedExpr>,
         step: alloc::boxed::Box<TypedExpr>,
-        ascending: bool,
         body: Vec<TypedStatement>,
     },
     While {
@@ -1548,7 +1547,7 @@ impl TypeChecker {
         let initial = self.coerce_for_value(initial, &iterator.data_type, "initial");
         let limit = self.check_expr(limit, Some(&iterator.data_type), flow);
         let limit = self.coerce_for_value(limit, &iterator.data_type, "terminal");
-        let (step, ascending) = self.check_for_step(statement, &iterator, step, flow);
+        let step = self.check_for_step(statement, &iterator, step, flow);
 
         let mut body_flow = flow.clone();
         if iterator.role == InterfaceRole::Temp {
@@ -1568,7 +1567,6 @@ impl TypeChecker {
             initial: alloc::boxed::Box::new(initial),
             limit: alloc::boxed::Box::new(limit),
             step: alloc::boxed::Box::new(step),
-            ascending,
             body,
         }
     }
@@ -1579,7 +1577,7 @@ impl TypeChecker {
         iterator: &TypedMember,
         step: Option<&BoundExpr>,
         flow: &FlowState,
-    ) -> (TypedExpr, bool) {
+    ) -> TypedExpr {
         let step = step.map_or_else(
             || TypedExpr {
                 id: statement.id,
@@ -1593,29 +1591,16 @@ impl TypeChecker {
         let mut step = self.coerce_for_value(step, &iterator.data_type, "BY");
         if let Some(value) = fold_ordinal_constant(&step) {
             step.kind = TypedExprKind::Constant(value);
-        } else if step.kind != TypedExprKind::Error {
+        }
+        if constant_integer_sign(&step) == Some(0) {
             self.issue(
                 DiagnosticCode::CONSTANT_RANGE_OR_ARITHMETIC,
                 step.range,
                 step.id,
-                "FOR BY expression must be a compile-time integer constant",
+                "FOR BY expression must not be zero",
             );
         }
-        let ascending = match constant_integer_sign(&step) {
-            Some(1) => true,
-            Some(-1) => false,
-            Some(0) => {
-                self.issue(
-                    DiagnosticCode::CONSTANT_RANGE_OR_ARITHMETIC,
-                    step.range,
-                    step.id,
-                    "FOR BY expression must not be zero",
-                );
-                true
-            }
-            _ => true,
-        };
-        (step, ascending)
+        step
     }
 
     fn coerce_for_value(
@@ -2095,7 +2080,8 @@ fn fold_ordinal_constant(expression: &TypedExpr) -> Option<CanonicalValue> {
             | CanonicalValue::LRealBits(_)
             | CanonicalValue::Char(_)
             | CanonicalValue::TimeMilliseconds(_)
-            | CanonicalValue::StringBytes(_) => None,
+            | CanonicalValue::StringBytes(_)
+            | CanonicalValue::Aggregate(_) => None,
         },
         TypedExprKind::Binary {
             operator,
@@ -2163,7 +2149,8 @@ fn ordinal_i128(value: &CanonicalValue) -> Option<i128> {
         | CanonicalValue::RealBits(_)
         | CanonicalValue::LRealBits(_)
         | CanonicalValue::TimeMilliseconds(_)
-        | CanonicalValue::StringBytes(_) => return None,
+        | CanonicalValue::StringBytes(_)
+        | CanonicalValue::Aggregate(_) => return None,
     })
 }
 
@@ -2189,7 +2176,8 @@ fn ordinal_from_i128(data_type: &DataType, value: i128) -> Option<CanonicalValue
         | DataType::String { .. }
         | DataType::Named(_)
         | DataType::BlockInstance(_)
-        | DataType::InstructionState(_) => return None,
+        | DataType::InstructionState(_)
+        | DataType::Aggregate(_) => return None,
     })
 }
 
@@ -2215,7 +2203,8 @@ fn canonical_one(data_type: &DataType) -> Option<CanonicalValue> {
         | DataType::String { .. }
         | DataType::Named(_)
         | DataType::BlockInstance(_)
-        | DataType::InstructionState(_) => return None,
+        | DataType::InstructionState(_)
+        | DataType::Aggregate(_) => return None,
     })
 }
 

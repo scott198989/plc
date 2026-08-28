@@ -247,6 +247,7 @@ pub fn build_project_controller(
         work_cost_version: compiler_spec.work_cost_version.clone(),
         profile_fingerprint: compiler_spec.profile_fingerprint,
         memory: compiler_spec.memory.clone(),
+        aggregate_memory: compiler_spec.aggregate_memory.clone(),
         channels: channel_definitions,
         states: compiler_spec.states.clone(),
         program: compiler_spec.program.clone(),

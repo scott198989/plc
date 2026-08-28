@@ -423,6 +423,20 @@ fn validate_special_member_type(
                 push_member_issue(report, IssueCode::InstanceTypeIllegal, block.id, member.id);
             }
         }
+        DataType::Aggregate(ref data_type) => {
+            if matches!(data_type, plc_types::CanonicalType::Primitive(_))
+                || data_type
+                    .validate(plc_types::AggregateLimits::edu21())
+                    .is_err()
+            {
+                push_member_issue(
+                    report,
+                    IssueCode::MemberValueTypeMismatch,
+                    block.id,
+                    member.id,
+                );
+            }
+        }
         DataType::Bool
         | DataType::SInt
         | DataType::Int

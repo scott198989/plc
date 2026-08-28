@@ -4,15 +4,17 @@ use alloc::{
 };
 use core::{error::Error, fmt};
 use plc_types::{
-    BitBinaryOperator, ComparisonOperator, NumericBinaryOperator, PrimitiveType, ScalarFault,
-    absolute, bit_binary, bit_not, compare, convert as scalar_convert, maximum, minimum, negate,
+    AggregateLimits, BitBinaryOperator, CanonicalType, ComparisonOperator, NumericBinaryOperator,
+    PlcValue, PrimitiveType, ScalarFault, TypeError, absolute, assign_value, bit_binary, bit_not,
+    compare, convert as scalar_convert, limit as scalar_limit, maximum, minimum, negate,
     numeric_binary,
 };
 
 use crate::{
     ArtifactError, ArtifactPackage, BlockId, CanonicalValue, ChannelDirection, ChannelId,
     DeliveryReason, Hash32, InputCommand, InputReceipt, MAX_WORK_UNITS_PER_SCAN, MemoryId, Operand,
-    Operation, ProgramBlock, RUNTIME_SEMANTICS_VERSION, RuntimeActivation, RuntimeBinaryOperator,
+    Operation, ProgramBlock, RUNTIME_SEMANTICS_VERSION, RuntimeActivation,
+    RuntimeAggregateInstructionCode, RuntimeAggregateSource, RuntimeBinaryOperator,
     RuntimeBlockCall, RuntimeCallKind, RuntimeDisabledBehavior, RuntimeFormalRef,
     RuntimeFunctionBlockInstance, RuntimeInstructionCode, RuntimeInstructionInstance,
     RuntimeInstructionInvocation, RuntimeInstructionStateKind, RuntimeUnaryOperator,
@@ -434,6 +436,8 @@ pub enum DiagnosticCode {
     TimerOverflow = 102,
     WorkUnitBudgetExceeded = 103,
     RuntimeInvariantFailure = 104,
+    InvalidArgument = 105,
+    BoundsOrString = 106,
     SnapshotRejected = 200,
 }
 
@@ -779,6 +783,8 @@ struct BlockExecution {
 struct RuntimeImage {
     actual_memory: BTreeMap<MemoryId, CanonicalValue>,
     retain_memory: BTreeMap<MemoryId, CanonicalValue>,
+    actual_aggregate_memory: BTreeMap<MemoryId, PlcValue>,
+    retain_aggregate_memory: BTreeMap<MemoryId, PlcValue>,
     natural_inputs: BTreeMap<ChannelId, CanonicalValue>,
     effective_inputs: BTreeMap<ChannelId, CanonicalValue>,
     natural_outputs: BTreeMap<ChannelId, CanonicalValue>,
@@ -800,6 +806,8 @@ impl RuntimeImage {
         Self {
             actual_memory: BTreeMap::new(),
             retain_memory: BTreeMap::new(),
+            actual_aggregate_memory: BTreeMap::new(),
+            retain_aggregate_memory: BTreeMap::new(),
             natural_inputs: BTreeMap::new(),
             effective_inputs: BTreeMap::new(),
             natural_outputs: BTreeMap::new(),
@@ -826,6 +834,16 @@ impl RuntimeImage {
                 image
                     .retain_memory
                     .insert(definition.id, definition.loaded_start);
+            }
+        }
+        for definition in &spec.aggregate_memory {
+            image
+                .actual_aggregate_memory
+                .insert(definition.id, definition.loaded_start.clone());
+            if definition.retentive {
+                image
+                    .retain_aggregate_memory
+                    .insert(definition.id, definition.loaded_start.clone());
             }
         }
         for channel in &spec.channels {
@@ -868,6 +886,8 @@ impl RuntimeImage {
     fn encode(&self, hasher: &mut SemanticHasher) {
         encode_value_map(&self.actual_memory, hasher);
         encode_value_map(&self.retain_memory, hasher);
+        encode_aggregate_value_map(&self.actual_aggregate_memory, hasher);
+        encode_aggregate_value_map(&self.retain_aggregate_memory, hasher);
         encode_value_map(&self.natural_inputs, hasher);
         encode_value_map(&self.effective_inputs, hasher);
         encode_value_map(&self.natural_outputs, hasher);
@@ -953,6 +973,43 @@ where
     for (id, value) in map {
         hasher.u32((*id).into_u32());
         value.encode(hasher);
+    }
+}
+
+fn encode_aggregate_value_map(map: &BTreeMap<MemoryId, PlcValue>, hasher: &mut SemanticHasher) {
+    hasher.u64(map.len() as u64);
+    for (id, value) in map {
+        hasher.u32(id.0);
+        encode_plc_value(value, hasher);
+    }
+}
+
+fn encode_plc_value(value: &PlcValue, hasher: &mut SemanticHasher) {
+    match value {
+        PlcValue::Scalar(value) => {
+            hasher.u8(1);
+            let data_type = CanonicalType::Primitive(value.data_type());
+            hasher.bytes(
+                &data_type
+                    .serialize_value(&PlcValue::Scalar(value.clone()), AggregateLimits::edu21())
+                    .unwrap_or_default(),
+            );
+        }
+        PlcValue::Array(values) => {
+            hasher.u8(2);
+            hasher.u64(values.len() as u64);
+            for value in values {
+                encode_plc_value(value, hasher);
+            }
+        }
+        PlcValue::Struct(fields) => {
+            hasher.u8(3);
+            hasher.u64(fields.len() as u64);
+            for field in fields {
+                hasher.bytes(&field.member_id.as_bytes());
+                encode_plc_value(&field.value, hasher);
+            }
+        }
     }
 }
 
@@ -1081,6 +1138,8 @@ enum ExecutionFault {
     ArithmeticOverflow,
     TimerOverflow,
     WorkUnitBudgetExceeded,
+    InvalidArgument,
+    BoundsOrString,
     RuntimeInvariant,
 }
 
@@ -1099,6 +1158,10 @@ const FORMAL_PRESET_VALUE: u16 = 0x0044;
 const FORMAL_CURRENT_VALUE: u16 = 0x0045;
 const FORMAL_QU: u16 = 0x0046;
 const FORMAL_QD: u16 = 0x0047;
+const FORMAL_MINIMUM: u16 = 0x0050;
+const FORMAL_LIMIT_INPUT: u16 = 0x0051;
+const FORMAL_MAXIMUM: u16 = 0x0052;
+const FORMAL_LIMIT_OUTPUT: u16 = 0x0053;
 
 impl VirtualController {
     pub fn new(
@@ -1282,6 +1345,14 @@ impl VirtualController {
 
     pub fn retained_memory(&self, id: MemoryId) -> Option<CanonicalValue> {
         self.image.retain_memory.get(&id).copied()
+    }
+
+    pub fn actual_aggregate_memory(&self, id: MemoryId) -> Option<&PlcValue> {
+        self.image.actual_aggregate_memory.get(&id)
+    }
+
+    pub fn retained_aggregate_memory(&self, id: MemoryId) -> Option<&PlcValue> {
+        self.image.retain_aggregate_memory.get(&id)
     }
 
     pub fn natural_input(&self, id: ChannelId) -> Option<CanonicalValue> {
@@ -1652,20 +1723,7 @@ impl VirtualController {
         }
 
         for id in &plan.preserve_memory {
-            let old = current
-                .spec()
-                .memory
-                .binary_search_by_key(id, |definition| definition.id)
-                .ok()
-                .map(|index| &current.spec().memory[index]);
-            let new = candidate
-                .spec()
-                .memory
-                .binary_search_by_key(id, |definition| definition.id)
-                .ok()
-                .map(|index| &candidate.spec().memory[index]);
-            if !matches!((old, new), (Some(old), Some(new)) if old.value_type == new.value_type && old.retentive == new.retentive)
-            {
+            if !memory_identity_compatible(current.spec(), candidate.spec(), *id) {
                 return Err(AtomicInstallError::IncompatibleMemoryIdentity(*id));
             }
         }
@@ -1695,17 +1753,20 @@ impl VirtualController {
             && plan.disposition == RuntimeInstallDisposition::ArtifactReplacement
             && (!plan.preserve_cpu_mode
                 || !plan.preserve_io
-                || plan.preserve_memory.len() != current.spec().memory.len()
-                || plan.preserve_memory.len() != candidate.spec().memory.len()
+                || plan.preserve_memory.len()
+                    != current.spec().memory.len() + current.spec().aggregate_memory.len()
+                || plan.preserve_memory.len()
+                    != candidate.spec().memory.len() + candidate.spec().aggregate_memory.len()
                 || plan.preserve_states.len() != current.spec().states.len()
                 || plan.preserve_states.len() != candidate.spec().states.len())
         {
             return Err(AtomicInstallError::StopRequired);
         }
 
-        let old_memory_count = current.spec().memory.len();
+        let old_memory_count = current.spec().memory.len() + current.spec().aggregate_memory.len();
         let old_state_count = current.spec().states.len();
-        let new_memory_count = candidate.spec().memory.len();
+        let new_memory_count =
+            candidate.spec().memory.len() + candidate.spec().aggregate_memory.len();
         let new_state_count = candidate.spec().states.len();
         let expected_state_hash = self.semantic_state_hash();
         let mut staged = self.clone();
@@ -1713,14 +1774,18 @@ impl VirtualController {
         if plan.disposition == RuntimeInstallDisposition::ArtifactReplacement {
             let mut image = RuntimeImage::from_artifact(&candidate);
             for id in &plan.preserve_memory {
-                let value = *self
-                    .image
-                    .actual_memory
-                    .get(id)
-                    .ok_or(AtomicInstallError::IncompatibleMemoryIdentity(*id))?;
-                image.actual_memory.insert(*id, value);
-                if let Some(retained) = self.image.retain_memory.get(id) {
-                    image.retain_memory.insert(*id, *retained);
+                if let Some(value) = self.image.actual_memory.get(id).copied() {
+                    image.actual_memory.insert(*id, value);
+                    if let Some(retained) = self.image.retain_memory.get(id) {
+                        image.retain_memory.insert(*id, *retained);
+                    }
+                } else if let Some(value) = self.image.actual_aggregate_memory.get(id).cloned() {
+                    image.actual_aggregate_memory.insert(*id, value);
+                    if let Some(retained) = self.image.retain_aggregate_memory.get(id) {
+                        image.retain_aggregate_memory.insert(*id, retained.clone());
+                    }
+                } else {
+                    return Err(AtomicInstallError::IncompatibleMemoryIdentity(*id));
                 }
             }
             for id in &plan.preserve_states {
@@ -2789,7 +2854,10 @@ impl VirtualController {
                 virtual_timestamp_ms: self.virtual_time_ms,
                 work_units_before_operation: *work_units,
             };
-            self.charge_work(work_units, instruction.work_units(), &context)?;
+            let operation_work = self
+                .operation_work_units(instruction.operation(), &execution)
+                .map_err(|fault| (fault, context.clone()))?;
+            self.charge_work(work_units, operation_work, &context)?;
             match instruction.operation() {
                 Operation::Jump { target } => {
                     program_counter = usize::try_from(*target)
@@ -2846,6 +2914,23 @@ impl VirtualController {
         }
         *work_units = charged;
         Ok(())
+    }
+
+    fn operation_work_units(
+        &self,
+        operation: &Operation,
+        execution: &BlockExecution,
+    ) -> Result<u32, ExecutionFault> {
+        let Operation::AggregateInstruction { activation, .. } = operation else {
+            return Ok(operation.work_units());
+        };
+        let enabled = match activation {
+            Some(enable) => self
+                .read_execution_bool(execution, *enable)?
+                .unwrap_or(false),
+            None => true,
+        };
+        Ok(if enabled { operation.work_units() } else { 1 })
     }
 
     #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -3092,14 +3177,38 @@ impl VirtualController {
                 self.write_execution_memory(execution, *target, runtime_value);
                 Ok(())
             }
+            Operation::ForCondition {
+                current,
+                terminal,
+                step,
+                target,
+            } => self
+                .execute_for_condition(execution, *current, *terminal, *step, *target)
+                .map_err(local),
             Operation::ForNextWithin {
                 current,
                 terminal,
                 step,
-                ascending,
                 target,
             } => self
-                .execute_for_next_within(execution, *current, *terminal, *step, *ascending, *target)
+                .execute_for_next_within(execution, *current, *terminal, *step, *target)
+                .map_err(local),
+            Operation::AggregateInstruction {
+                instruction,
+                input,
+                target,
+                activation,
+                status,
+                ..
+            } => self
+                .execute_aggregate_instruction(
+                    execution,
+                    *instruction,
+                    *input,
+                    *target,
+                    *activation,
+                    *status,
+                )
                 .map_err(local),
             Operation::InvokeInstruction(invocation) => self
                 .execute_instruction_invocation(operation_id, invocation, execution)
@@ -3216,39 +3325,216 @@ impl VirtualController {
         Ok(())
     }
 
+    fn execute_for_condition(
+        &mut self,
+        execution: &mut BlockExecution,
+        current: Operand,
+        terminal: Operand,
+        step: Operand,
+        target: MemoryId,
+    ) -> Result<(), ExecutionFault> {
+        let Some((current, terminal, step)) =
+            self.read_for_operands(execution, current, terminal, step, target)?
+        else {
+            return Ok(());
+        };
+        if step == 0 {
+            return Err(ExecutionFault::InvalidArgument);
+        }
+        let within = if step > 0 {
+            current <= terminal
+        } else {
+            current >= terminal
+        };
+        self.write_execution_memory(execution, target, CanonicalValue::Bool(within));
+        Ok(())
+    }
+
     fn execute_for_next_within(
         &mut self,
         execution: &mut BlockExecution,
         current: Operand,
         terminal: Operand,
         step: Operand,
-        ascending: bool,
         target: MemoryId,
     ) -> Result<(), ExecutionFault> {
-        let (Some(current), Some(terminal), Some(step)) = (
-            self.read_execution_operand(execution, current)?,
-            self.read_execution_operand(execution, terminal)?,
-            self.read_execution_operand(execution, step)?,
-        ) else {
-            Self::suppress_execution_memory(execution, target);
+        let Some((current, terminal, step)) =
+            self.read_for_operands(execution, current, terminal, step, target)?
+        else {
             return Ok(());
         };
-        let current = signed_integer_i128(current).ok_or(ExecutionFault::RuntimeInvariant)?;
-        let terminal = signed_integer_i128(terminal).ok_or(ExecutionFault::RuntimeInvariant)?;
-        let step = signed_integer_i128(step).ok_or(ExecutionFault::RuntimeInvariant)?;
-        if (ascending && step <= 0) || (!ascending && step >= 0) {
-            return Err(ExecutionFault::RuntimeInvariant);
+        if step == 0 {
+            return Err(ExecutionFault::InvalidArgument);
         }
         let next = current
             .checked_add(step)
             .ok_or(ExecutionFault::RuntimeInvariant)?;
-        let within = if ascending {
+        let within = if step > 0 {
             next <= terminal
         } else {
             next >= terminal
         };
         self.write_execution_memory(execution, target, CanonicalValue::Bool(within));
         Ok(())
+    }
+
+    fn read_for_operands(
+        &self,
+        execution: &mut BlockExecution,
+        current: Operand,
+        terminal: Operand,
+        step: Operand,
+        target: MemoryId,
+    ) -> Result<Option<(i128, i128, i128)>, ExecutionFault> {
+        let (Some(current), Some(terminal), Some(step)) = (
+            self.read_execution_operand(execution, current)?,
+            self.read_execution_operand(execution, terminal)?,
+            self.read_execution_operand(execution, step)?,
+        ) else {
+            Self::suppress_execution_memory(execution, target);
+            return Ok(None);
+        };
+        Ok(Some((
+            signed_integer_i128(current).ok_or(ExecutionFault::RuntimeInvariant)?,
+            signed_integer_i128(terminal).ok_or(ExecutionFault::RuntimeInvariant)?,
+            signed_integer_i128(step).ok_or(ExecutionFault::RuntimeInvariant)?,
+        )))
+    }
+
+    fn execute_aggregate_instruction(
+        &mut self,
+        execution: &mut BlockExecution,
+        instruction: RuntimeAggregateInstructionCode,
+        input: RuntimeAggregateSource,
+        target: MemoryId,
+        activation: Option<Operand>,
+        status: MemoryId,
+    ) -> Result<(), ExecutionFault> {
+        let enabled = match activation {
+            Some(enable) => self
+                .read_execution_bool(execution, enable)?
+                .unwrap_or(false),
+            None => true,
+        };
+        if !enabled {
+            self.write_execution_memory(execution, status, CanonicalValue::Bool(false));
+            return Ok(());
+        }
+        let Some((source_type, source_value)) = self.read_aggregate_source(execution, input)?
+        else {
+            self.write_execution_memory(execution, status, CanonicalValue::Bool(false));
+            return Ok(());
+        };
+        let artifact = self
+            .loaded
+            .as_ref()
+            .ok_or(ExecutionFault::RuntimeInvariant)?;
+        let scalar_target = artifact
+            .spec()
+            .memory
+            .binary_search_by_key(&target, |definition| definition.id)
+            .ok()
+            .map(|index| artifact.spec().memory[index].value_type);
+        let aggregate_target = artifact
+            .spec()
+            .aggregate_memory
+            .binary_search_by_key(&target, |definition| definition.id)
+            .ok()
+            .map(|index| artifact.spec().aggregate_memory[index].data_type.clone());
+        let target_type = scalar_target
+            .map(|data_type| CanonicalType::Primitive(data_type.primitive_type()))
+            .or_else(|| aggregate_target.clone())
+            .ok_or(ExecutionFault::RuntimeInvariant)?;
+        let result = match instruction {
+            RuntimeAggregateInstructionCode::Fill => {
+                let CanonicalType::Array {
+                    dimensions,
+                    element_type,
+                } = &target_type
+                else {
+                    return Err(ExecutionFault::RuntimeInvariant);
+                };
+                let element = assign_value(
+                    &source_type,
+                    &source_value,
+                    element_type,
+                    AggregateLimits::edu21(),
+                )
+                .map_err(map_aggregate_fault)?;
+                let element_count = dimensions.iter().try_fold(1_usize, |count, bound| {
+                    let dimension = usize::try_from(bound.element_count().ok()?).ok()?;
+                    count.checked_mul(dimension)
+                });
+                let Some(element_count) = element_count else {
+                    return Err(ExecutionFault::RuntimeInvariant);
+                };
+                PlcValue::Array(alloc::vec![element; element_count])
+            }
+            RuntimeAggregateInstructionCode::BlockMove => assign_value(
+                &source_type,
+                &source_value,
+                &target_type,
+                AggregateLimits::edu21(),
+            )
+            .map_err(map_aggregate_fault)?,
+        };
+        target_type
+            .validate_value(&result, AggregateLimits::edu21())
+            .map_err(map_aggregate_fault)?;
+        if aggregate_target.is_some() {
+            self.write_aggregate_memory(target, result);
+        } else {
+            let PlcValue::Scalar(result) = result else {
+                return Err(ExecutionFault::RuntimeInvariant);
+            };
+            let result = CanonicalValue::from_typed_scalar(result)
+                .map_err(|_| ExecutionFault::RuntimeInvariant)?;
+            self.write_execution_memory(execution, target, result);
+        }
+        self.write_execution_memory(execution, status, CanonicalValue::Bool(true));
+        Ok(())
+    }
+
+    fn read_aggregate_source(
+        &self,
+        execution: &BlockExecution,
+        source: RuntimeAggregateSource,
+    ) -> Result<Option<(CanonicalType, PlcValue)>, ExecutionFault> {
+        match source {
+            RuntimeAggregateSource::Scalar(operand) => {
+                let Some(value) = self.read_execution_operand(execution, operand)? else {
+                    return Ok(None);
+                };
+                let value = value
+                    .typed_scalar()
+                    .map_err(|_| ExecutionFault::RuntimeInvariant)?;
+                Ok(Some((
+                    CanonicalType::Primitive(value.data_type()),
+                    PlcValue::Scalar(value),
+                )))
+            }
+            RuntimeAggregateSource::AggregateMemory(memory) => {
+                let data_type = self
+                    .loaded
+                    .as_ref()
+                    .and_then(|artifact| {
+                        artifact
+                            .spec()
+                            .aggregate_memory
+                            .binary_search_by_key(&memory, |definition| definition.id)
+                            .ok()
+                            .map(|index| artifact.spec().aggregate_memory[index].data_type.clone())
+                    })
+                    .ok_or(ExecutionFault::RuntimeInvariant)?;
+                let value = self
+                    .image
+                    .actual_aggregate_memory
+                    .get(&memory)
+                    .cloned()
+                    .ok_or(ExecutionFault::RuntimeInvariant)?;
+                Ok(Some((data_type, value)))
+            }
+        }
     }
 
     fn read_execution_operand(
@@ -3541,6 +3827,23 @@ impl VirtualController {
                         instruction_input(inputs, FORMAL_LEFT)?,
                         instruction_input(inputs, FORMAL_RIGHT)?,
                     )?,
+                );
+            }
+            RuntimeInstructionCode::Limit => {
+                let minimum = instruction_input(inputs, FORMAL_MINIMUM)?
+                    .typed_scalar()
+                    .map_err(|_| ExecutionFault::RuntimeInvariant)?;
+                let input = instruction_input(inputs, FORMAL_LIMIT_INPUT)?
+                    .typed_scalar()
+                    .map_err(|_| ExecutionFault::RuntimeInvariant)?;
+                let maximum = instruction_input(inputs, FORMAL_MAXIMUM)?
+                    .typed_scalar()
+                    .map_err(|_| ExecutionFault::RuntimeInvariant)?;
+                let value = scalar_limit(&minimum, &input, &maximum).map_err(map_scalar_fault)?;
+                outputs.insert(
+                    FORMAL_LIMIT_OUTPUT,
+                    CanonicalValue::from_typed_scalar(value)
+                        .map_err(|_| ExecutionFault::RuntimeInvariant)?,
                 );
             }
             RuntimeInstructionCode::RisingEdge | RuntimeInstructionCode::FallingEdge => {
@@ -3991,6 +4294,25 @@ impl VirtualController {
         }
     }
 
+    fn write_aggregate_memory(&mut self, id: MemoryId, value: PlcValue) {
+        self.image.actual_aggregate_memory.insert(id, value.clone());
+        let retentive = self
+            .loaded
+            .as_ref()
+            .and_then(|artifact| {
+                artifact
+                    .spec()
+                    .aggregate_memory
+                    .binary_search_by_key(&id, |definition| definition.id)
+                    .ok()
+                    .map(|index| artifact.spec().aggregate_memory[index].retentive)
+            })
+            .unwrap_or(false);
+        if retentive {
+            self.image.retain_aggregate_memory.insert(id, value);
+        }
+    }
+
     fn write_state(&mut self, id: StateId, value: RuntimeStateCell) {
         self.image.state_cells.insert(id, value);
         let retentive = self
@@ -4020,6 +4342,8 @@ impl VirtualController {
             ExecutionFault::ArithmeticOverflow => DiagnosticCode::ArithmeticOverflow,
             ExecutionFault::TimerOverflow => DiagnosticCode::TimerOverflow,
             ExecutionFault::WorkUnitBudgetExceeded => DiagnosticCode::WorkUnitBudgetExceeded,
+            ExecutionFault::InvalidArgument => DiagnosticCode::InvalidArgument,
+            ExecutionFault::BoundsOrString => DiagnosticCode::BoundsOrString,
             ExecutionFault::RuntimeInvariant => DiagnosticCode::RuntimeInvariantFailure,
         };
         let sequence = self.next_event_sequence();
@@ -4091,6 +4415,20 @@ impl VirtualController {
             };
             self.image.actual_memory.insert(definition.id, value);
         }
+        for definition in &artifact.spec().aggregate_memory {
+            let value = if definition.retentive {
+                self.image
+                    .retain_aggregate_memory
+                    .get(&definition.id)
+                    .cloned()
+                    .unwrap_or_else(|| definition.loaded_start.clone())
+            } else {
+                definition.loaded_start.clone()
+            };
+            self.image
+                .actual_aggregate_memory
+                .insert(definition.id, value);
+        }
         for definition in &artifact.spec().states {
             let value = if definition.retentive {
                 self.image
@@ -4135,6 +4473,8 @@ impl VirtualController {
     fn apply_memory_reset(&mut self, artifact: &VerifiedArtifact) {
         self.image.actual_memory.clear();
         self.image.retain_memory.clear();
+        self.image.actual_aggregate_memory.clear();
+        self.image.retain_aggregate_memory.clear();
         for definition in &artifact.spec().memory {
             self.image
                 .actual_memory
@@ -4143,6 +4483,16 @@ impl VirtualController {
                 self.image
                     .retain_memory
                     .insert(definition.id, definition.loaded_start);
+            }
+        }
+        for definition in &artifact.spec().aggregate_memory {
+            self.image
+                .actual_aggregate_memory
+                .insert(definition.id, definition.loaded_start.clone());
+            if definition.retentive {
+                self.image
+                    .retain_aggregate_memory
+                    .insert(definition.id, definition.loaded_start.clone());
             }
         }
         self.image.state_cells.clear();
@@ -4517,11 +4867,41 @@ const fn map_scalar_fault(fault: ScalarFault) -> ExecutionFault {
     match fault {
         ScalarFault::DivideByZero => ExecutionFault::DivideByZero,
         ScalarFault::ArithmeticOverflow => ExecutionFault::ArithmeticOverflow,
+        ScalarFault::InvalidArgument => ExecutionFault::InvalidArgument,
         ScalarFault::InvalidShiftCount
-        | ScalarFault::InvalidArgument
         | ScalarFault::Conversion
         | ScalarFault::Bounds
         | ScalarFault::Type(_) => ExecutionFault::RuntimeInvariant,
+    }
+}
+
+const fn map_aggregate_fault(fault: TypeError) -> ExecutionFault {
+    match fault {
+        TypeError::Bounds
+        | TypeError::CapacityExceeded
+        | TypeError::LengthOverflow
+        | TypeError::ElementLimit
+        | TypeError::InvalidArrayBound
+        | TypeError::InvalidDimensionCount => ExecutionFault::BoundsOrString,
+        TypeError::InvalidLimits
+        | TypeError::InvalidIdentity
+        | TypeError::InvalidStringCapacity
+        | TypeError::NestingLimit
+        | TypeError::MemberLimit
+        | TypeError::InvalidMemberName
+        | TypeError::DuplicateMemberName
+        | TypeError::DuplicateMemberIdentity
+        | TypeError::DuplicateDeclaredOrder
+        | TypeError::DefaultValueMismatch
+        | TypeError::ValueTypeMismatch
+        | TypeError::ValueShapeMismatch
+        | TypeError::AssignmentTypeMismatch
+        | TypeError::InvalidMagic
+        | TypeError::TypeHeaderMismatch
+        | TypeError::Truncated
+        | TypeError::TrailingBytes
+        | TypeError::NonCanonicalEncoding
+        | TypeError::Scalar(_) => ExecutionFault::RuntimeInvariant,
     }
 }
 
@@ -4535,6 +4915,42 @@ fn collect_operand_memory(operand: Operand, target: &mut BTreeSet<MemoryId>) {
     if let Operand::Memory(memory) = operand {
         target.insert(memory);
     }
+}
+
+fn memory_identity_compatible(
+    old: &crate::ArtifactSpec,
+    new: &crate::ArtifactSpec,
+    id: MemoryId,
+) -> bool {
+    let old_scalar = old
+        .memory
+        .binary_search_by_key(&id, |definition| definition.id)
+        .ok()
+        .map(|index| &old.memory[index]);
+    let new_scalar = new
+        .memory
+        .binary_search_by_key(&id, |definition| definition.id)
+        .ok()
+        .map(|index| &new.memory[index]);
+    if let (Some(old), Some(new)) = (old_scalar, new_scalar) {
+        return old.value_type == new.value_type && old.retentive == new.retentive;
+    }
+
+    let old_aggregate = old
+        .aggregate_memory
+        .binary_search_by_key(&id, |definition| definition.id)
+        .ok()
+        .map(|index| &old.aggregate_memory[index]);
+    let new_aggregate = new
+        .aggregate_memory
+        .binary_search_by_key(&id, |definition| definition.id)
+        .ok()
+        .map(|index| &new.aggregate_memory[index]);
+    matches!(
+        (old_aggregate, new_aggregate),
+        (Some(old), Some(new))
+            if old.data_type == new.data_type && old.retentive == new.retentive
+    )
 }
 
 #[allow(clippy::too_many_lines)]
@@ -4582,12 +4998,17 @@ fn collect_operation_memory_ids(operation: &Operation, target: &mut BTreeSet<Mem
             collect_operand_memory(*source, target);
             target.insert(*memory);
         }
-        Operation::ForNextWithin {
+        Operation::ForCondition {
             current,
             terminal,
             step,
             target: memory,
-            ..
+        }
+        | Operation::ForNextWithin {
+            current,
+            terminal,
+            step,
+            target: memory,
         } => {
             collect_operand_memory(*current, target);
             collect_operand_memory(*terminal, target);
@@ -4643,6 +5064,20 @@ fn collect_operation_memory_ids(operation: &Operation, target: &mut BTreeSet<Mem
             for input in &invocation.inputs {
                 collect_operand_memory(input.source, target);
             }
+        }
+        Operation::AggregateInstruction {
+            input,
+            activation,
+            status,
+            ..
+        } => {
+            if let RuntimeAggregateSource::Scalar(source) = input {
+                collect_operand_memory(*source, target);
+            }
+            if let Some(enable) = activation {
+                collect_operand_memory(*enable, target);
+            }
+            target.insert(*status);
         }
         Operation::CallBlock(call) => {
             for input in &call.inputs {

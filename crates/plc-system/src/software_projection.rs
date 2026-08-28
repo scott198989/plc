@@ -1479,7 +1479,10 @@ fn canonical_data_type_id(data_type: &DataType) -> Option<&'static str> {
         DataType::Char => Some("CHAR"),
         DataType::Time => Some("TIME"),
         DataType::String { .. } => Some("STRING"),
-        DataType::Named(_) | DataType::BlockInstance(_) | DataType::InstructionState(_) => None,
+        DataType::Named(_)
+        | DataType::BlockInstance(_)
+        | DataType::InstructionState(_)
+        | DataType::Aggregate(_) => None,
     }
 }
 

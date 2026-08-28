@@ -8,11 +8,12 @@ use alloc::{
 use plc_compiler::{DiagnosticCode, DiagnosticSeverity};
 use plc_program::{
     BlockId, BoundInstructionFormal, CALL_FB, CALL_FC, ControllerProgram, DataBlockKind, DataType,
-    InstanceOwner, InstructionBindingError, InstructionCategory, InstructionDefinition,
-    InstructionFormalDirection, InstructionFormalId, InterfaceMember, InterfaceMemberId,
-    InterfaceRole, ProgramBlock, ProgramUnitKind, StateRequirement, VariableRef,
-    phase2_instruction_registry,
+    FORMAL_LIMIT_INPUT, FORMAL_MAXIMUM, FORMAL_MINIMUM, InstanceOwner, InstructionBindingError,
+    InstructionCategory, InstructionDefinition, InstructionFormalDirection, InstructionFormalId,
+    InterfaceMember, InterfaceMemberId, InterfaceRole, LIMIT, ProgramBlock, ProgramUnitKind,
+    StateRequirement, VariableRef, phase2_instruction_registry,
 };
+use plc_types::{ScalarFault, TypedScalar, limit as scalar_limit};
 
 use crate::{
     LAD_SCHEMA_VERSION, LadBox, LadBranchId, LadBranchPathId, LadCall, LadDocument, LadEdgeId,
@@ -96,6 +97,7 @@ pub enum LadDiagnosticReason {
     InvalidCall,
     OverlappingCallBinding,
     MultipleWriter,
+    InvalidConstantRange,
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
@@ -871,6 +873,39 @@ impl Validator<'_> {
             .map(|(formal, data_type)| BoundInstructionFormal { formal, data_type });
         if let Err(error) = registry.bind_types(value.instruction, canonical_bindings) {
             self.instruction_binding_diagnostic(network, node, error);
+        }
+        if value.instruction == LIMIT {
+            self.validate_limit_constants(network, node, value);
+        }
+    }
+
+    fn validate_limit_constants(&mut self, network: LadNetworkId, node: LadNodeId, value: &LadBox) {
+        let scalar = |formal| {
+            let pin = value
+                .pins
+                .values()
+                .find(|pin| pin.formal == Some(LadFormalRef::Instruction(formal)))?;
+            let crate::LadOperand::Constant(constant) = &pin.binding.as_ref()?.value else {
+                return None;
+            };
+            let primitive = pin.data_type.primitive_type()?;
+            let value = constant.scalar_value_for(primitive)?;
+            TypedScalar::new(primitive, value).ok()
+        };
+        let (Some(minimum), Some(maximum)) = (scalar(FORMAL_MINIMUM), scalar(FORMAL_MAXIMUM))
+        else {
+            return;
+        };
+        let input = scalar(FORMAL_LIMIT_INPUT).unwrap_or_else(|| minimum.clone());
+        if scalar_limit(&minimum, &input, &maximum) == Err(ScalarFault::InvalidArgument) {
+            self.push(
+                DiagnosticCode::CONSTANT_RANGE_OR_ARITHMETIC,
+                DiagnosticSeverity::Error,
+                true,
+                self.node_location(network, node),
+                Vec::new(),
+                LadDiagnosticReason::InvalidConstantRange,
+            );
         }
     }
 
@@ -1938,6 +1973,7 @@ fn canonical_type(value: &plc_program::CanonicalValue) -> Option<DataType> {
         plc_program::CanonicalValue::StringBytes(bytes) => u16::try_from(bytes.len())
             .ok()
             .map(|capacity| DataType::String { capacity }),
+        plc_program::CanonicalValue::Aggregate(_) => None,
     }
 }
 

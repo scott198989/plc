@@ -5,13 +5,16 @@ use alloc::{
 };
 
 use plc_program::{
-    BlockId, BoundInstructionFormal, CALL_FB, CALL_FC, CanonicalValue, ControllerProgram,
-    DataBlockKind, DataType, DisabledExecutionBehavior, InstancePath, InstructionActivationPolicy,
-    InstructionCode, InstructionFormalDirection, InstructionFormalId, InterfaceMemberId,
-    InterfaceRole, ProgramUnitKind, StateKind, StateRequirement, phase2_instruction_registry,
+    BLKMOVE, BlockId, BoundInstructionFormal, CALL_FB, CALL_FC, CanonicalValue, ControllerProgram,
+    DataBlockKind, DataType, DisabledExecutionBehavior, FILL, FORMAL_ENABLE, FORMAL_ENABLE_OUTPUT,
+    FORMAL_INPUT, FORMAL_OUTPUT, InstancePath, InstructionActivationPolicy, InstructionCode,
+    InstructionFormalDirection, InstructionFormalId, InterfaceMemberId, InterfaceRole,
+    ProgramUnitKind, StateKind, StateRequirement, phase2_instruction_registry,
 };
 use plc_runtime::Hash32;
-use plc_types::{PrimitiveCategory, PrimitiveType, explicit_conversion_allowed};
+use plc_types::{
+    PlcValue, PrimitiveCategory, PrimitiveType, ScalarValue, explicit_conversion_allowed,
+};
 
 use crate::{
     IrBasicBlockId, IrOperationId, IrValueId, ProbeId, SourceAnchor, SourceMapId, TYPED_IR_VERSION,
@@ -63,7 +66,10 @@ impl IrType {
             DataType::String { capacity } => Some(Self::String {
                 capacity: *capacity,
             }),
-            DataType::Named(_) | DataType::BlockInstance(_) | DataType::InstructionState(_) => None,
+            DataType::Named(_)
+            | DataType::BlockInstance(_)
+            | DataType::InstructionState(_)
+            | DataType::Aggregate(_) => None,
         }
     }
 
@@ -174,6 +180,14 @@ pub struct IrActivation {
     pub when_disabled: DisabledExecutionBehavior,
 }
 
+/// A registry aggregate instruction reads either one typed scalar SSA value or
+/// one canonical interface member. Aggregate values never enter scalar SSA.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IrAggregateSource {
+    Scalar(IrValueId),
+    Member(InterfaceMemberId),
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IrOperationKind {
     Constant(CanonicalValue),
@@ -193,17 +207,32 @@ pub enum IrOperationKind {
         left: IrValueId,
         right: IrValueId,
     },
-    /// Decides in widened mathematical space whether one FOR increment remains
-    /// on the inclusive terminal side. The widened value is never materialized.
+    /// Applies the entry condition for a signed FOR using the runtime step sign.
+    /// A zero step is a deterministic invalid-argument fault at execution.
+    ForCondition {
+        current: IrValueId,
+        terminal: IrValueId,
+        step: IrValueId,
+    },
+    /// Decides in widened mathematical space whether one signed FOR increment
+    /// remains on the inclusive terminal side. The widened value is never
+    /// materialized and a zero step is an invalid-argument fault.
     ForNextWithin {
         current: IrValueId,
         terminal: IrValueId,
         step: IrValueId,
-        ascending: bool,
     },
     Convert {
         source: IrValueId,
         destination: IrType,
+    },
+    /// Registry-backed FILL/BLKMOVE effect. The BOOL result is the instruction
+    /// status/ENO value; the target write itself is atomic at runtime.
+    AggregateInstruction {
+        instruction: InstructionCode,
+        input: IrAggregateSource,
+        target: InterfaceMemberId,
+        activation: Option<IrActivation>,
     },
     /// Registry-defined built-in invocation. Results are explicitly declared
     /// here and materialized by later `InvocationOutput` operations.
@@ -264,8 +293,14 @@ impl IrOperationKind {
                 BinaryOperator::Minimum => RuntimeOperationId("EDU.RT.MINIMUM.v1"),
                 BinaryOperator::Maximum => RuntimeOperationId("EDU.RT.MAXIMUM.v1"),
             },
-            Self::ForNextWithin { .. } => RuntimeOperationId("EDU.RT.FOR_NEXT_WITHIN.v1"),
+            Self::ForCondition { .. } => RuntimeOperationId("EDU.RT.FOR_CONDITION.v1"),
+            Self::ForNextWithin { .. } => RuntimeOperationId("EDU.RT.FOR_NEXT_WITHIN.v2"),
             Self::Convert { .. } => RuntimeOperationId("EDU.RT.CONVERT_CHECKED.v1"),
+            Self::AggregateInstruction { instruction, .. } => match *instruction {
+                FILL => RuntimeOperationId("EDU.RT.FILL.v1"),
+                BLKMOVE => RuntimeOperationId("EDU.RT.BLKMOVE.v1"),
+                _ => RuntimeOperationId(""),
+            },
             Self::InvokeInstruction { .. } => RuntimeOperationId("EDU.RT.INVOKE_INSTRUCTION.v1"),
             Self::CallBlock { .. } => RuntimeOperationId("EDU.RT.CALL_BLOCK.v1"),
             Self::InvocationOutput { .. } => RuntimeOperationId("EDU.RT.INVOCATION_OUTPUT.v1"),
@@ -897,17 +932,31 @@ fn operation_value_uses(kind: &IrOperationKind) -> Vec<IrValueId> {
             values.push(*left);
             values.push(*right);
         }
-        IrOperationKind::ForNextWithin {
+        IrOperationKind::ForCondition {
             current,
             terminal,
             step,
-            ..
+        }
+        | IrOperationKind::ForNextWithin {
+            current,
+            terminal,
+            step,
         } => {
             values.push(*current);
             values.push(*terminal);
             values.push(*step);
         }
         IrOperationKind::Convert { source, .. } => values.push(*source),
+        IrOperationKind::AggregateInstruction {
+            input, activation, ..
+        } => {
+            if let IrAggregateSource::Scalar(value) = input {
+                values.push(*value);
+            }
+            if let Some(activation) = activation {
+                values.push(activation.enable);
+            }
+        }
         IrOperationKind::InvokeInstruction {
             inputs, activation, ..
         }
@@ -1069,11 +1118,15 @@ fn verify_operation(
             }
             None
         }
-        IrOperationKind::ForNextWithin {
+        IrOperationKind::ForCondition {
             current,
             terminal,
             step,
-            ..
+        }
+        | IrOperationKind::ForNextWithin {
+            current,
+            terminal,
+            step,
         } => {
             let current_type = values
                 .get(current)
@@ -1106,6 +1159,51 @@ fn verify_operation(
             if result_type != Some(destination) || !conversion_allowed(source_type, destination) {
                 return Err(VerificationError::InvalidConversion(function, operation.id));
             }
+            None
+        }
+        IrOperationKind::AggregateInstruction {
+            instruction,
+            input,
+            target,
+            activation,
+        } => {
+            if result_type != Some(&IrType::Bool) || !matches!(*instruction, FILL | BLKMOVE) {
+                return Err(VerificationError::TypeMismatch(function, operation.id));
+            }
+            let target = source_block
+                .interface
+                .member(*target)
+                .ok_or(VerificationError::UnknownMember(function, *target))?;
+            if matches!(target.role, InterfaceRole::Input | InterfaceRole::Constant) {
+                return Err(VerificationError::ReadOnlyStore(function, target.id));
+            }
+            let input_type = match input {
+                IrAggregateSource::Scalar(value) => values
+                    .get(value)
+                    .ok_or(VerificationError::UnknownValue(function, *value))?
+                    .to_program_type(),
+                IrAggregateSource::Member(member) => source_block
+                    .interface
+                    .member(*member)
+                    .ok_or(VerificationError::UnknownMember(function, *member))?
+                    .data_type
+                    .clone(),
+            };
+            if (!matches!(source_block.kind, ProgramUnitKind::OrganizationBlock(_)))
+                && (matches!(input_type, DataType::Aggregate(_))
+                    || matches!(target.data_type, DataType::Aggregate(_)))
+            {
+                return Err(VerificationError::TypeMismatch(function, operation.id));
+            }
+            verify_aggregate_activation(
+                operation,
+                *instruction,
+                activation.as_ref(),
+                values,
+                &input_type,
+                &target.data_type,
+                function,
+            )?;
             None
         }
         IrOperationKind::InvokeInstruction {
@@ -1300,6 +1398,63 @@ fn verify_instruction_invocation(
     Ok(VerifiedInvocation {
         outputs: declared_outputs,
     })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn verify_aggregate_activation(
+    operation: &IrOperation,
+    instruction: InstructionCode,
+    activation: Option<&IrActivation>,
+    values: &BTreeMap<IrValueId, IrType>,
+    input_type: &DataType,
+    output_type: &DataType,
+    function: BlockId,
+) -> Result<(), VerificationError> {
+    let registry = *phase2_instruction_registry();
+    let definition = registry
+        .lookup(instruction)
+        .ok_or(VerificationError::UnknownInstruction(
+            function,
+            operation.id,
+            instruction,
+        ))?;
+    let mut bindings = BTreeMap::from([
+        (FORMAL_INPUT, input_type.clone()),
+        (FORMAL_OUTPUT, output_type.clone()),
+    ]);
+    match (definition.activation, activation) {
+        (
+            InstructionActivationPolicy::None | InstructionActivationPolicy::EnableStatus { .. },
+            None,
+        ) => {}
+        (
+            InstructionActivationPolicy::EnableStatus {
+                enable,
+                status,
+                status_when_disabled,
+                when_disabled,
+            },
+            Some(actual),
+        ) if actual.enable_formal == enable
+            && actual.status_formal == status
+            && actual.status_when_disabled == status_when_disabled
+            && actual.when_disabled == when_disabled
+            && values.get(&actual.enable) == Some(&IrType::Bool) =>
+        {
+            bindings.insert(FORMAL_ENABLE, DataType::Bool);
+            bindings.insert(FORMAL_ENABLE_OUTPUT, DataType::Bool);
+        }
+        _ => return Err(VerificationError::InvalidActivation(function, operation.id)),
+    }
+    registry
+        .bind_types(
+            instruction,
+            bindings
+                .into_iter()
+                .map(|(formal, data_type)| BoundInstructionFormal { formal, data_type }),
+        )
+        .map_err(|error| instruction_binding_error(error, function, operation.id))?;
+    Ok(())
 }
 
 #[allow(clippy::too_many_arguments, clippy::too_many_lines)]
@@ -1804,6 +1959,7 @@ fn canonical_matches_ir(value: &CanonicalValue, data_type: &IrType) -> bool {
     value.is_compatible_with(&data_type.to_program_type())
 }
 
+#[allow(clippy::too_many_lines)]
 fn encode_operation(hasher: &mut CanonicalHasher, operation: &IrOperation) {
     hasher.u32(operation.id.get());
     encode_operation_result(hasher, operation.result.as_ref());
@@ -1836,17 +1992,25 @@ fn encode_operation(hasher: &mut CanonicalHasher, operation: &IrOperation) {
             hasher.u32(left.get());
             hasher.u32(right.get());
         }
+        IrOperationKind::ForCondition {
+            current,
+            terminal,
+            step,
+        } => {
+            hasher.u8(11);
+            hasher.u32(current.get());
+            hasher.u32(terminal.get());
+            hasher.u32(step.get());
+        }
         IrOperationKind::ForNextWithin {
             current,
             terminal,
             step,
-            ascending,
         } => {
             hasher.u8(10);
             hasher.u32(current.get());
             hasher.u32(terminal.get());
             hasher.u32(step.get());
-            hasher.bool(*ascending);
         }
         IrOperationKind::Convert {
             source,
@@ -1855,6 +2019,41 @@ fn encode_operation(hasher: &mut CanonicalHasher, operation: &IrOperation) {
             hasher.u8(6);
             hasher.u32(source.get());
             encode_type(hasher, destination);
+        }
+        IrOperationKind::AggregateInstruction {
+            instruction,
+            input,
+            target,
+            activation,
+        } => {
+            hasher.u8(12);
+            hasher.u16(instruction.0);
+            match input {
+                IrAggregateSource::Scalar(value) => {
+                    hasher.u8(1);
+                    hasher.u32(value.get());
+                }
+                IrAggregateSource::Member(member) => {
+                    hasher.u8(2);
+                    hasher.u128(member.get());
+                }
+            }
+            hasher.u128(target.get());
+            match activation {
+                None => hasher.bool(false),
+                Some(activation) => {
+                    hasher.bool(true);
+                    hasher.u32(activation.enable.get());
+                    hasher.u16(activation.enable_formal.0);
+                    hasher.u16(activation.status_formal.0);
+                    hasher.bool(activation.status_when_disabled);
+                    hasher.u8(match activation.when_disabled {
+                        DisabledExecutionBehavior::DefaultOutputsNoStateChange => 1,
+                        DisabledExecutionBehavior::PreserveOutputsNoStateChange => 2,
+                        DisabledExecutionBehavior::SuppressEffects => 3,
+                    });
+                }
+            }
         }
         IrOperationKind::InvokeInstruction {
             instruction,
@@ -2098,6 +2297,71 @@ fn encode_value(hasher: &mut CanonicalHasher, value: &CanonicalValue) {
         CanonicalValue::Char(value) => {
             hasher.u8(18);
             hasher.u8(*value);
+        }
+        CanonicalValue::Aggregate(value) => {
+            hasher.u8(19);
+            encode_plc_value(hasher, value);
+        }
+    }
+}
+
+fn encode_plc_value(hasher: &mut CanonicalHasher, value: &PlcValue) {
+    match value {
+        PlcValue::Scalar(value) => {
+            hasher.u8(1);
+            hasher.string(value.data_type().stable_id());
+            if let PrimitiveType::String(capacity) = value.data_type() {
+                hasher.u8(capacity);
+            }
+            match value.value() {
+                ScalarValue::Bool(value) => {
+                    hasher.u8(1);
+                    hasher.bool(*value);
+                }
+                ScalarValue::Signed(value) => {
+                    hasher.u8(2);
+                    hasher.i64(*value);
+                }
+                ScalarValue::Unsigned(value) | ScalarValue::BitString(value) => {
+                    hasher.u8(3);
+                    hasher.u64(*value);
+                }
+                ScalarValue::Real(value) => {
+                    hasher.u8(4);
+                    hasher.u32(value.bits());
+                }
+                ScalarValue::Lreal(value) => {
+                    hasher.u8(5);
+                    hasher.u64(value.bits());
+                }
+                ScalarValue::Char(value) => {
+                    hasher.u8(6);
+                    hasher.u8(*value);
+                }
+                ScalarValue::String(value) => {
+                    hasher.u8(7);
+                    hasher.bytes(value);
+                }
+                ScalarValue::Time(value) => {
+                    hasher.u8(8);
+                    hasher.i64(*value);
+                }
+            }
+        }
+        PlcValue::Array(values) => {
+            hasher.u8(2);
+            hasher.u64(values.len() as u64);
+            for value in values {
+                encode_plc_value(hasher, value);
+            }
+        }
+        PlcValue::Struct(fields) => {
+            hasher.u8(3);
+            hasher.u64(fields.len() as u64);
+            for field in fields {
+                hasher.bytes(&field.member_id.as_bytes());
+                encode_plc_value(hasher, &field.value);
+            }
         }
     }
 }

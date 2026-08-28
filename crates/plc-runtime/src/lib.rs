@@ -26,14 +26,16 @@ pub use controller::{
 };
 pub use hash::{Hash32, Sha256};
 pub use model::{
-    ArtifactError, ArtifactPackage, ArtifactSpec, BlockId, CanonicalValue, ChannelDefinition,
-    ChannelDirection, ChannelId, Instruction, MemoryDefinition, MemoryId, Operand, Operation,
-    ProgramBlock, ProgramImage, RuntimeActivation, RuntimeBinaryOperator, RuntimeBlockCall,
-    RuntimeBoundInput, RuntimeCallKind, RuntimeDeclaredOutput, RuntimeDisabledBehavior,
-    RuntimeFormalRef, RuntimeFrameMember, RuntimeFrameMemberRole, RuntimeFunctionBlockInstance,
-    RuntimeInstructionCode, RuntimeInstructionInstance, RuntimeInstructionInvocation,
-    RuntimeInstructionStateKind, RuntimeUnaryOperator, StateDefinition, StateId, StateStart,
-    TaskId, TimedTask, ValueType, VerifiedArtifact, runtime_block_signature_fingerprint,
+    AggregateMemoryDefinition, ArtifactError, ArtifactPackage, ArtifactSpec, BlockId,
+    CanonicalValue, ChannelDefinition, ChannelDirection, ChannelId, Instruction, MemoryDefinition,
+    MemoryId, Operand, Operation, ProgramBlock, ProgramImage, RuntimeActivation,
+    RuntimeAggregateInstructionCode, RuntimeAggregateSource, RuntimeBinaryOperator,
+    RuntimeBlockCall, RuntimeBoundInput, RuntimeCallKind, RuntimeDeclaredOutput,
+    RuntimeDisabledBehavior, RuntimeFormalRef, RuntimeFrameMember, RuntimeFrameMemberRole,
+    RuntimeFunctionBlockInstance, RuntimeInstructionCode, RuntimeInstructionInstance,
+    RuntimeInstructionInvocation, RuntimeInstructionStateKind, RuntimeUnaryOperator,
+    StateDefinition, StateId, StateStart, TaskId, TimedTask, ValueType, VerifiedArtifact,
+    runtime_block_signature_fingerprint,
 };
 
 /// The EDU-21 Core 1.0 semantic scan quantum.
@@ -47,7 +49,7 @@ pub const MAX_DYNAMIC_CALL_DEPTH: u8 = 64;
 
 /// Version identities participate in artifact, snapshot, state, and replay
 /// hashes. Any semantic change requires a new value.
-pub const RUNTIME_SEMANTICS_VERSION: &str = "EDU-RTM-3";
+pub const RUNTIME_SEMANTICS_VERSION: &str = "EDU-RTM-4";
 pub const SCHEDULER_VERSION: &str = "EDU-SCH-1";
 pub const PRIORITY_TABLE_VERSION: &str = "EDU-PRIORITY-1";
 pub const WORK_COST_VERSION: &str = "EDU-WORK-1";

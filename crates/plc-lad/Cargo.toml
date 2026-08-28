@@ -13,6 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 plc-program = { path = "../plc-program" }
 plc-compiler = { path = "../plc-compiler" }
+plc-types = { path = "../plc-types" }
 
 [lints.rust]
 unsafe_code = "forbid"

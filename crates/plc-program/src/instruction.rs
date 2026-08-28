@@ -62,8 +62,13 @@ pub enum InstructionTypeConstraint {
     Time,
     String,
     Numeric,
+    NumericOrTime,
     Integer,
     AnyValue,
+    AnyAssignable,
+    ArrayOf(InstructionFormalId),
+    BlockMovable,
+    AssignmentCompatibleWith(InstructionFormalId),
     SameAs(InstructionFormalId),
     InstructionState(StateKind),
     FunctionBlockInstance,
@@ -86,10 +91,57 @@ impl InstructionTypeConstraint {
             Self::Numeric => candidate
                 .primitive_type()
                 .is_some_and(plc_types::PrimitiveType::is_numeric),
+            Self::NumericOrTime => candidate.primitive_type().is_some_and(|primitive| {
+                primitive.is_numeric() || primitive == plc_types::PrimitiveType::Time
+            }),
             Self::Integer => candidate
                 .primitive_type()
                 .is_some_and(plc_types::PrimitiveType::is_integer),
             Self::AnyValue => candidate.primitive_type().is_some(),
+            Self::AnyAssignable => candidate.canonical_type().is_some(),
+            Self::ArrayOf(formal) => {
+                let Some(source) = bound_formals
+                    .iter()
+                    .find(|(candidate_id, _)| *candidate_id == formal)
+                    .and_then(|(_, data_type)| data_type.canonical_type())
+                else {
+                    return false;
+                };
+                let DataType::Aggregate(plc_types::CanonicalType::Array { element_type, .. }) =
+                    candidate
+                else {
+                    return false;
+                };
+                source
+                    .assignment_compatible_with(element_type, plc_types::AggregateLimits::edu21())
+                    .unwrap_or(false)
+            }
+            Self::BlockMovable => matches!(
+                candidate,
+                DataType::String { .. }
+                    | DataType::Aggregate(
+                        plc_types::CanonicalType::Array { .. }
+                            | plc_types::CanonicalType::AnonymousStruct { .. }
+                            | plc_types::CanonicalType::NamedStruct { .. },
+                    )
+            ),
+            Self::AssignmentCompatibleWith(formal) => {
+                let Some(source) = bound_formals
+                    .iter()
+                    .find(|(candidate_id, _)| *candidate_id == formal)
+                    .and_then(|(_, data_type)| data_type.canonical_type())
+                else {
+                    return false;
+                };
+                candidate.canonical_type().is_some_and(|destination| {
+                    source
+                        .assignment_compatible_with(
+                            &destination,
+                            plc_types::AggregateLimits::edu21(),
+                        )
+                        .unwrap_or(false)
+                })
+            }
             Self::SameAs(formal) => bound_formals
                 .iter()
                 .find(|(candidate_id, _)| *candidate_id == formal)
@@ -330,7 +382,7 @@ impl InstructionRegistry {
     }
 }
 
-pub const PHASE2_INSTRUCTION_REGISTRY_VERSION: &str = "EDU-INSTRUCTION-REGISTRY-2.1.0";
+pub const PHASE2_INSTRUCTION_REGISTRY_VERSION: &str = "EDU-INSTRUCTION-REGISTRY-2.2.0";
 
 pub const NO_OP: InstructionCode = InstructionCode(0x0001);
 pub const MOVE: InstructionCode = InstructionCode(0x0002);
@@ -349,6 +401,9 @@ pub const SUBTRACT: InstructionCode = InstructionCode(0x0031);
 pub const MULTIPLY: InstructionCode = InstructionCode(0x0032);
 pub const DIVIDE: InstructionCode = InstructionCode(0x0033);
 pub const MODULO: InstructionCode = InstructionCode(0x0034);
+pub const LIMIT: InstructionCode = InstructionCode(0x0035);
+pub const FILL: InstructionCode = InstructionCode(0x0040);
+pub const BLKMOVE: InstructionCode = InstructionCode(0x0041);
 pub const RISING_EDGE: InstructionCode = InstructionCode(0x0100);
 pub const FALLING_EDGE: InstructionCode = InstructionCode(0x0101);
 pub const TIMER_ON_DELAY: InstructionCode = InstructionCode(0x0110);
@@ -384,6 +439,10 @@ pub const FORMAL_CURRENT_VALUE: InstructionFormalId = InstructionFormalId(0x0045
 pub const FORMAL_QU: InstructionFormalId = InstructionFormalId(0x0046);
 pub const FORMAL_QD: InstructionFormalId = InstructionFormalId(0x0047);
 pub const FORMAL_STATE: InstructionFormalId = InstructionFormalId(0x00ff);
+pub const FORMAL_MINIMUM: InstructionFormalId = InstructionFormalId(0x0050);
+pub const FORMAL_LIMIT_INPUT: InstructionFormalId = InstructionFormalId(0x0051);
+pub const FORMAL_MAXIMUM: InstructionFormalId = InstructionFormalId(0x0052);
+pub const FORMAL_LIMIT_OUTPUT: InstructionFormalId = InstructionFormalId(0x0053);
 
 macro_rules! formal {
     ($id:ident, $name:literal, $direction:ident, $constraint:expr, $required:expr, $lvalue:ident) => {
@@ -563,6 +622,82 @@ static INTEGER_FORMALS: [InstructionFormalDefinition; 5] = [
         "OUT",
         Output,
         InstructionTypeConstraint::SameAs(FORMAL_LEFT),
+        true,
+        Writable
+    ),
+    ENABLE_OUTPUT,
+];
+static LIMIT_FORMALS: [InstructionFormalDefinition; 6] = [
+    ENABLE,
+    ENABLE_OUTPUT,
+    formal!(
+        FORMAL_MINIMUM,
+        "MN",
+        Input,
+        InstructionTypeConstraint::NumericOrTime,
+        true,
+        Value
+    ),
+    formal!(
+        FORMAL_LIMIT_INPUT,
+        "IN",
+        Input,
+        InstructionTypeConstraint::SameAs(FORMAL_MINIMUM),
+        true,
+        Value
+    ),
+    formal!(
+        FORMAL_MAXIMUM,
+        "MX",
+        Input,
+        InstructionTypeConstraint::SameAs(FORMAL_MINIMUM),
+        true,
+        Value
+    ),
+    formal!(
+        FORMAL_LIMIT_OUTPUT,
+        "OUT",
+        Output,
+        InstructionTypeConstraint::SameAs(FORMAL_MINIMUM),
+        true,
+        Writable
+    ),
+];
+static FILL_FORMALS: [InstructionFormalDefinition; 4] = [
+    ENABLE,
+    formal!(
+        FORMAL_INPUT,
+        "IN",
+        Input,
+        InstructionTypeConstraint::AnyAssignable,
+        true,
+        Value
+    ),
+    formal!(
+        FORMAL_OUTPUT,
+        "OUT",
+        Output,
+        InstructionTypeConstraint::ArrayOf(FORMAL_INPUT),
+        true,
+        Writable
+    ),
+    ENABLE_OUTPUT,
+];
+static BLKMOVE_FORMALS: [InstructionFormalDefinition; 4] = [
+    ENABLE,
+    formal!(
+        FORMAL_INPUT,
+        "IN",
+        Input,
+        InstructionTypeConstraint::BlockMovable,
+        true,
+        Value
+    ),
+    formal!(
+        FORMAL_OUTPUT,
+        "OUT",
+        Output,
+        InstructionTypeConstraint::AssignmentCompatibleWith(FORMAL_INPUT),
         true,
         Writable
     ),
@@ -877,7 +1012,7 @@ macro_rules! definition {
     };
 }
 
-static DEFINITIONS: [InstructionDefinition; 33] = [
+static DEFINITIONS: [InstructionDefinition; 36] = [
     definition!(NO_OP, "NO_OP", Stateless, StateRequirement::None, Pure),
     definition!(
         MOVE,
@@ -1022,6 +1157,33 @@ static DEFINITIONS: [InstructionDefinition; 33] = [
         Pure,
         INTEGER_FORMALS,
         activation(DisabledExecutionBehavior::DefaultOutputsNoStateChange)
+    ),
+    definition!(
+        LIMIT,
+        "LIMIT",
+        Stateless,
+        StateRequirement::None,
+        Pure,
+        LIMIT_FORMALS,
+        activation(DisabledExecutionBehavior::DefaultOutputsNoStateChange)
+    ),
+    definition!(
+        FILL,
+        "FILL",
+        Stateless,
+        StateRequirement::None,
+        WritesValue,
+        FILL_FORMALS,
+        activation(DisabledExecutionBehavior::SuppressEffects)
+    ),
+    definition!(
+        BLKMOVE,
+        "BLKMOVE",
+        Stateless,
+        StateRequirement::None,
+        WritesValue,
+        BLKMOVE_FORMALS,
+        activation(DisabledExecutionBehavior::SuppressEffects)
     ),
     definition!(
         RISING_EDGE,
@@ -1189,7 +1351,10 @@ fn validate_definition(definition: &InstructionDefinition) -> Result<(), Instruc
                 formal.id,
             ));
         }
-        if let InstructionTypeConstraint::SameAs(referenced) = formal.type_constraint
+        if let InstructionTypeConstraint::SameAs(referenced)
+        | InstructionTypeConstraint::ArrayOf(referenced)
+        | InstructionTypeConstraint::AssignmentCompatibleWith(referenced) =
+            formal.type_constraint
             && (referenced == formal.id
                 || !definition.formals.iter().any(|item| item.id == referenced))
         {

@@ -17,6 +17,7 @@ use plc_runtime::{
     Hash32, MAX_DYNAMIC_CALL_DEPTH, MAX_WORK_UNITS_PER_SCAN, PRIORITY_TABLE_VERSION,
     RUNTIME_SEMANTICS_VERSION, SCAN_QUANTUM_MS, SCHEDULER_VERSION, WORK_COST_VERSION,
 };
+use plc_types::{AggregateLimits, CanonicalType, PlcValue, PrimitiveType, ScalarValue};
 
 use crate::{
     ARITHMETIC_POLICY_VERSION, BUILD_ARTIFACT_SCHEMA, BuildAttemptId, BuildDiagnostic,
@@ -1765,6 +1766,16 @@ fn encode_data_type(hasher: &mut CanonicalHasher, data_type: &DataType) {
         DataType::LWord => hasher.u8(19),
         DataType::LReal => hasher.u8(20),
         DataType::Char => hasher.u8(21),
+        DataType::Aggregate(data_type) => {
+            hasher.u8(22);
+            if let Ok(bytes) = data_type.canonical_bytes(AggregateLimits::edu21()) {
+                hasher.bool(true);
+                hasher.bytes(&bytes);
+            } else {
+                hasher.bool(false);
+                encode_invalid_canonical_type(hasher, data_type);
+            }
+        }
     }
 }
 
@@ -1851,6 +1862,121 @@ fn encode_value(hasher: &mut CanonicalHasher, value: &CanonicalValue) {
         CanonicalValue::Char(value) => {
             hasher.u8(18);
             hasher.u8(*value);
+        }
+        CanonicalValue::Aggregate(value) => {
+            hasher.u8(19);
+            encode_plc_value(hasher, value);
+        }
+    }
+}
+
+fn encode_invalid_canonical_type(hasher: &mut CanonicalHasher, data_type: &CanonicalType) {
+    match data_type {
+        CanonicalType::Primitive(primitive) => {
+            hasher.u8(1);
+            hasher.string(primitive.stable_id());
+            if let PrimitiveType::String(capacity) = primitive {
+                hasher.u8(*capacity);
+            }
+        }
+        CanonicalType::Array {
+            dimensions,
+            element_type,
+        } => {
+            hasher.u8(2);
+            hasher.u64(dimensions.len() as u64);
+            for bound in dimensions {
+                hasher.i32(bound.lower);
+                hasher.i32(bound.upper);
+            }
+            encode_invalid_canonical_type(hasher, element_type);
+        }
+        CanonicalType::AnonymousStruct { members } => {
+            hasher.u8(3);
+            encode_invalid_members(hasher, members);
+        }
+        CanonicalType::NamedStruct { id, members } => {
+            hasher.u8(4);
+            hasher.bytes(&id.as_bytes());
+            encode_invalid_members(hasher, members);
+        }
+    }
+}
+
+fn encode_invalid_members(hasher: &mut CanonicalHasher, members: &[plc_types::StructMember]) {
+    hasher.u64(members.len() as u64);
+    for member in members {
+        hasher.bytes(&member.id.as_bytes());
+        hasher.string(&member.name);
+        hasher.u32(member.declared_order);
+        encode_invalid_canonical_type(hasher, &member.data_type);
+        match &member.reusable_default {
+            Some(value) => {
+                hasher.bool(true);
+                encode_plc_value(hasher, value);
+            }
+            None => hasher.bool(false),
+        }
+    }
+}
+
+fn encode_plc_value(hasher: &mut CanonicalHasher, value: &PlcValue) {
+    match value {
+        PlcValue::Scalar(value) => {
+            hasher.u8(1);
+            hasher.string(value.data_type().stable_id());
+            if let PrimitiveType::String(capacity) = value.data_type() {
+                hasher.u8(capacity);
+            }
+            match value.value() {
+                ScalarValue::Bool(value) => {
+                    hasher.u8(1);
+                    hasher.bool(*value);
+                }
+                ScalarValue::Signed(value) => {
+                    hasher.u8(2);
+                    hasher.i64(*value);
+                }
+                ScalarValue::Unsigned(value) | ScalarValue::BitString(value) => {
+                    hasher.u8(3);
+                    hasher.u64(*value);
+                }
+                ScalarValue::Real(value) => {
+                    hasher.u8(4);
+                    hasher.u32(value.bits());
+                }
+                ScalarValue::Lreal(value) => {
+                    hasher.u8(5);
+                    hasher.u64(value.bits());
+                }
+                ScalarValue::Char(value) => {
+                    hasher.u8(6);
+                    hasher.u8(*value);
+                }
+                ScalarValue::String(value) => {
+                    hasher.u8(7);
+                    hasher.bytes(value);
+                }
+                ScalarValue::Time(value) => {
+                    hasher.u8(8);
+                    hasher.i64(*value);
+                }
+            }
+        }
+        PlcValue::Array(values) => {
+            hasher.u8(2);
+            hasher.u64(values.len() as u64);
+            for value in values {
+                encode_plc_value(hasher, value);
+            }
+        }
+        PlcValue::Struct(fields) => {
+            hasher.u8(3);
+            hasher.u64(fields.len() as u64);
+            for field in fields {
+                hasher.bytes(&field.member_id.as_bytes());
+                encode_plc_value(hasher, &field.value);
+            }
         }
     }
 }

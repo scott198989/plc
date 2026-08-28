@@ -4,6 +4,7 @@ use plc_program::DataType;
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TypeAdapterError {
     NamedType,
+    Aggregate,
     BlockInstance,
     InstructionState,
 }
@@ -34,6 +35,7 @@ pub fn data_type_to_ir_type(data_type: &DataType) -> Result<IrType, TypeAdapterE
             capacity: *capacity,
         }),
         DataType::Named(_) => Err(TypeAdapterError::NamedType),
+        DataType::Aggregate(_) => Err(TypeAdapterError::Aggregate),
         DataType::BlockInstance(_) => Err(TypeAdapterError::BlockInstance),
         DataType::InstructionState(_) => Err(TypeAdapterError::InstructionState),
     }

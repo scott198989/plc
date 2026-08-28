@@ -8,11 +8,11 @@ use plc_program::{
 };
 
 use crate::{
-    Hash32, IrActivation, IrBasicBlock, IrBasicBlockId, IrBoundInput, IrFunction, IrOperation,
-    IrOperationId, IrOperationKind, IrTerminator, IrTerminatorKind, IrType, IrValue, IrValueId,
-    ProbeDefinition, ProbeId, ProbeTable, ResourceLimit, ResourceLimits, SclSource, SourceLanguage,
-    SourceMapEntry, SourceMapId, SourceMapSite, SourceMapTable, TYPED_IR_VERSION, TypedIrProgram,
-    VerificationError, VerifiedIr,
+    Hash32, IrActivation, IrAggregateSource, IrBasicBlock, IrBasicBlockId, IrBoundInput,
+    IrFunction, IrOperation, IrOperationId, IrOperationKind, IrTerminator, IrTerminatorKind,
+    IrType, IrValue, IrValueId, ProbeDefinition, ProbeId, ProbeTable, ResourceLimit,
+    ResourceLimits, SclSource, SourceLanguage, SourceMapEntry, SourceMapId, SourceMapSite,
+    SourceMapTable, TYPED_IR_VERSION, TypedIrProgram, VerificationError, VerifiedIr,
     lowering::{LoweringError, lower_typed_blocks},
     scl::{SclIssue, bind_and_typecheck_with_program, parse_scl},
     verify_typed_ir,
@@ -675,16 +675,23 @@ fn remap_operation_kind(
             left: remap.value(*left)?,
             right: remap.value(*right)?,
         },
+        IrOperationKind::ForCondition {
+            current,
+            terminal,
+            step,
+        } => IrOperationKind::ForCondition {
+            current: remap.value(*current)?,
+            terminal: remap.value(*terminal)?,
+            step: remap.value(*step)?,
+        },
         IrOperationKind::ForNextWithin {
             current,
             terminal,
             step,
-            ascending,
         } => IrOperationKind::ForNextWithin {
             current: remap.value(*current)?,
             terminal: remap.value(*terminal)?,
             step: remap.value(*step)?,
-            ascending: *ascending,
         },
         IrOperationKind::Convert {
             source,
@@ -692,6 +699,20 @@ fn remap_operation_kind(
         } => IrOperationKind::Convert {
             source: remap.value(*source)?,
             destination: destination.clone(),
+        },
+        IrOperationKind::AggregateInstruction {
+            instruction,
+            input,
+            target,
+            activation,
+        } => IrOperationKind::AggregateInstruction {
+            instruction: *instruction,
+            input: match input {
+                IrAggregateSource::Scalar(value) => IrAggregateSource::Scalar(remap.value(*value)?),
+                IrAggregateSource::Member(member) => IrAggregateSource::Member(*member),
+            },
+            target: *target,
+            activation: remap_activation(*activation, remap)?,
         },
         IrOperationKind::InvokeInstruction {
             instruction,

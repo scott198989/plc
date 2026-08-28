@@ -206,6 +206,77 @@ END_FOR;
 }
 
 #[test]
+fn for_by_is_evaluated_once_at_entry_and_uses_its_runtime_sign() {
+    let source = r"
+Selector := DINT#1;
+Result := DINT#0;
+FOR Index := DINT#1 TO DINT#5 BY Selector DO
+    Result := Result + DINT#1;
+    Selector := DINT#2;
+END_FOR;
+Selector := -DINT#2;
+FOR Index := DINT#5 TO DINT#1 BY Selector DO
+    Result := Result + DINT#10;
+END_FOR;
+";
+    let (projection, controller) = run(source);
+    assert_eq!(
+        controller.actual_memory(projection.memory_for(MAIN, RESULT).expect("result binding")),
+        Some(CanonicalValue::I32(35)),
+        "the first loop must retain its entry step of +1 and the second must select descending execution from -2"
+    );
+    assert_eq!(
+        controller.actual_memory(projection.memory_for(MAIN, INDEX).expect("index binding")),
+        Some(CanonicalValue::I32(1))
+    );
+}
+
+#[test]
+fn runtime_zero_for_step_faults_before_the_loop_body_store() {
+    let source = r"
+Selector := DINT#0;
+Result := DINT#7;
+FOR Index := DINT#1 TO DINT#3 BY Selector DO
+    Result := DINT#99;
+END_FOR;
+";
+    let completion = compile(source);
+    assert_eq!(completion.report().outcome(), BuildOutcome::ArtifactCreated);
+    let projection = completion
+        .artifact()
+        .expect("dynamic zero-step artifact")
+        .runtime_projection()
+        .expect("verified dynamic zero-step CFG");
+    let mut controller = VirtualController::new(UniverseId(0x5e), VirtualControllerId(0x5e), 0x5e);
+    controller.power_on().expect("power on");
+    controller
+        .install_verified_artifact(projection.package())
+        .expect("install");
+    controller.request_run(RestartKind::Resume).expect("run");
+    let event = match controller.run_scan().expect("scan") {
+        RunOutcome::Faulted(event) => event,
+        RunOutcome::Completed(_) => panic!("dynamic zero FOR step must fault"),
+    };
+    assert_eq!(event.code, DiagnosticCode::InvalidArgument);
+    assert_eq!(
+        controller.actual_memory(projection.memory_for(MAIN, RESULT).expect("result binding")),
+        Some(CanonicalValue::I32(7)),
+        "the loop body must not execute before zero-step rejection"
+    );
+    let context = event.fault_context.expect("zero-step source occurrence");
+    let binding = projection
+        .source_for(context.source_identity)
+        .expect("runtime fault maps back to the FOR occurrence");
+    assert!(binding.anchors.iter().any(|anchor| {
+        anchor.text_range.is_some_and(|range| {
+            let range = usize::try_from(range.start).expect("range start")
+                ..usize::try_from(range.end).expect("range end");
+            source[range].starts_with("FOR Index")
+        })
+    }));
+}
+
+#[test]
 fn for_stops_at_the_integer_boundary_without_wrapping() {
     let source = r"
 Result := DINT#0;

@@ -6,6 +6,7 @@ use plc_program::{
     BlockId, CanonicalValue, DataType, DisabledExecutionBehavior as RegistryDisabledBehavior,
     InstructionActivationPolicy, InstructionCode, InterfaceMemberId, phase2_instruction_registry,
 };
+use plc_types::{AggregateLimits, CanonicalType, PlcValue, PrimitiveType, ScalarValue};
 
 use crate::{
     ConnectionId, FBD_SCHEMA_VERSION, FbdDocumentId, NetworkId, NodeId, PortId, StateInstanceId,
@@ -488,6 +489,17 @@ fn encode_type(bytes: &mut Vec<u8>, data_type: &DataType) {
         DataType::LWord => bytes.push(19),
         DataType::LReal => bytes.push(20),
         DataType::Char => bytes.push(21),
+        DataType::Aggregate(data_type) => {
+            bytes.push(22);
+            if let Ok(encoded) = data_type.canonical_bytes(AggregateLimits::edu21()) {
+                bytes.push(1);
+                push_len(bytes, encoded.len());
+                bytes.extend_from_slice(&encoded);
+            } else {
+                bytes.push(0);
+                encode_invalid_aggregate_type(bytes, data_type);
+            }
+        }
     }
 }
 
@@ -565,6 +577,122 @@ fn encode_value(bytes: &mut Vec<u8>, value: &CanonicalValue) {
         CanonicalValue::Char(value) => {
             bytes.push(18);
             bytes.push(*value);
+        }
+        CanonicalValue::Aggregate(value) => {
+            bytes.push(19);
+            encode_plc_value(bytes, value);
+        }
+    }
+}
+
+fn encode_invalid_aggregate_type(bytes: &mut Vec<u8>, data_type: &CanonicalType) {
+    match data_type {
+        CanonicalType::Primitive(primitive) => {
+            bytes.push(1);
+            push_string(bytes, primitive.stable_id());
+            if let PrimitiveType::String(capacity) = primitive {
+                bytes.push(*capacity);
+            }
+        }
+        CanonicalType::Array {
+            dimensions,
+            element_type,
+        } => {
+            bytes.push(2);
+            push_len(bytes, dimensions.len());
+            for bound in dimensions {
+                bytes.extend_from_slice(&bound.lower.to_be_bytes());
+                bytes.extend_from_slice(&bound.upper.to_be_bytes());
+            }
+            encode_invalid_aggregate_type(bytes, element_type);
+        }
+        CanonicalType::AnonymousStruct { members } => {
+            bytes.push(3);
+            encode_invalid_members(bytes, members);
+        }
+        CanonicalType::NamedStruct { id, members } => {
+            bytes.push(4);
+            bytes.extend_from_slice(&id.as_bytes());
+            encode_invalid_members(bytes, members);
+        }
+    }
+}
+
+fn encode_invalid_members(bytes: &mut Vec<u8>, members: &[plc_types::StructMember]) {
+    push_len(bytes, members.len());
+    for member in members {
+        bytes.extend_from_slice(&member.id.as_bytes());
+        push_string(bytes, &member.name);
+        bytes.extend_from_slice(&member.declared_order.to_be_bytes());
+        encode_invalid_aggregate_type(bytes, &member.data_type);
+        match &member.reusable_default {
+            Some(value) => {
+                bytes.push(1);
+                encode_plc_value(bytes, value);
+            }
+            None => bytes.push(0),
+        }
+    }
+}
+
+fn encode_plc_value(bytes: &mut Vec<u8>, value: &PlcValue) {
+    match value {
+        PlcValue::Scalar(value) => {
+            bytes.push(1);
+            push_string(bytes, value.data_type().stable_id());
+            if let PrimitiveType::String(capacity) = value.data_type() {
+                bytes.push(capacity);
+            }
+            match value.value() {
+                ScalarValue::Bool(value) => {
+                    bytes.push(1);
+                    bytes.push(u8::from(*value));
+                }
+                ScalarValue::Signed(value) => {
+                    bytes.push(2);
+                    bytes.extend_from_slice(&value.to_be_bytes());
+                }
+                ScalarValue::Unsigned(value) | ScalarValue::BitString(value) => {
+                    bytes.push(3);
+                    bytes.extend_from_slice(&value.to_be_bytes());
+                }
+                ScalarValue::Real(value) => {
+                    bytes.push(4);
+                    bytes.extend_from_slice(&value.bits().to_be_bytes());
+                }
+                ScalarValue::Lreal(value) => {
+                    bytes.push(5);
+                    bytes.extend_from_slice(&value.bits().to_be_bytes());
+                }
+                ScalarValue::Char(value) => {
+                    bytes.push(6);
+                    bytes.push(*value);
+                }
+                ScalarValue::String(value) => {
+                    bytes.push(7);
+                    push_len(bytes, value.len());
+                    bytes.extend_from_slice(value);
+                }
+                ScalarValue::Time(value) => {
+                    bytes.push(8);
+                    bytes.extend_from_slice(&value.to_be_bytes());
+                }
+            }
+        }
+        PlcValue::Array(values) => {
+            bytes.push(2);
+            push_len(bytes, values.len());
+            for value in values {
+                encode_plc_value(bytes, value);
+            }
+        }
+        PlcValue::Struct(fields) => {
+            bytes.push(3);
+            push_len(bytes, fields.len());
+            for field in fields {
+                bytes.extend_from_slice(&field.member_id.as_bytes());
+                encode_plc_value(bytes, &field.value);
+            }
         }
     }
 }

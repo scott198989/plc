@@ -5,8 +5,8 @@ use alloc::{
 };
 use core::{error::Error, fmt};
 use plc_types::{
-    CanonicalF32, CanonicalF64, PrimitiveType, ScalarTypeError, ScalarValue, TypedScalar,
-    explicit_conversion_allowed,
+    AggregateLimits, CanonicalF32, CanonicalF64, CanonicalType, PlcValue, PrimitiveType,
+    ScalarTypeError, ScalarValue, TypedScalar, explicit_conversion_allowed,
 };
 
 use crate::{
@@ -304,6 +304,16 @@ pub struct MemoryDefinition {
     pub retentive: bool,
 }
 
+/// One aggregate memory cell whose shape and value are owned by the shared
+/// `plc-types` canonical authority.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AggregateMemoryDefinition {
+    pub id: MemoryId,
+    pub data_type: CanonicalType,
+    pub loaded_start: PlcValue,
+    pub retentive: bool,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum StateStart {
     Edge { previous: bool },
@@ -352,6 +362,34 @@ pub enum Operand {
     Memory(MemoryId),
     Input(ChannelId),
     Output(ChannelId),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RuntimeAggregateSource {
+    Scalar(Operand),
+    AggregateMemory(MemoryId),
+}
+
+impl RuntimeAggregateSource {
+    fn encode(self, hasher: &mut SemanticHasher) {
+        match self {
+            Self::Scalar(operand) => {
+                hasher.u8(1);
+                operand.encode(hasher);
+            }
+            Self::AggregateMemory(memory) => {
+                hasher.u8(2);
+                hasher.u32(memory.0);
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u16)]
+pub enum RuntimeAggregateInstructionCode {
+    Fill = 0x0040,
+    BlockMove = 0x0041,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -457,6 +495,7 @@ pub enum RuntimeInstructionCode {
     Multiply = 0x0032,
     Divide = 0x0033,
     Modulo = 0x0034,
+    Limit = 0x0035,
     RisingEdge = 0x0100,
     FallingEdge = 0x0101,
     TimerOnDelay = 0x0110,
@@ -804,14 +843,32 @@ pub enum Operation {
         destination: ValueType,
         target: MemoryId,
     },
+    /// Selects a FOR loop's entry condition from the runtime sign of its
+    /// entry-evaluated step. A zero step is an invalid argument.
+    ForCondition {
+        current: Operand,
+        terminal: Operand,
+        step: Operand,
+        target: MemoryId,
+    },
     /// Tests a FOR increment in widened mathematical space and publishes only
     /// whether the exact signed next value remains within the terminal bound.
     ForNextWithin {
         current: Operand,
         terminal: Operand,
         step: Operand,
-        ascending: bool,
         target: MemoryId,
+    },
+    /// Executes one verified aggregate instruction atomically. `scalar_leaves`
+    /// is independently checked against the target type and participates in
+    /// the declared `EDU-WORK-1` cost.
+    AggregateInstruction {
+        instruction: RuntimeAggregateInstructionCode,
+        input: RuntimeAggregateSource,
+        target: MemoryId,
+        activation: Option<Operand>,
+        status: MemoryId,
+        scalar_leaves: u32,
     },
     InvokeInstruction(RuntimeInstructionInvocation),
     CallBlock(RuntimeBlockCall),
@@ -836,7 +893,12 @@ pub enum Operation {
 
 impl Operation {
     pub const fn work_units(&self) -> u32 {
-        1
+        match self {
+            Self::AggregateInstruction { scalar_leaves, .. } => {
+                1_u32.saturating_add(*scalar_leaves)
+            }
+            _ => 1,
+        }
     }
 
     fn encode(&self, hasher: &mut SemanticHasher) {
@@ -986,19 +1048,51 @@ impl Operation {
                 hasher.u8(*destination as u8);
                 hasher.u32(target.0);
             }
+            Self::ForCondition {
+                current,
+                terminal,
+                step,
+                target,
+            } => {
+                hasher.u8(21);
+                current.encode(hasher);
+                terminal.encode(hasher);
+                step.encode(hasher);
+                hasher.u32(target.0);
+            }
             Self::ForNextWithin {
                 current,
                 terminal,
                 step,
-                ascending,
                 target,
             } => {
                 hasher.u8(20);
                 current.encode(hasher);
                 terminal.encode(hasher);
                 step.encode(hasher);
-                hasher.bool(*ascending);
                 hasher.u32(target.0);
+            }
+            Self::AggregateInstruction {
+                instruction,
+                input,
+                target,
+                activation,
+                status,
+                scalar_leaves,
+            } => {
+                hasher.u8(22);
+                hasher.u16(*instruction as u16);
+                input.encode(hasher);
+                hasher.u32(target.0);
+                match activation {
+                    Some(enable) => {
+                        hasher.bool(true);
+                        enable.encode(hasher);
+                    }
+                    None => hasher.bool(false),
+                }
+                hasher.u32(status.0);
+                hasher.u32(*scalar_leaves);
             }
             Self::InvokeInstruction(invocation) => {
                 hasher.u8(13);
@@ -1123,6 +1217,7 @@ pub struct ArtifactSpec {
     pub work_cost_version: String,
     pub profile_fingerprint: Hash32,
     pub memory: Vec<MemoryDefinition>,
+    pub aggregate_memory: Vec<AggregateMemoryDefinition>,
     pub channels: Vec<ChannelDefinition>,
     pub states: Vec<StateDefinition>,
     pub program: ProgramImage,
@@ -1136,14 +1231,33 @@ impl ArtifactSpec {
         states: Vec<StateDefinition>,
         program: ProgramImage,
     ) -> Self {
+        Self::edu21_with_aggregates(
+            profile_fingerprint,
+            memory,
+            Vec::new(),
+            channels,
+            states,
+            program,
+        )
+    }
+
+    pub fn edu21_with_aggregates(
+        profile_fingerprint: Hash32,
+        memory: Vec<MemoryDefinition>,
+        aggregate_memory: Vec<AggregateMemoryDefinition>,
+        channels: Vec<ChannelDefinition>,
+        states: Vec<StateDefinition>,
+        program: ProgramImage,
+    ) -> Self {
         Self {
-            schema_version: 1,
+            schema_version: 2,
             runtime_version: RUNTIME_SEMANTICS_VERSION.into(),
             scheduler_version: SCHEDULER_VERSION.into(),
             priority_table_version: PRIORITY_TABLE_VERSION.into(),
             work_cost_version: WORK_COST_VERSION.into(),
             profile_fingerprint,
             memory,
+            aggregate_memory,
             channels,
             states,
             program,
@@ -1152,6 +1266,8 @@ impl ArtifactSpec {
 
     fn normalize(&mut self) {
         self.memory.sort_by_key(|definition| definition.id);
+        self.aggregate_memory
+            .sort_by_key(|definition| definition.id);
         self.channels.sort_by_key(|definition| definition.id);
         self.states.sort_by_key(|definition| definition.id);
         self.program.timed.sort_by_key(|task| task.id);
@@ -1171,6 +1287,24 @@ impl ArtifactSpec {
             hasher.u32(definition.id.0);
             hasher.u8(definition.value_type as u8);
             definition.loaded_start.encode(&mut hasher);
+            hasher.bool(definition.retentive);
+        }
+
+        hasher.u64(self.aggregate_memory.len() as u64);
+        for definition in &self.aggregate_memory {
+            hasher.u32(definition.id.0);
+            hasher.bytes(
+                &definition
+                    .data_type
+                    .canonical_bytes(AggregateLimits::edu21())
+                    .unwrap_or_default(),
+            );
+            hasher.bytes(
+                &definition
+                    .data_type
+                    .serialize_value(&definition.loaded_start, AggregateLimits::edu21())
+                    .unwrap_or_default(),
+            );
             hasher.bool(definition.retentive);
         }
 
@@ -1291,6 +1425,7 @@ pub enum ArtifactError {
     IncompatiblePriorityVersion,
     IncompatibleWorkCostVersion,
     DuplicateOrUnorderedMemory(MemoryId),
+    DuplicateOrUnorderedAggregateMemory(MemoryId),
     DuplicateOrUnorderedChannel(ChannelId),
     DuplicateOrUnorderedState(StateId),
     DuplicateTask(TaskId),
@@ -1323,7 +1458,7 @@ impl fmt::Display for ArtifactError {
 impl Error for ArtifactError {}
 
 fn validate_spec(spec: &ArtifactSpec) -> Result<(), ArtifactError> {
-    if spec.schema_version != 1 {
+    if spec.schema_version != 2 {
         return Err(ArtifactError::UnsupportedSchema(spec.schema_version));
     }
     if spec.runtime_version != RUNTIME_SEMANTICS_VERSION {
@@ -1345,6 +1480,11 @@ fn validate_spec(spec: &ArtifactSpec) -> Result<(), ArtifactError> {
         ArtifactError::DuplicateOrUnorderedMemory,
     )?;
     validate_strict_ids(
+        &spec.aggregate_memory,
+        |entry| entry.id,
+        ArtifactError::DuplicateOrUnorderedAggregateMemory,
+    )?;
+    validate_strict_ids(
         &spec.channels,
         |entry| entry.id,
         ArtifactError::DuplicateOrUnorderedChannel,
@@ -1357,6 +1497,19 @@ fn validate_spec(spec: &ArtifactSpec) -> Result<(), ArtifactError> {
 
     for definition in &spec.memory {
         if definition.loaded_start.value_type() != definition.value_type {
+            return Err(ArtifactError::TypeMismatch);
+        }
+    }
+    for definition in &spec.aggregate_memory {
+        if spec
+            .memory
+            .binary_search_by_key(&definition.id, |entry| entry.id)
+            .is_ok()
+            || definition
+                .data_type
+                .validate_value(&definition.loaded_start, AggregateLimits::edu21())
+                .is_err()
+        {
             return Err(ArtifactError::TypeMismatch);
         }
     }
@@ -1544,7 +1697,9 @@ fn validate_block_inner(
             | Operation::Unary { .. }
             | Operation::Binary { .. }
             | Operation::Convert { .. }
+            | Operation::ForCondition { .. }
             | Operation::ForNextWithin { .. }
+            | Operation::AggregateInstruction { .. }
             | Operation::Jump { .. }
             | Operation::Branch { .. }
             | Operation::Return => {}
@@ -1601,6 +1756,19 @@ fn validate_operation(spec: &ArtifactSpec, operation: &Operation) -> Result<(), 
             .ok()
             .map(|index| &spec.states[index])
             .ok_or(ArtifactError::UnknownState(id))
+    };
+    let aggregate = |id: MemoryId| {
+        spec.aggregate_memory
+            .binary_search_by_key(&id, |definition| definition.id)
+            .ok()
+            .map(|index| &spec.aggregate_memory[index])
+            .ok_or(ArtifactError::UnknownMemory(id))
+    };
+    let canonical_memory_type = |id: MemoryId| -> Result<CanonicalType, ArtifactError> {
+        if let Ok(value_type) = memory_type(id) {
+            return Ok(CanonicalType::Primitive(value_type.primitive_type()));
+        }
+        Ok(aggregate(id)?.data_type.clone())
     };
     let operand_type = |operand: Operand| -> Result<ValueType, ArtifactError> {
         match operand {
@@ -1797,12 +1965,17 @@ fn validate_operation(spec: &ArtifactSpec, operation: &Operation) -> Result<(), 
             }
             same(memory_type(*target)?, *destination)
         }
-        Operation::ForNextWithin {
+        Operation::ForCondition {
             current,
             terminal,
             step,
             target,
-            ..
+        }
+        | Operation::ForNextWithin {
+            current,
+            terminal,
+            step,
+            target,
         } => {
             let current_type = operand_type(*current)?;
             same(operand_type(*terminal)?, current_type)?;
@@ -1812,11 +1985,93 @@ fn validate_operation(spec: &ArtifactSpec, operation: &Operation) -> Result<(), 
             }
             same(memory_type(*target)?, ValueType::Bool)
         }
+        Operation::AggregateInstruction {
+            instruction,
+            input,
+            target,
+            activation,
+            status,
+            scalar_leaves,
+        } => {
+            same(memory_type(*status)?, ValueType::Bool)?;
+            if let Some(enable) = activation {
+                same(operand_type(*enable)?, ValueType::Bool)?;
+            }
+            let target_type = canonical_memory_type(*target)?;
+            let expected_leaves = u32::try_from(
+                aggregate_scalar_leaf_count(&target_type).ok_or(ArtifactError::TypeMismatch)?,
+            )
+            .map_err(|_| ArtifactError::TypeMismatch)?;
+            if *scalar_leaves != expected_leaves {
+                return Err(ArtifactError::TypeMismatch);
+            }
+            let source_type = match input {
+                RuntimeAggregateSource::Scalar(operand) => {
+                    CanonicalType::Primitive(operand_type(*operand)?.primitive_type())
+                }
+                RuntimeAggregateSource::AggregateMemory(memory) => {
+                    aggregate(*memory)?.data_type.clone()
+                }
+            };
+            let compatible = match instruction {
+                RuntimeAggregateInstructionCode::Fill => {
+                    let CanonicalType::Array { element_type, .. } = &target_type else {
+                        return Err(ArtifactError::TypeMismatch);
+                    };
+                    source_type
+                        .assignment_compatible_with(element_type, AggregateLimits::edu21())
+                        .unwrap_or(false)
+                }
+                RuntimeAggregateInstructionCode::BlockMove => {
+                    if !block_movable_type(&source_type) || !block_movable_type(&target_type) {
+                        return Err(ArtifactError::TypeMismatch);
+                    }
+                    source_type
+                        .assignment_compatible_with(&target_type, AggregateLimits::edu21())
+                        .unwrap_or(false)
+                }
+            };
+            if compatible {
+                Ok(())
+            } else {
+                Err(ArtifactError::TypeMismatch)
+            }
+        }
         Operation::Branch { condition, .. } => same(operand_type(*condition)?, ValueType::Bool),
         Operation::Jump { .. } | Operation::Return => Ok(()),
         Operation::InvokeInstruction(_)
         | Operation::CallBlock(_)
         | Operation::InvocationOutput { .. } => Ok(()),
+    }
+}
+
+fn block_movable_type(data_type: &CanonicalType) -> bool {
+    matches!(
+        data_type,
+        CanonicalType::Primitive(PrimitiveType::String(_))
+            | CanonicalType::Array { .. }
+            | CanonicalType::AnonymousStruct { .. }
+            | CanonicalType::NamedStruct { .. }
+    )
+}
+
+fn aggregate_scalar_leaf_count(data_type: &CanonicalType) -> Option<u64> {
+    match data_type {
+        CanonicalType::Primitive(_) => Some(1),
+        CanonicalType::Array {
+            dimensions,
+            element_type,
+        } => {
+            let count = dimensions.iter().try_fold(1_u64, |count, bound| {
+                count.checked_mul(bound.element_count().ok()?)
+            })?;
+            count.checked_mul(aggregate_scalar_leaf_count(element_type)?)
+        }
+        CanonicalType::AnonymousStruct { members } | CanonicalType::NamedStruct { members, .. } => {
+            members.iter().try_fold(0_u64, |count, member| {
+                count.checked_add(aggregate_scalar_leaf_count(&member.data_type)?)
+            })
+        }
     }
 }
 
@@ -1837,6 +2092,10 @@ const FORMAL_PRESET_VALUE: u16 = 0x0044;
 const FORMAL_CURRENT_VALUE: u16 = 0x0045;
 const FORMAL_QU: u16 = 0x0046;
 const FORMAL_QD: u16 = 0x0047;
+const FORMAL_MINIMUM: u16 = 0x0050;
+const FORMAL_LIMIT_INPUT: u16 = 0x0051;
+const FORMAL_MAXIMUM: u16 = 0x0052;
+const FORMAL_LIMIT_OUTPUT: u16 = 0x0053;
 
 fn memory_type(spec: &ArtifactSpec, id: MemoryId) -> Result<ValueType, ArtifactError> {
     spec.memory
@@ -1918,6 +2177,7 @@ fn validate_instruction_invocation(
         | RuntimeInstructionCode::Multiply
         | RuntimeInstructionCode::Divide
         | RuntimeInstructionCode::Modulo
+        | RuntimeInstructionCode::Limit
         | RuntimeInstructionCode::Probe
         | RuntimeInstructionCode::TraceSample
         | RuntimeInstructionCode::BreakpointMarker => None,
@@ -1946,6 +2206,7 @@ fn validate_instruction_invocation(
         | RuntimeInstructionCode::Multiply
         | RuntimeInstructionCode::Divide
         | RuntimeInstructionCode::Modulo
+        | RuntimeInstructionCode::Limit
         | RuntimeInstructionCode::RisingEdge
         | RuntimeInstructionCode::FallingEdge => {
             Some(RuntimeDisabledBehavior::DefaultOutputsNoStateChange)
@@ -2016,11 +2277,26 @@ fn validate_instruction_invocation(
         | RuntimeInstructionCode::Multiply
         | RuntimeInstructionCode::Divide
         | RuntimeInstructionCode::Modulo => {
-            exact_two_inputs(
-                &inputs,
-                (FORMAL_LEFT, ValueType::I32),
-                (FORMAL_RIGHT, ValueType::I32),
-            ) && exact_output(&outputs, FORMAL_OUTPUT, ValueType::I32)
+            inputs.len() == 2
+                && inputs.get(&FORMAL_LEFT) == inputs.get(&FORMAL_RIGHT)
+                && inputs.get(&FORMAL_LEFT).is_some_and(|value_type| {
+                    let primitive = value_type.primitive_type();
+                    primitive.is_numeric()
+                        && (invocation.instruction != RuntimeInstructionCode::Modulo
+                            || primitive.is_integer())
+                })
+                && outputs.get(&FORMAL_OUTPUT) == inputs.get(&FORMAL_LEFT)
+                && outputs_without_status(&outputs) == 1
+        }
+        RuntimeInstructionCode::Limit => {
+            inputs.len() == 3
+                && inputs.get(&FORMAL_MINIMUM) == inputs.get(&FORMAL_LIMIT_INPUT)
+                && inputs.get(&FORMAL_MINIMUM) == inputs.get(&FORMAL_MAXIMUM)
+                && inputs.get(&FORMAL_MINIMUM).is_some_and(|value_type| {
+                    let primitive = value_type.primitive_type();
+                    primitive.is_numeric() || primitive == PrimitiveType::Time
+                })
+                && outputs.get(&FORMAL_LIMIT_OUTPUT) == inputs.get(&FORMAL_MINIMUM)
                 && outputs_without_status(&outputs) == 1
         }
         RuntimeInstructionCode::RisingEdge | RuntimeInstructionCode::FallingEdge => {
@@ -2282,12 +2558,12 @@ mod tests {
         assert!(VerifiedArtifact::accept(&package).is_ok());
 
         let mut changed = package.spec().clone();
-        changed.schema_version = 2;
+        changed.schema_version = 3;
         let transported =
             ArtifactPackage::from_untrusted_package(changed, package.fingerprint(), true);
         assert!(matches!(
             VerifiedArtifact::accept(&transported),
-            Err(ArtifactError::UnsupportedSchema(2))
+            Err(ArtifactError::UnsupportedSchema(3))
         ));
     }
 

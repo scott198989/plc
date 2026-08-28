@@ -172,7 +172,6 @@ struct ForIncrementControl {
     exit_block: IrBasicBlockId,
     limit: IrValueId,
     step: IrValueId,
-    ascending: bool,
 }
 
 struct FunctionBuilder<'a, 'b> {
@@ -260,11 +259,8 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
                     initial,
                     limit,
                     step,
-                    ascending,
                     body,
-                } => self.lower_for(
-                    block, statement, iterator, initial, limit, step, *ascending, body,
-                )?,
+                } => self.lower_for(block, statement, iterator, initial, limit, step, body)?,
                 TypedStatementKind::While { condition, body } => {
                     self.lower_while(block, statement, condition, body)?
                 }
@@ -573,12 +569,13 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
         initial: &TypedExpr,
         limit: &TypedExpr,
         step: &TypedExpr,
-        ascending: bool,
         body: &[TypedStatement],
     ) -> Result<Option<IrBasicBlockId>, LoweringError> {
         let iterator_type = IrType::from_program_type(&iterator.data_type)
             .ok_or_else(|| LoweringError::UnsupportedType(iterator.data_type.clone()))?;
         let initial_value = self.lower_expr(preheader, initial)?;
+        let limit_value = self.lower_expr(preheader, limit)?;
+        let step_value = self.lower_expr(preheader, step)?;
         self.emit(
             preheader,
             None,
@@ -589,8 +586,6 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
             self.anchor(statement.id, statement.range),
             ProbeKind::StorageWrite,
         )?;
-        let limit_value = self.lower_expr(preheader, limit)?;
-        let step_value = self.lower_expr(preheader, step)?;
         let condition_block = self.new_block()?;
         let body_block = self.new_block()?;
         let increment_block = self.new_block()?;
@@ -618,14 +613,10 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
             .emit(
                 condition_block,
                 Some(IrType::Bool),
-                IrOperationKind::Binary {
-                    operator: if ascending {
-                        BinaryOperator::LessEqual
-                    } else {
-                        BinaryOperator::GreaterEqual
-                    },
-                    left: current,
-                    right: limit_value,
+                IrOperationKind::ForCondition {
+                    current,
+                    terminal: limit_value,
+                    step: step_value,
                 },
                 self.anchor(statement.id, statement.range),
                 ProbeKind::Expression,
@@ -669,7 +660,6 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
                 exit_block,
                 limit: limit_value,
                 step: step_value,
-                ascending,
             },
         )?;
         Ok(Some(exit_block))
@@ -702,7 +692,6 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
                     current,
                     terminal: control.limit,
                     step: control.step,
-                    ascending: control.ascending,
                 },
                 self.anchor(statement.id, statement.range),
                 ProbeKind::Expression,
