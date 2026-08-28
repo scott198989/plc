@@ -1,5 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 
+import {
+  createDataBlockPayload,
+  createSclProgramPayload,
+  createTracePayload,
+  createWatchPayload,
+  unsignedValue,
+} from "./canonical-authoring";
 import type {
   ProjectPayload,
   ProjectStorageKind,
@@ -133,7 +140,9 @@ export const EngineeringWorkbench = ({
       parentId: resolvedSelectedId,
       payloadSchema: template.payloadSchema,
       presentationPayload: {},
-      semanticPayload: template.semanticPayload,
+      semanticPayload: typeof template.semanticPayload === "function"
+        ? template.semanticPayload()
+        : template.semanticPayload,
     });
     setCreateMenuOpen(false);
     setSelectedId(objectId);
@@ -692,13 +701,8 @@ type CreateObjectTemplate = Readonly<{
   label: string;
   objectKind: ProjectStorageKind;
   payloadSchema: string;
-  semanticPayload: ProjectPayload;
+  semanticPayload: ProjectPayload | (() => ProjectPayload);
 }>;
-
-const unsigned = (value: number): Readonly<{ $type: "u64"; value: string }> => ({
-  $type: "u64",
-  value: value.toString(10),
-});
 
 const creationOptions = (
   parent: WorkbenchObjectView,
@@ -749,7 +753,7 @@ const creationOptions = (
           label: "Rack",
           objectKind: "rack",
           payloadSchema: "edu.rack/1",
-          semanticPayload: { slotCount: unsigned(8) },
+          semanticPayload: { slotCount: unsignedValue(8) },
         },
         {
           baseName: "PLC tags",
@@ -776,13 +780,7 @@ const creationOptions = (
           label: "Organization block",
           objectKind: "program-block",
           payloadSchema: "edu.program-block/1",
-          semanticPayload: {
-            blockKind: "OB",
-            engineeringNumber: unsigned(1),
-            language: "SCL",
-            obRole: "CyclicMain",
-            sourceText: "",
-          },
+          semanticPayload: () => createSclProgramPayload("cyclic-ob"),
         },
         {
           baseName: "Function",
@@ -791,12 +789,7 @@ const creationOptions = (
           label: "Function",
           objectKind: "program-block",
           payloadSchema: "edu.program-block/1",
-          semanticPayload: {
-            blockKind: "FC",
-            engineeringNumber: unsigned(1),
-            language: "SCL",
-            sourceText: "",
-          },
+          semanticPayload: () => createSclProgramPayload("fc"),
         },
         {
           baseName: "Function block",
@@ -805,12 +798,7 @@ const creationOptions = (
           label: "Function block",
           objectKind: "program-block",
           payloadSchema: "edu.program-block/1",
-          semanticPayload: {
-            blockKind: "FB",
-            engineeringNumber: unsigned(1),
-            language: "SCL",
-            sourceText: "",
-          },
+          semanticPayload: () => createSclProgramPayload("fb"),
         },
         {
           baseName: "Global data",
@@ -819,7 +807,7 @@ const creationOptions = (
           label: "Global data block",
           objectKind: "data-block",
           payloadSchema: "edu.data-block/1",
-          semanticPayload: { dbKind: "GlobalDB", members: [] },
+          semanticPayload: () => createDataBlockPayload("GlobalDB"),
         },
         {
           baseName: "Instance data",
@@ -828,7 +816,12 @@ const creationOptions = (
           label: "Instance data block",
           objectKind: "data-block",
           payloadSchema: "edu.data-block/1",
-          semanticPayload: { dbKind: "InstanceDB", instanceOf: null },
+          semanticPayload: () => createDataBlockPayload(
+            "InstanceDB",
+            Object.values(snapshot.objects).find(
+              (object) => object.lifecycle === "active" && object.kind === "FB",
+            )?.id ?? null,
+          ),
         },
         {
           baseName: "Watch table",
@@ -837,7 +830,7 @@ const creationOptions = (
           label: "Watch table",
           objectKind: "generic",
           payloadSchema: "edu.watch-table/1",
-          semanticPayload: { rows: [] },
+          semanticPayload: createWatchPayload,
         },
         {
           baseName: "Trace",
@@ -846,7 +839,7 @@ const creationOptions = (
           label: "Trace configuration",
           objectKind: "generic",
           payloadSchema: "edu.trace-configuration/1",
-          semanticPayload: { channels: [], state: "idle" },
+          semanticPayload: createTracePayload,
         },
       ];
     case "Rack": {
@@ -884,7 +877,7 @@ const moduleTemplate = (
   semanticPayload: {
     addressIntent: "auto",
     catalogId,
-    slot: unsigned(slot),
+    slot: unsignedValue(slot),
   },
 });
 
