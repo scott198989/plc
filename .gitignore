@@ -38,3 +38,6 @@ desktop.ini
 # Phase 1 local verification evidence is reproducible and not committed
 .phase1-verification/
 .phase2-verification/
+
+# User-facing copies of generated Phase 2 review artifacts
+Phase 2 Review Package/
