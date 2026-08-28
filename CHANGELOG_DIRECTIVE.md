@@ -104,6 +104,18 @@ the directive change ledger.
 - **External boundary:** `CR-0001` authorizes active configuration and local execution. No remote was created or used, no repository push or hosted run was performed, no credentials were supplied, and report upload/data retention remain blocked by `DEC-0002`.
 - **Completion effect:** The foundation is real but unverified by registry design. This entry does not pass the closure gate, record independent review, constitute Scott's acceptance, or authorize Phase 2 product implementation.
 
+### P2-LOG-0001 - Phase 2 authorized and P2-00 entry gate passed
+
+- **Date:** 2026-08-27
+- **Type:** Phase 2 start checkpoint
+- **Authority:** Scott's start order in the canonical Phase 2 directive, SHA-256 `938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536`.
+- **Incoming baseline:** Commit `84be813b0c7ccae6d4a18ff060d7106cc168366c`, annotated tag `phase1-closure-candidate-v1`, tag object `dc03f29683f4fff912a522e7123428e9b5ca3df3`.
+- **Accounted workspace state:** `References for Codex from Scott/PHASE_1_ADVERSARIAL_AUDIT.docx` was already present as an untracked, byte-identical copy of the tracked final audit (`2075F9BF6D082E1F82898693823475B9C49BD284DB013A8AF34A529D9CD4E8AC`). It was preserved untouched and excluded from the separate clean worktree.
+- **Entry result:** A detached clean worktree at the incoming commit restored 54 cached packages offline with zero downloads. With the admitted Node `24.19.0` runtime explicitly first on `PATH`, `pnpm gate:closure` passed requirements extraction, toolchain admission, lint, typecheck, 20 unit tests, production build, zero-import WASM isolation, desktop/mobile browser launch, 260-class governance verification, and all 12 intended mutations including manifest-tamper rejection.
+- **Failed-closed observation:** The first invocation resolved system Node `24.14.0` and stopped at toolchain admission before product mutation. The pin was not weakened; the gate was rerun with the already-admitted Node `24.19.0` runtime and passed.
+- **Evidence:** `evidence/phase2/P2-00_ENTRY_GATE.json` records exact commands, hashes, state, and results.
+- **Scope effect:** Phase 2 product implementation is authorized. Phase 3 and Phase 4 remain unauthorized.
+
 ## Directive change ledger
 
 ### CR-0001 - Phase 1 corrective closure and trusted-baseline reconciliation
@@ -122,3 +134,12 @@ the directive change ledger.
 - **Decision effect:** `DEC-0001` is resolved by this change record. The exact historical status-text mismatch carried by `PES-ACC-0005` remains unresolved; the preserved Phase 1 DOCX is not silently edited.
 - **Technical-foundation authority:** The addendum authorizes only the minimal non-PLC Phase 1 technical foundation and executable local/CI closure configuration recorded in `P1-LOG-0010`; it does not authorize any later PLC-domain feature.
 - **Scope boundary:** This record reconciles Phase 1 governance and bounds the expressly authorized technical foundation. It does not pass the Phase 1 closure gate, constitute Scott's acceptance, or authorize Phase 2 product implementation.
+
+### CR-0002 - Separate Phase 2 directive and start order admitted
+
+- **Date:** 2026-08-27
+- **Authority:** `References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx`.
+- **Authority SHA-256:** `938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536`.
+- **Decision effect:** Scott accepts the reported Phase 1 closure candidate for continued internal development subject to P2-00 and authorizes real Phase 2 implementation. This supersedes only historical wording that postponed executable work or required one cumulative directive document.
+- **History effect:** The Phase 1 directive, corrective addendum, commits, tags, and evidence remain preserved. No history was rewritten, replaced, squashed, or re-authored.
+- **Scope boundary:** This record does not authorize Phase 3, Phase 4, public release, physical industrial communication, hosted execution, or acceptance on Scott's behalf.

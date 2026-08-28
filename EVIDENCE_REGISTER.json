@@ -1,7 +1,7 @@
 {
   "schemaVersion": "1.0.0",
   "registerId": "PES-EVIDENCE-REGISTER",
-  "status": "PHASE_1_DRAFT_UNREVIEWED",
+  "status": "PHASE_2_IMPLEMENTATION_AUTHORIZED",
   "lastUpdated": "2026-08-27",
   "governance": {
     "controllingRequirements": [
@@ -145,6 +145,25 @@
       "reviewStatus": "ADMITTED_PHASE_1_AUDIT_INPUT",
       "limitations": [
         "This document is an audit input; it does not by itself prove remediation, verification, or Phase 1 closure."
+      ]
+    },
+    {
+      "sourceId": "SRC-0027",
+      "title": "PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core",
+      "publisher": null,
+      "author": null,
+      "owner": "Scott",
+      "version": "1.0",
+      "publicationDate": "2026-08-27",
+      "durableLocation": "project://References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+      "accessDate": "2026-08-27",
+      "sha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+      "sourceType": "NORMATIVE_PROJECT_DIRECTIVE",
+      "reportClassificationsPresent": [],
+      "reviewStatus": "CONTROLLING_PHASE_2_AUTHORITY",
+      "limitations": [
+        "This document authorizes Phase 2 implementation only after P2-00 passes.",
+        "It does not authorize Phase 3 or Phase 4 implementation, public release, physical industrial communication, or acceptance on Scott's behalf."
       ]
     }
   ],

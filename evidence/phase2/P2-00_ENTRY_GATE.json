@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "gate": "P2-00",
+  "status": "PASS",
+  "recordedAt": "2026-08-27T19:21:15.1552219-05:00",
+  "authority": {
+    "owner": "Scott",
+    "directivePath": "References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx",
+    "directiveBytes": 166810,
+    "directiveSha256": "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536",
+    "phase2Authorized": true,
+    "phase3Authorized": false,
+    "phase4Authorized": false
+  },
+  "incomingBaseline": {
+    "commit": "84be813b0c7ccae6d4a18ff060d7106cc168366c",
+    "tree": "eef6f79d2ffb085722b25a960353e83e3d0ccada",
+    "annotatedTag": "phase1-closure-candidate-v1",
+    "tagObject": "dc03f29683f4fff912a522e7123428e9b5ca3df3",
+    "tagTarget": "84be813b0c7ccae6d4a18ff060d7106cc168366c",
+    "closureEvidenceNotesRef": "250eb3a360a6425725617b400d0ee911cf9af171",
+    "trustedManifestSha256": "AB3833BDCED6579F50FEF91A829891C222887CE4C4DCF183D792C159DC1A9A3E",
+    "trustedManifestEntries": 107,
+    "controlledPathsIncludingManifest": 108
+  },
+  "accountedWorkspaceState": [
+    {
+      "path": "References for Codex from Scott/PHASE_1_ADVERSARIAL_AUDIT.docx",
+      "gitState": "UNTRACKED",
+      "bytes": 187063,
+      "sha256": "2075F9BF6D082E1F82898693823475B9C49BD284DB013A8AF34A529D9CD4E8AC",
+      "relationship": "byte-identical to docs/governance/PHASE_1_ADVERSARIAL_AUDIT.docx",
+      "disposition": "Preserved untouched as an accounted user/reference duplicate; excluded from the detached clean worktree."
+    }
+  ],
+  "cleanWorktree": {
+    "pathWas": "C:/Users/Scott/AppData/Local/Temp/govs-plc-p2-entry-84be813b",
+    "detachedAt": "84be813b0c7ccae6d4a18ff060d7106cc168366c",
+    "removedAfterEvidenceCapture": true,
+    "dependencyRestoreCommand": "pnpm install --offline --frozen-lockfile --ignore-scripts --store-dir C:/Users/Scott/AppData/Local/pnpm/store",
+    "dependencyRestore": {
+      "result": "PASS",
+      "packages": 54,
+      "reused": 54,
+      "downloaded": 0
+    }
+  },
+  "toolchain": {
+    "node": "24.19.0",
+    "pnpm": "11.19.0",
+    "python": "3.13.12",
+    "rustc": "1.94.0",
+    "cargo": "1.94.0",
+    "wasmTarget": "wasm32-unknown-unknown"
+  },
+  "attempts": [
+    {
+      "sequence": 1,
+      "command": "pnpm gate:closure",
+      "result": "FAIL_CLOSED_BEFORE_PRODUCT_MUTATION",
+      "exitCode": 1,
+      "reason": "The shell resolved Node 24.14.0 while the accepted baseline requires 24.19.0. The toolchain check stopped execution and was not weakened."
+    },
+    {
+      "sequence": 2,
+      "command": "$env:Path = <admitted-node-24.19-bin> + ';' + <admitted-pnpm-bin> + ';' + $env:Path; pnpm gate:closure",
+      "result": "PASS",
+      "exitCode": 0
+    }
+  ],
+  "results": {
+    "requirements": {
+      "issuedRecords": 484,
+      "matrixEntries": 484,
+      "reconciledSourceUnits": 546,
+      "result": "PASS"
+    },
+    "foundation": {
+      "unitTests": 20,
+      "rustTests": 2,
+      "contractTests": 16,
+      "uiTests": 2,
+      "desktopBrowser": "PASS",
+      "mobileBrowser": "PASS",
+      "networkRequests": 0,
+      "wasmImports": 0,
+      "result": "PASS"
+    },
+    "phase1Verification": {
+      "result": "PASS",
+      "reportBytes": 58014,
+      "reportSha256": "B67436B690556984DE21CEAFE2AF5D722BC662C35AC3A351E476AF65A6CCC4A4"
+    },
+    "mutationVerification": {
+      "result": "PASS",
+      "score": "12/12",
+      "manifestTamperTest": true,
+      "scratchRemoved": true,
+      "transcriptBytes": 375676,
+      "transcriptSha256": "F36C95386DAC4B641717ED80440E9ED6073276250458679B99C945144AE6E0A6"
+    }
+  },
+  "launchEvidence": {
+    "desktopScreenshotBytes": 60297,
+    "desktopScreenshotSha256": "8049D03F36F6EC07069057D7B9F3671EC34755F1283771E714466239C165A31F",
+    "mobileScreenshotBytes": 93788,
+    "mobileScreenshotSha256": "C1A3FA406C0691806CB31EBC422129AC15BC04A3210D61595A4DF62C537C45B6",
+    "bundleBytes": 209552,
+    "bundleSha256": "B3CEB08111F27004D19022F8B9C7AFD3437EC9F13FFE635B18340CEBC89E0039",
+    "wasmBytes": 247,
+    "wasmSha256": "D77FBFB13096417B94749387D0AF74230A2E04E148001E62475E116CE7DF72A3"
+  },
+  "phase2StartCheckpoint": {
+    "annotatedTag": "phase2-start-v1",
+    "commitResolution": "git rev-parse 'phase2-start-v1^{}'",
+    "evidenceRef": "refs/notes/phase2-start-evidence",
+    "note": "Exact checkpoint commit and tag object are attached after the commit to avoid tracked self-reference."
+  }
+}
