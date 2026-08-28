@@ -30,17 +30,19 @@ pub use fbd::{
 };
 pub use fbd_diagnostic::{
     DiagnosticSeverity, FbdDiagnostic, FbdDiagnosticCode, FbdValidationReport, validate_fbd,
+    validate_fbd_with_program,
 };
 pub use fbd_editor::{FbdEdit, FbdEditError, apply_fbd_edits_atomically};
 pub use fbd_lowering::{
     FbdLowerError, FbdLoweredProgram, FbdProbe, FbdProbeKind, FbdProbeTable, FbdSourceLocation,
-    FbdSourceMapEntry, FbdSourceMapTable, lower_fbd_to_ir,
+    FbdSourceMapEntry, FbdSourceMapTable, VerifiedFbdProgram, lower_fbd_to_ir,
+    lower_fbd_to_verified_ir,
 };
 pub use ids::{ConnectionId, FbdDocumentId, NetworkId, NodeId, PortId, StateInstanceId};
 pub use scl_service::{
     CompletionItem, CompletionKind, HoverInfo, InterfaceRename, RenameError, RenamePlan,
-    SclLanguageService, SemanticToken, SemanticTokenKind, SignatureHelp, SourceEdit,
-    SymbolDefinition,
+    SclLanguageService, SemanticToken, SemanticTokenKind, SignatureFormal, SignatureHelp,
+    SourceEdit, SymbolDefinition,
 };
 pub use type_adapter::{TypeAdapterError, data_type_to_ir_type};
 

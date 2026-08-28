@@ -40,6 +40,8 @@ impl TextRange {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SourceLanguage {
     Scl,
+    Lad,
+    Fbd,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -112,5 +114,100 @@ pub struct SourceAnchor {
     pub source_revision_hash: Hash32,
     pub language: SourceLanguage,
     pub semantic_node_id: SemanticNodeId,
-    pub text_range: TextRange,
+    pub text_range: Option<TextRange>,
+    pub network_id: Option<u128>,
+    pub node_id: Option<u128>,
+    pub port_id: Option<u128>,
+    pub edge_id: Option<u128>,
+    pub operand_id: Option<u128>,
+    pub call_site_id: Option<u128>,
+    pub state_instance_id: Option<u128>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct GraphSourceIds {
+    pub network_id: Option<u128>,
+    pub node_id: Option<u128>,
+    pub port_id: Option<u128>,
+    pub edge_id: Option<u128>,
+    pub operand_id: Option<u128>,
+    pub call_site_id: Option<u128>,
+    pub state_instance_id: Option<u128>,
+}
+
+impl SourceAnchor {
+    #[must_use]
+    pub const fn scl(
+        owner_object_id: BlockId,
+        source_revision_hash: Hash32,
+        semantic_node_id: SemanticNodeId,
+        text_range: TextRange,
+    ) -> Self {
+        Self {
+            owner_object_id,
+            source_revision_hash,
+            language: SourceLanguage::Scl,
+            semantic_node_id,
+            text_range: Some(text_range),
+            network_id: None,
+            node_id: None,
+            port_id: None,
+            edge_id: None,
+            operand_id: None,
+            call_site_id: None,
+            state_instance_id: None,
+        }
+    }
+
+    #[must_use]
+    pub const fn graph(
+        owner_object_id: BlockId,
+        source_revision_hash: Hash32,
+        language: SourceLanguage,
+        semantic_node_id: SemanticNodeId,
+        ids: GraphSourceIds,
+    ) -> Option<Self> {
+        if matches!(language, SourceLanguage::Scl) {
+            return None;
+        }
+        Some(Self {
+            owner_object_id,
+            source_revision_hash,
+            language,
+            semantic_node_id,
+            text_range: None,
+            network_id: ids.network_id,
+            node_id: ids.node_id,
+            port_id: ids.port_id,
+            edge_id: ids.edge_id,
+            operand_id: ids.operand_id,
+            call_site_id: ids.call_site_id,
+            state_instance_id: ids.state_instance_id,
+        })
+    }
+
+    /// Checks the language-specific identity shape and owning IR function.
+    /// Text and graph locations are deliberately disjoint so an adapter can
+    /// never reinterpret pixel/graph identity as an SCL byte range.
+    #[must_use]
+    pub fn is_well_formed_for(&self, owner: BlockId) -> bool {
+        if self.owner_object_id != owner {
+            return false;
+        }
+        match self.language {
+            SourceLanguage::Scl => {
+                self.text_range.is_some()
+                    && self.network_id.is_none()
+                    && self.node_id.is_none()
+                    && self.port_id.is_none()
+                    && self.edge_id.is_none()
+                    && self.operand_id.is_none()
+                    && self.call_site_id.is_none()
+                    && self.state_instance_id.is_none()
+            }
+            SourceLanguage::Lad | SourceLanguage::Fbd => {
+                self.text_range.is_none() && self.network_id.is_some()
+            }
+        }
+    }
 }

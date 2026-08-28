@@ -687,6 +687,7 @@ pub enum DiagnosticParameter {
     Hash(Hash32),
 }
 
+#[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DiagnosticTarget {
     Project,
@@ -819,8 +820,10 @@ fn target_order(target: &DiagnosticTarget) -> (u128, u32, u128) {
         DiagnosticTarget::Member { owner, member } => (owner.get(), 0, member.get()),
         DiagnosticTarget::Source(anchor) => (
             anchor.owner_object_id.get(),
-            anchor.text_range.start,
-            u128::from(anchor.semantic_node_id.get()),
+            anchor.text_range.map_or(0, |range| range.start),
+            anchor
+                .node_id
+                .unwrap_or_else(|| u128::from(anchor.semantic_node_id.get())),
         ),
     }
 }

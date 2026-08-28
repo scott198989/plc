@@ -2,7 +2,8 @@ use std::collections::BTreeMap;
 
 use plc_compiler::{
     BinaryOperator, BuildAttempt, BuildAttemptId, BuildScope, BuildSnapshot, Compiler,
-    CompilerProfile, IrOperationKind, IrType, ResourceLimits, SclSource, UnaryOperator,
+    CompilerProfile, IrFormalRef, IrOperationKind, IrType, ResourceLimits, SclSource,
+    UnaryOperator,
 };
 use plc_language_tools::{
     ActivationRole, ConnectionId, ConnectionKind, DiagnosticSeverity, DisabledOutputBehavior,
@@ -10,12 +11,14 @@ use plc_language_tools::{
     FbdEditError, FbdLayout, FbdLowerError, FbdNetwork, FbdNode, FbdPort, InstanceIdentity,
     NetworkId, NodeId, NodeKind, NodeLayout, PortDirection, PortId, PortMultiplicity, PortStatus,
     StateInstanceId, TypeAdapterError, apply_fbd_edits_atomically, data_type_to_ir_type,
-    disabled_output_behavior, lower_fbd_to_ir, validate_fbd,
+    disabled_output_behavior, lower_fbd_to_ir, lower_fbd_to_verified_ir, validate_fbd,
 };
 use plc_program::{
-    ADD, BOOL_NOT, BlockId, BlockInterface, CALL_FB, CanonicalValue, ControllerId,
-    ControllerProgram, DataType, EngineeringNumber, InterfaceMember, InterfaceMemberId,
-    InterfaceRole, ObDeclaration, ProgramBlock, ProgramUnitKind, TIMER_ON_DELAY,
+    ADD, BOOL_NOT, BlockId, BlockInterface, CALL_FB, CALL_FC, CanonicalValue, ControllerId,
+    ControllerProgram, DataType, EngineeringNumber, FORMAL_CLOCK, FORMAL_CURRENT_VALUE,
+    FORMAL_ELAPSED_TIME, FORMAL_ENABLE, FORMAL_ENABLE_OUTPUT, FORMAL_INPUT, FORMAL_LEFT,
+    FORMAL_OUTPUT, FORMAL_PRESET_TIME, FORMAL_PRESET_VALUE, FORMAL_RIGHT, InterfaceMember,
+    InterfaceMemberId, InterfaceRole, ObDeclaration, ProgramBlock, ProgramUnitKind, TIMER_ON_DELAY,
 };
 
 fn data_port(id: u128, name: &str, direction: PortDirection, data_type: DataType) -> FbdPort {
@@ -33,6 +36,20 @@ fn data_port(id: u128, name: &str, direction: PortDirection, data_type: DataType
         activation: ActivationRole::None,
         status: PortStatus::Active,
         effect_role: EffectRole::Value,
+        formal: match name.to_ascii_uppercase().as_str() {
+            "EN" => Some(IrFormalRef::Instruction(FORMAL_ENABLE)),
+            "ENO" => Some(IrFormalRef::Instruction(FORMAL_ENABLE_OUTPUT)),
+            "IN" => Some(IrFormalRef::Instruction(FORMAL_INPUT)),
+            "OUT" | "Q" => Some(IrFormalRef::Instruction(FORMAL_OUTPUT)),
+            "A" => Some(IrFormalRef::Instruction(FORMAL_LEFT)),
+            "B" => Some(IrFormalRef::Instruction(FORMAL_RIGHT)),
+            "CLK" => Some(IrFormalRef::Instruction(FORMAL_CLOCK)),
+            "PT" => Some(IrFormalRef::Instruction(FORMAL_PRESET_TIME)),
+            "ET" => Some(IrFormalRef::Instruction(FORMAL_ELAPSED_TIME)),
+            "PV" => Some(IrFormalRef::Instruction(FORMAL_PRESET_VALUE)),
+            "CV" => Some(IrFormalRef::Instruction(FORMAL_CURRENT_VALUE)),
+            _ => None,
+        },
     }
 }
 
@@ -47,6 +64,7 @@ fn execution_port(id: u128, name: &str, direction: PortDirection) -> FbdPort {
         activation: ActivationRole::None,
         status: PortStatus::Active,
         effect_role: EffectRole::Execution,
+        formal: None,
     }
 }
 
@@ -394,6 +412,7 @@ fn stale_unresolved_wrong_direction_and_type_mismatch_are_real_diagnostics() {
     assert!(codes.contains(&FbdDiagnosticCode::UnresolvedNode));
     assert!(codes.contains(&FbdDiagnosticCode::InvalidConnectionDirection));
     assert!(codes.contains(&FbdDiagnosticCode::IncompatibleDataType));
+    assert!(codes.contains(&FbdDiagnosticCode::FormalTypeMismatch));
 }
 
 #[test]
@@ -452,7 +471,7 @@ fn stateful_and_call_nodes_require_explicit_stable_instances() {
 }
 
 #[test]
-fn activation_ports_are_not_fabricated_outside_shared_registry() {
+fn activation_requires_the_exact_registry_en_eno_pair() {
     let mut enable = data_port(10, "EN", PortDirection::Input, DataType::Bool);
     enable.activation = ActivationRole::Enable;
     enable.required = false;
@@ -471,6 +490,73 @@ fn activation_ports_are_not_fabricated_outside_shared_registry() {
     let network = FbdNetwork::from_parts(NetworkId::new(1), 0, [instruction], []);
     let document = FbdDocument::new(FbdDocumentId::new(1), BlockId::new(10), [network]);
     assert!(diagnostic_codes(&document).contains(&FbdDiagnosticCode::ActivationPortNotDeclared));
+}
+
+#[test]
+fn registry_activation_lowers_explicit_disabled_policy_without_coordinate_semantics() {
+    let power = node(
+        1,
+        0,
+        NodeKind::Constant {
+            value: CanonicalValue::Bool(true),
+        },
+        vec![data_port(10, "OUT", PortDirection::Output, DataType::Bool)],
+    );
+    let value = node(
+        2,
+        1,
+        NodeKind::Constant {
+            value: CanonicalValue::Bool(false),
+        },
+        vec![data_port(20, "OUT", PortDirection::Output, DataType::Bool)],
+    );
+    let mut en = data_port(30, "EN", PortDirection::Input, DataType::Bool);
+    en.activation = ActivationRole::Enable;
+    en.required = false;
+    let mut eno = data_port(33, "ENO", PortDirection::Output, DataType::Bool);
+    eno.activation = ActivationRole::EnableOutput;
+    let invert = node(
+        3,
+        2,
+        NodeKind::Instruction {
+            code: BOOL_NOT,
+            instance: None,
+        },
+        vec![
+            en,
+            data_port(31, "IN", PortDirection::Input, DataType::Bool),
+            data_port(32, "OUT", PortDirection::Output, DataType::Bool),
+            eno,
+        ],
+    );
+    let document = FbdDocument::new(
+        FbdDocumentId::new(2),
+        BlockId::new(10),
+        [FbdNetwork::from_parts(
+            NetworkId::new(1),
+            0,
+            [power, value, invert],
+            [connection(1, 10, 30), connection(2, 20, 31)],
+        )],
+    );
+    assert!(validate_fbd(&document).can_lower());
+    let mut program = ControllerProgram::new(ControllerId::new(2));
+    program.insert_block(owner_block()).expect("unique owner");
+    let lowered = lower_fbd_to_verified_ir(&document, &program).expect("verified activation");
+    let invocation = &lowered.verified_ir.program().functions()[&BlockId::new(10)].blocks
+        [&plc_compiler::IrBasicBlockId::new(1)]
+        .operations[2];
+    assert!(matches!(
+        invocation.kind,
+        IrOperationKind::InvokeInstruction {
+            activation: Some(plc_compiler::IrActivation {
+                status_when_disabled: false,
+                when_disabled: plc_program::DisabledExecutionBehavior::DefaultOutputsNoStateChange,
+                ..
+            }),
+            ..
+        }
+    ));
 }
 
 #[test]
@@ -535,26 +621,156 @@ fn valid_bool_pipeline_lowers_deterministically_into_shared_ir_with_probes() {
 }
 
 #[test]
-fn shared_ir_gap_for_calls_and_stateful_ops_is_typed_not_silently_emulated() {
-    let timer = node(
+fn stateful_instruction_lowers_to_verified_shared_invocation_with_graph_identity() {
+    let enable = node(
         1,
         0,
+        NodeKind::Constant {
+            value: CanonicalValue::Bool(true),
+        },
+        vec![data_port(10, "OUT", PortDirection::Output, DataType::Bool)],
+    );
+    let preset = node(
+        2,
+        1,
+        NodeKind::Constant {
+            value: CanonicalValue::TimeMilliseconds(1000),
+        },
+        vec![data_port(20, "OUT", PortDirection::Output, DataType::Time)],
+    );
+    let timer = node(
+        3,
+        2,
         NodeKind::Instruction {
             code: TIMER_ON_DELAY,
             instance: Some(InstanceIdentity::Instruction(StateInstanceId::new(7))),
         },
-        vec![data_port(10, "Q", PortDirection::Output, DataType::Bool)],
+        vec![
+            data_port(30, "IN", PortDirection::Input, DataType::Bool),
+            data_port(31, "PT", PortDirection::Input, DataType::Time),
+            data_port(32, "Q", PortDirection::Output, DataType::Bool),
+            data_port(33, "ET", PortDirection::Output, DataType::Time),
+        ],
     );
-    let network = FbdNetwork::from_parts(NetworkId::new(1), 0, [timer], []);
+    let network = FbdNetwork::from_parts(
+        NetworkId::new(1),
+        0,
+        [enable, preset, timer],
+        [connection(1, 10, 30), connection(2, 20, 31)],
+    );
     let document = FbdDocument::new(FbdDocumentId::new(1), BlockId::new(10), [network]);
     assert!(validate_fbd(&document).can_lower());
+    let mut program = ControllerProgram::new(ControllerId::new(1));
+    program.insert_block(owner_block()).expect("unique owner");
+    let lowered = lower_fbd_to_verified_ir(&document, &program).expect("verified stateful FBD");
+    let operations = &lowered.verified_ir.program().functions()[&BlockId::new(10)].blocks
+        [&plc_compiler::IrBasicBlockId::new(1)]
+        .operations;
     assert!(matches!(
-        lower_fbd_to_ir(&document, &owner_block()),
-        Err(FbdLowerError::SharedIrOperationUnavailable {
+        operations[2].kind,
+        IrOperationKind::InvokeInstruction {
             instruction: TIMER_ON_DELAY,
             ..
-        })
+        }
     ));
+    assert!(matches!(
+        operations[3].kind,
+        IrOperationKind::InvocationOutput { .. }
+    ));
+    assert!(
+        lowered
+            .lowered
+            .compiler_source_maps
+            .entries()
+            .values()
+            .flat_map(|entry| &entry.anchors)
+            .any(|anchor| {
+                anchor.language == plc_compiler::SourceLanguage::Fbd
+                    && anchor.network_id == Some(1)
+                    && anchor.node_id == Some(3)
+                    && anchor.state_instance_id == Some(7)
+            })
+    );
+}
+
+#[test]
+fn fc_call_formals_are_validated_from_program_and_lowered_without_a_language_engine() {
+    let formal_in = InterfaceMemberId::new(7_001);
+    let formal_out = InterfaceMemberId::new(7_002);
+    let mut out = InterfaceMember::plain(formal_out, "Y", InterfaceRole::Output, DataType::DInt, 0);
+    out.required_output_binding = true;
+    let callee = ProgramBlock::new(
+        BlockId::new(70),
+        "Scale",
+        EngineeringNumber::new(70).expect("nonzero"),
+        ProgramUnitKind::Function,
+        BlockInterface::from_members([
+            InterfaceMember::plain(formal_in, "X", InterfaceRole::Input, DataType::DInt, 0),
+            out,
+        ]),
+    );
+    let constant = node(
+        1,
+        0,
+        NodeKind::Constant {
+            value: CanonicalValue::DInt(4),
+        },
+        vec![data_port(10, "OUT", PortDirection::Output, DataType::DInt)],
+    );
+    let mut input = data_port(20, "X", PortDirection::Input, DataType::DInt);
+    input.formal = Some(IrFormalRef::BlockMember(formal_in));
+    input.effect_role = EffectRole::CallParameter;
+    let mut output = data_port(21, "Y", PortDirection::Output, DataType::DInt);
+    output.formal = Some(IrFormalRef::BlockMember(formal_out));
+    output.effect_role = EffectRole::CallParameter;
+    let call = node(
+        2,
+        1,
+        NodeKind::Call {
+            code: CALL_FC,
+            target: callee.id,
+            instance: None,
+        },
+        vec![input, output],
+    );
+    let document = FbdDocument::new(
+        FbdDocumentId::new(3),
+        BlockId::new(10),
+        [FbdNetwork::from_parts(
+            NetworkId::new(1),
+            0,
+            [constant, call],
+            [connection(1, 10, 20)],
+        )],
+    );
+    let mut program = ControllerProgram::new(ControllerId::new(3));
+    program.insert_block(owner_block()).expect("unique owner");
+    program.insert_block(callee).expect("unique callee");
+    assert!(matches!(
+        lower_fbd_to_ir(&document, &owner_block()),
+        Err(FbdLowerError::ProgramContextRequired { node }) if node == NodeId::new(2)
+    ));
+    let lowered = lower_fbd_to_verified_ir(&document, &program).expect("verified FC call");
+    let operations = &lowered.verified_ir.program().functions()[&BlockId::new(10)].blocks
+        [&plc_compiler::IrBasicBlockId::new(1)]
+        .operations;
+    assert!(matches!(
+        operations[1].kind,
+        IrOperationKind::CallBlock {
+            call_instruction: CALL_FC,
+            target,
+            ..
+        } if target == BlockId::new(70)
+    ));
+    assert!(
+        lowered
+            .lowered
+            .compiler_source_maps
+            .entries()
+            .values()
+            .flat_map(|entry| &entry.anchors)
+            .any(|anchor| anchor.call_site_id == Some(2))
+    );
 }
 
 #[test]

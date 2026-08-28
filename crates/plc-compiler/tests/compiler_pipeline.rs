@@ -3,8 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use plc_compiler::{
     BuildAttempt, BuildAttemptId, BuildOutcome, BuildScope, BuildSnapshot, CancellationToken,
     Compiler, CompilerProfile, CompilerStage, DiagnosticCode, DiagnosticSeverity, Hash32,
-    IrBasicBlockId, IrTerminatorKind, ResourceLimits, SclSource, TYPED_IR_VERSION, TypedIrProgram,
-    VerificationError, phase2_diagnostic_registry, verify_typed_ir,
+    IrBasicBlockId, IrTerminatorKind, ResourceLimits, SclSource, SourceLanguage, SourceMapTable,
+    TYPED_IR_VERSION, TypedIrProgram, VerificationError, phase2_diagnostic_registry,
+    verify_typed_ir,
 };
 use plc_program::{
     BindingActual, BlockId, BlockInterface, CALL_FC, CallSite, CallSiteId, ControllerId,
@@ -672,7 +673,7 @@ fn missing_profile_capabilities_block_after_real_analysis() {
             .iter()
             .filter(|diagnostic| diagnostic.code() == DiagnosticCode::CAPABILITY_UNAVAILABLE)
             .count(),
-        4
+        5
     );
 }
 
@@ -710,6 +711,34 @@ fn independent_verifier_rejects_tampered_control_flow() {
             MAIN,
             IrBasicBlockId::new(u32::MAX)
         ))
+    );
+}
+
+#[test]
+fn independent_verifier_rejects_mixed_text_and_graph_source_identity() {
+    let program = base_program();
+    let compiler = Compiler::new(ResourceLimits::default()).unwrap();
+    let completion = compile(
+        &compiler,
+        snapshot(&program, &base_sources("")),
+        BuildScope::RebuildAllSoftware,
+        81,
+        None,
+        None,
+    );
+    let artifact = completion.artifact().unwrap();
+    let mut entries = artifact.source_maps().entries().clone();
+    let (&id, entry) = entries.iter_mut().next().expect("source map");
+    entry.anchors[0].language = SourceLanguage::Fbd;
+    let tampered_maps = SourceMapTable::from_untrusted_entries(entries);
+    assert_eq!(
+        verify_typed_ir(
+            artifact.verified_ir().program().clone(),
+            &tampered_maps,
+            artifact.probe_table(),
+            &program,
+        ),
+        Err(VerificationError::InvalidSourceAnchor(id))
     );
 }
 

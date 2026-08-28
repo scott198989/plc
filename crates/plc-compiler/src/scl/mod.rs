@@ -12,12 +12,15 @@ pub use lexer::{LexedSource, Token, TokenKind, Trivia, TriviaKind, lex_scl};
 pub use parser::{MissingToken, SyntaxTree, parse_scl};
 pub use semantics::{
     SclAccessKind, SclOccurrenceResolution, SclSemanticSnapshot, SclSemanticSymbol,
-    SclSymbolOccurrence, SclTypeFact, analyze_scl,
+    SclSymbolOccurrence, SclTypeFact, analyze_scl, analyze_scl_with_program,
 };
 
-pub(crate) use parser::{BinaryOp, Expr, ExprKind, Literal, Statement, StatementKind, UnaryOp};
+pub(crate) use parser::{
+    BinaryOp, CallActual, CallArgument, Expr, ExprKind, Literal, Statement, StatementKind, UnaryOp,
+};
 pub(crate) use semantics::{
-    TypedBlock, TypedExpr, TypedExprKind, TypedStatement, TypedStatementKind, bind_and_typecheck,
+    TypedBlock, TypedCall, TypedExpr, TypedExprKind, TypedStatement, TypedStatementKind,
+    bind_and_typecheck_with_program,
 };
 
 use alloc::string::String;

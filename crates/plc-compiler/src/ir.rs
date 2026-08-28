@@ -5,8 +5,10 @@ use alloc::{
 };
 
 use plc_program::{
-    BlockId, CanonicalValue, ControllerProgram, DataType, InterfaceMemberId, InterfaceRole,
-    ProgramUnitKind,
+    BlockId, BoundInstructionFormal, CALL_FB, CALL_FC, CanonicalValue, ControllerProgram,
+    DataBlockKind, DataType, DisabledExecutionBehavior, InstancePath, InstructionActivationPolicy,
+    InstructionCode, InstructionFormalDirection, InstructionFormalId, InterfaceMemberId,
+    InterfaceRole, ProgramUnitKind, StateKind, StateRequirement, phase2_instruction_registry,
 };
 use plc_runtime::Hash32;
 
@@ -37,6 +39,20 @@ impl IrType {
                 capacity: *capacity,
             }),
             DataType::Named(_) | DataType::BlockInstance(_) | DataType::InstructionState(_) => None,
+        }
+    }
+
+    #[must_use]
+    pub fn to_program_type(&self) -> DataType {
+        match self {
+            Self::Bool => DataType::Bool,
+            Self::Int => DataType::Int,
+            Self::DInt => DataType::DInt,
+            Self::Real => DataType::Real,
+            Self::Time => DataType::Time,
+            Self::String { capacity } => DataType::String {
+                capacity: *capacity,
+            },
         }
     }
 }
@@ -75,6 +91,44 @@ pub struct IrValue {
     pub data_type: IrType,
 }
 
+/// Stable formal identity shared by registry instructions and block calls.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IrFormalRef {
+    Instruction(InstructionFormalId),
+    BlockMember(InterfaceMemberId),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IrBoundInput {
+    pub formal: IrFormalRef,
+    pub value: IrValueId,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IrDeclaredOutput {
+    pub formal: IrFormalRef,
+    pub data_type: IrType,
+}
+
+/// Explicit semantic state identity. It is data only and cannot allocate or
+/// access host/runtime state.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum IrInstanceIdentity {
+    Instruction { stable_id: u128, kind: StateKind },
+    FunctionBlock(InstancePath),
+}
+
+/// Fully materialized EN/ENO behavior copied from the canonical registry.
+/// Verification rejects any drift from that registry definition.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct IrActivation {
+    pub enable: IrValueId,
+    pub enable_formal: InstructionFormalId,
+    pub status_formal: InstructionFormalId,
+    pub status_when_disabled: bool,
+    pub when_disabled: DisabledExecutionBehavior,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum IrOperationKind {
     Constant(CanonicalValue),
@@ -97,6 +151,30 @@ pub enum IrOperationKind {
     Convert {
         source: IrValueId,
         destination: IrType,
+    },
+    /// Registry-defined built-in invocation. Results are explicitly declared
+    /// here and materialized by later `InvocationOutput` operations.
+    InvokeInstruction {
+        instruction: InstructionCode,
+        inputs: Vec<IrBoundInput>,
+        outputs: Vec<IrDeclaredOutput>,
+        instance: Option<IrInstanceIdentity>,
+        activation: Option<IrActivation>,
+    },
+    /// FC/FB call over the canonical block model and `CALL_FC`/`CALL_FB` registry
+    /// entries. Copy-in/copy-out formals are stable interface-member IDs.
+    CallBlock {
+        call_instruction: InstructionCode,
+        target: BlockId,
+        inputs: Vec<IrBoundInput>,
+        outputs: Vec<IrDeclaredOutput>,
+        instance: Option<IrInstanceIdentity>,
+        activation: Option<IrActivation>,
+    },
+    /// One typed SSA projection of a preceding invocation's declared output.
+    InvocationOutput {
+        invocation: IrOperationId,
+        formal: IrFormalRef,
     },
 }
 
@@ -131,6 +209,9 @@ impl IrOperationKind {
                 BinaryOperator::Or => RuntimeOperationId("EDU.RT.BOOL_OR_EAGER.v1"),
             },
             Self::Convert { .. } => RuntimeOperationId("EDU.RT.CONVERT_CHECKED.v1"),
+            Self::InvokeInstruction { .. } => RuntimeOperationId("EDU.RT.INVOKE_INSTRUCTION.v1"),
+            Self::CallBlock { .. } => RuntimeOperationId("EDU.RT.CALL_BLOCK.v1"),
+            Self::InvocationOutput { .. } => RuntimeOperationId("EDU.RT.INVOCATION_OUTPUT.v1"),
         }
     }
 }
@@ -307,6 +388,11 @@ pub enum ProbeKind {
     Expression,
     Branch,
     Return,
+    NetworkPower,
+    PortValue,
+    EdgeValue,
+    Call,
+    State,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -389,6 +475,15 @@ pub enum VerificationError {
     ReadOnlyStore(BlockId, InterfaceMemberId),
     TypeMismatch(BlockId, IrOperationId),
     InvalidConversion(BlockId, IrOperationId),
+    UnknownInstruction(BlockId, IrOperationId, InstructionCode),
+    UnknownCallee(BlockId, IrOperationId, BlockId),
+    InvalidInvocationFormal(BlockId, IrOperationId, IrFormalRef),
+    MissingInvocationFormal(BlockId, IrOperationId, IrFormalRef),
+    NonCanonicalInvocation(BlockId, IrOperationId),
+    InvalidInvocationInstance(BlockId, IrOperationId),
+    InvalidActivation(BlockId, IrOperationId),
+    UnknownInvocation(BlockId, IrOperationId, IrOperationId),
+    DuplicateInvocationOutput(BlockId, IrOperationId, IrFormalRef),
     MissingResult(BlockId, IrOperationId),
     UnexpectedResult(BlockId, IrOperationId),
     MissingTarget(BlockId, IrBasicBlockId),
@@ -396,6 +491,7 @@ pub enum VerificationError {
     SourceMapKeyMismatch(SourceMapId),
     SourceMapSiteMismatch(SourceMapId),
     EmptySourceMap(SourceMapId),
+    InvalidSourceAnchor(SourceMapId),
     MissingProbe(ProbeId),
     ProbeKeyMismatch(ProbeId),
     ProbeSiteMismatch(ProbeId),
@@ -429,6 +525,7 @@ impl VerifiedIr {
 ///
 /// Returns the first deterministic structural, type, identity, mapping, or
 /// probe defect. A failed value is never wrapped as [`VerifiedIr`].
+#[allow(clippy::too_many_lines)]
 pub fn verify_typed_ir(
     ir: TypedIrProgram,
     source_maps: &SourceMapTable,
@@ -466,6 +563,8 @@ pub fn verify_typed_ir(
                 ));
             }
             let mut value_types = BTreeMap::<IrValueId, IrType>::new();
+            let mut invocations = BTreeMap::<IrOperationId, VerifiedInvocation>::new();
+            let mut projected_outputs = BTreeSet::<(IrOperationId, IrFormalRef)>::new();
             for operation in &block.operations {
                 if !operation_ids.insert(operation.id) {
                     return Err(VerificationError::DuplicateOperation(
@@ -485,7 +584,18 @@ pub fn verify_typed_ir(
                     &mut used_maps,
                     &mut used_probes,
                 )?;
-                verify_operation(operation, source_block, &value_types, function.owner)?;
+                let invocation = verify_operation(
+                    operation,
+                    source_block,
+                    program,
+                    &value_types,
+                    &invocations,
+                    &mut projected_outputs,
+                    function.owner,
+                )?;
+                if let Some(invocation) = invocation {
+                    invocations.insert(operation.id, invocation);
+                }
                 if let Some(result) = &operation.result {
                     if !value_ids.insert(result.id) {
                         return Err(VerificationError::DuplicateValue(function.owner, result.id));
@@ -510,6 +620,13 @@ pub fn verify_typed_ir(
         }
         if entry.anchors.is_empty() {
             return Err(VerificationError::EmptySourceMap(id));
+        }
+        if entry
+            .anchors
+            .iter()
+            .any(|anchor| !anchor.is_well_formed_for(entry.site.function))
+        {
+            return Err(VerificationError::InvalidSourceAnchor(id));
         }
         if !used_maps.contains(&id) {
             return Err(VerificationError::OrphanSourceMap(id));
@@ -574,20 +691,30 @@ fn verify_source_probe(
     Ok(())
 }
 
+#[derive(Clone, Debug)]
+struct VerifiedInvocation {
+    outputs: BTreeMap<IrFormalRef, IrType>,
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn verify_operation(
     operation: &IrOperation,
     source_block: &plc_program::ProgramBlock,
+    program: &ControllerProgram,
     values: &BTreeMap<IrValueId, IrType>,
+    invocations: &BTreeMap<IrOperationId, VerifiedInvocation>,
+    projected_outputs: &mut BTreeSet<(IrOperationId, IrFormalRef)>,
     function: BlockId,
-) -> Result<(), VerificationError> {
+) -> Result<Option<VerifiedInvocation>, VerificationError> {
     let result_type = operation.result.as_ref().map(|value| &value.data_type);
-    match &operation.kind {
+    let invocation = match &operation.kind {
         IrOperationKind::Constant(value) => {
             let result =
                 result_type.ok_or(VerificationError::MissingResult(function, operation.id))?;
             if !canonical_matches_ir(value, result) {
                 return Err(VerificationError::TypeMismatch(function, operation.id));
             }
+            None
         }
         IrOperationKind::LoadMember { member } => {
             let declared = source_block
@@ -599,6 +726,7 @@ fn verify_operation(
             if result_type != Some(&expected) {
                 return Err(VerificationError::TypeMismatch(function, operation.id));
             }
+            None
         }
         IrOperationKind::StoreMember { target, value } => {
             if result_type.is_some() {
@@ -622,6 +750,7 @@ fn verify_operation(
             if actual != &expected {
                 return Err(VerificationError::TypeMismatch(function, operation.id));
             }
+            None
         }
         IrOperationKind::Unary { operator, operand } => {
             let operand_type = values
@@ -638,6 +767,7 @@ fn verify_operation(
             if !valid {
                 return Err(VerificationError::TypeMismatch(function, operation.id));
             }
+            None
         }
         IrOperationKind::Binary {
             operator,
@@ -656,6 +786,7 @@ fn verify_operation(
             if !valid {
                 return Err(VerificationError::TypeMismatch(function, operation.id));
             }
+            None
         }
         IrOperationKind::Convert {
             source,
@@ -667,12 +798,587 @@ fn verify_operation(
             if result_type != Some(destination) || !conversion_allowed(source_type, destination) {
                 return Err(VerificationError::InvalidConversion(function, operation.id));
             }
+            None
         }
-    }
+        IrOperationKind::InvokeInstruction {
+            instruction,
+            inputs,
+            outputs,
+            instance,
+            activation,
+        } => Some(verify_instruction_invocation(
+            operation,
+            *instruction,
+            inputs,
+            outputs,
+            instance.as_ref(),
+            activation.as_ref(),
+            values,
+            function,
+        )?),
+        IrOperationKind::CallBlock {
+            call_instruction,
+            target,
+            inputs,
+            outputs,
+            instance,
+            activation,
+        } => Some(verify_block_call(
+            operation,
+            *call_instruction,
+            *target,
+            inputs,
+            outputs,
+            instance.as_ref(),
+            activation.as_ref(),
+            values,
+            program,
+            function,
+        )?),
+        IrOperationKind::InvocationOutput { invocation, formal } => {
+            let declaration =
+                invocations
+                    .get(invocation)
+                    .ok_or(VerificationError::UnknownInvocation(
+                        function,
+                        operation.id,
+                        *invocation,
+                    ))?;
+            let expected = declaration.outputs.get(formal).ok_or(
+                VerificationError::InvalidInvocationFormal(function, operation.id, *formal),
+            )?;
+            if result_type != Some(expected) {
+                return Err(VerificationError::TypeMismatch(function, operation.id));
+            }
+            if !projected_outputs.insert((*invocation, *formal)) {
+                return Err(VerificationError::DuplicateInvocationOutput(
+                    function,
+                    operation.id,
+                    *formal,
+                ));
+            }
+            None
+        }
+    };
     if operation.kind.runtime_operation().0.is_empty() {
         return Err(VerificationError::TypeMismatch(function, operation.id));
     }
+    Ok(invocation)
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn verify_instruction_invocation(
+    operation: &IrOperation,
+    instruction: InstructionCode,
+    inputs: &[IrBoundInput],
+    outputs: &[IrDeclaredOutput],
+    instance: Option<&IrInstanceIdentity>,
+    activation: Option<&IrActivation>,
+    values: &BTreeMap<IrValueId, IrType>,
+    function: BlockId,
+) -> Result<VerifiedInvocation, VerificationError> {
+    if operation.result.is_some() {
+        return Err(VerificationError::UnexpectedResult(function, operation.id));
+    }
+    let registry = *phase2_instruction_registry();
+    let definition = registry
+        .lookup(instruction)
+        .ok_or(VerificationError::UnknownInstruction(
+            function,
+            operation.id,
+            instruction,
+        ))?;
+    if matches!(instruction, CALL_FC | CALL_FB) {
+        return Err(VerificationError::InvalidInvocationInstance(
+            function,
+            operation.id,
+        ));
+    }
+    ensure_canonical_bindings(operation, inputs, outputs, function)?;
+    let mut bound_types = BTreeMap::<InstructionFormalId, DataType>::new();
+    for input in inputs {
+        let IrFormalRef::Instruction(formal_id) = input.formal else {
+            return Err(VerificationError::InvalidInvocationFormal(
+                function,
+                operation.id,
+                input.formal,
+            ));
+        };
+        let formal =
+            definition
+                .formal(formal_id)
+                .ok_or(VerificationError::InvalidInvocationFormal(
+                    function,
+                    operation.id,
+                    input.formal,
+                ))?;
+        if !matches!(
+            formal.direction,
+            InstructionFormalDirection::Input | InstructionFormalDirection::InOut
+        ) {
+            return Err(VerificationError::InvalidInvocationFormal(
+                function,
+                operation.id,
+                input.formal,
+            ));
+        }
+        let data_type = values
+            .get(&input.value)
+            .ok_or(VerificationError::UnknownValue(function, input.value))?
+            .to_program_type();
+        insert_bound_type(&mut bound_types, formal_id, data_type, operation, function)?;
+    }
+    let mut declared_outputs = BTreeMap::new();
+    for output in outputs {
+        let IrFormalRef::Instruction(formal_id) = output.formal else {
+            return Err(VerificationError::InvalidInvocationFormal(
+                function,
+                operation.id,
+                output.formal,
+            ));
+        };
+        let formal =
+            definition
+                .formal(formal_id)
+                .ok_or(VerificationError::InvalidInvocationFormal(
+                    function,
+                    operation.id,
+                    output.formal,
+                ))?;
+        if !matches!(
+            formal.direction,
+            InstructionFormalDirection::Output
+                | InstructionFormalDirection::InOut
+                | InstructionFormalDirection::Status
+        ) {
+            return Err(VerificationError::InvalidInvocationFormal(
+                function,
+                operation.id,
+                output.formal,
+            ));
+        }
+        insert_bound_type(
+            &mut bound_types,
+            formal_id,
+            output.data_type.to_program_type(),
+            operation,
+            function,
+        )?;
+        declared_outputs.insert(output.formal, output.data_type.clone());
+    }
+    add_and_verify_instance_binding(
+        definition.state_requirement,
+        instance,
+        None,
+        &mut bound_types,
+        operation,
+        function,
+    )?;
+    add_and_verify_activation_bindings(
+        definition.activation,
+        activation,
+        outputs,
+        values,
+        &mut bound_types,
+        operation,
+        function,
+    )?;
+    let bindings = bound_types
+        .into_iter()
+        .map(|(formal, data_type)| BoundInstructionFormal { formal, data_type });
+    registry
+        .bind_types(instruction, bindings)
+        .map_err(|error| instruction_binding_error(error, function, operation.id))?;
+    Ok(VerifiedInvocation {
+        outputs: declared_outputs,
+    })
+}
+
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn verify_block_call(
+    operation: &IrOperation,
+    call_instruction: InstructionCode,
+    target: BlockId,
+    inputs: &[IrBoundInput],
+    outputs: &[IrDeclaredOutput],
+    instance: Option<&IrInstanceIdentity>,
+    activation: Option<&IrActivation>,
+    values: &BTreeMap<IrValueId, IrType>,
+    program: &ControllerProgram,
+    function: BlockId,
+) -> Result<VerifiedInvocation, VerificationError> {
+    if operation.result.is_some() {
+        return Err(VerificationError::UnexpectedResult(function, operation.id));
+    }
+    ensure_canonical_bindings(operation, inputs, outputs, function)?;
+    let callee = program
+        .block(target)
+        .ok_or(VerificationError::UnknownCallee(
+            function,
+            operation.id,
+            target,
+        ))?;
+    let expected_kind = if call_instruction == CALL_FC {
+        ProgramUnitKind::Function
+    } else if call_instruction == CALL_FB {
+        ProgramUnitKind::FunctionBlock
+    } else {
+        return Err(VerificationError::UnknownInstruction(
+            function,
+            operation.id,
+            call_instruction,
+        ));
+    };
+    if callee.kind != expected_kind {
+        return Err(VerificationError::InvalidInvocationInstance(
+            function,
+            operation.id,
+        ));
+    }
+    let registry = *phase2_instruction_registry();
+    let call_definition =
+        registry
+            .lookup(call_instruction)
+            .ok_or(VerificationError::UnknownInstruction(
+                function,
+                operation.id,
+                call_instruction,
+            ))?;
+    let mut seen_inputs = BTreeSet::new();
+    for input in inputs {
+        let IrFormalRef::BlockMember(member_id) = input.formal else {
+            return Err(VerificationError::InvalidInvocationFormal(
+                function,
+                operation.id,
+                input.formal,
+            ));
+        };
+        let member = callee.interface.member(member_id).ok_or(
+            VerificationError::InvalidInvocationFormal(function, operation.id, input.formal),
+        )?;
+        if !matches!(member.role, InterfaceRole::Input | InterfaceRole::InOut) {
+            return Err(VerificationError::InvalidInvocationFormal(
+                function,
+                operation.id,
+                input.formal,
+            ));
+        }
+        let expected = IrType::from_program_type(&member.data_type)
+            .ok_or(VerificationError::TypeMismatch(function, operation.id))?;
+        if values.get(&input.value) != Some(&expected) {
+            return Err(VerificationError::TypeMismatch(function, operation.id));
+        }
+        seen_inputs.insert(member_id);
+    }
+    let mut seen_outputs = BTreeSet::new();
+    let mut declared_outputs = BTreeMap::new();
+    for output in outputs {
+        match output.formal {
+            IrFormalRef::BlockMember(member_id) => {
+                let member = callee.interface.member(member_id).ok_or(
+                    VerificationError::InvalidInvocationFormal(
+                        function,
+                        operation.id,
+                        output.formal,
+                    ),
+                )?;
+                if !matches!(
+                    member.role,
+                    InterfaceRole::Output | InterfaceRole::InOut | InterfaceRole::Return
+                ) {
+                    return Err(VerificationError::InvalidInvocationFormal(
+                        function,
+                        operation.id,
+                        output.formal,
+                    ));
+                }
+                let expected = IrType::from_program_type(&member.data_type)
+                    .ok_or(VerificationError::TypeMismatch(function, operation.id))?;
+                if output.data_type != expected {
+                    return Err(VerificationError::TypeMismatch(function, operation.id));
+                }
+                seen_outputs.insert(member_id);
+            }
+            IrFormalRef::Instruction(formal_id) => {
+                let formal = call_definition.formal(formal_id).ok_or(
+                    VerificationError::InvalidInvocationFormal(
+                        function,
+                        operation.id,
+                        output.formal,
+                    ),
+                )?;
+                if formal.direction != InstructionFormalDirection::Status
+                    || output.data_type != IrType::Bool
+                {
+                    return Err(VerificationError::InvalidInvocationFormal(
+                        function,
+                        operation.id,
+                        output.formal,
+                    ));
+                }
+            }
+        }
+        declared_outputs.insert(output.formal, output.data_type.clone());
+    }
+    for member in callee.interface.members.values() {
+        let input_required = match member.role {
+            InterfaceRole::Input => member.default_value.is_none(),
+            InterfaceRole::InOut => true,
+            _ => false,
+        };
+        if input_required && !seen_inputs.contains(&member.id) {
+            return Err(VerificationError::MissingInvocationFormal(
+                function,
+                operation.id,
+                IrFormalRef::BlockMember(member.id),
+            ));
+        }
+        let output_required = member.role == InterfaceRole::InOut
+            || (matches!(member.role, InterfaceRole::Output | InterfaceRole::Return)
+                && member.required_output_binding);
+        if output_required && !seen_outputs.contains(&member.id) {
+            return Err(VerificationError::MissingInvocationFormal(
+                function,
+                operation.id,
+                IrFormalRef::BlockMember(member.id),
+            ));
+        }
+    }
+    let mut registry_bindings = BTreeMap::new();
+    add_and_verify_instance_binding(
+        call_definition.state_requirement,
+        instance,
+        Some((program, target)),
+        &mut registry_bindings,
+        operation,
+        function,
+    )?;
+    add_and_verify_activation_bindings(
+        call_definition.activation,
+        activation,
+        outputs,
+        values,
+        &mut registry_bindings,
+        operation,
+        function,
+    )?;
+    registry
+        .bind_types(
+            call_instruction,
+            registry_bindings
+                .into_iter()
+                .map(|(formal, data_type)| BoundInstructionFormal { formal, data_type }),
+        )
+        .map_err(|error| instruction_binding_error(error, function, operation.id))?;
+    Ok(VerifiedInvocation {
+        outputs: declared_outputs,
+    })
+}
+
+fn ensure_canonical_bindings(
+    operation: &IrOperation,
+    inputs: &[IrBoundInput],
+    outputs: &[IrDeclaredOutput],
+    function: BlockId,
+) -> Result<(), VerificationError> {
+    let inputs_canonical = inputs
+        .windows(2)
+        .all(|pair| pair[0].formal < pair[1].formal);
+    let outputs_canonical = outputs
+        .windows(2)
+        .all(|pair| pair[0].formal < pair[1].formal);
+    if !inputs_canonical || !outputs_canonical {
+        return Err(VerificationError::NonCanonicalInvocation(
+            function,
+            operation.id,
+        ));
+    }
     Ok(())
+}
+
+fn insert_bound_type(
+    bindings: &mut BTreeMap<InstructionFormalId, DataType>,
+    formal: InstructionFormalId,
+    data_type: DataType,
+    operation: &IrOperation,
+    function: BlockId,
+) -> Result<(), VerificationError> {
+    if let Some(previous) = bindings.get(&formal) {
+        if previous != &data_type {
+            return Err(VerificationError::TypeMismatch(function, operation.id));
+        }
+        return Ok(());
+    }
+    bindings.insert(formal, data_type);
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_and_verify_activation_bindings(
+    policy: InstructionActivationPolicy,
+    activation: Option<&IrActivation>,
+    outputs: &[IrDeclaredOutput],
+    values: &BTreeMap<IrValueId, IrType>,
+    bindings: &mut BTreeMap<InstructionFormalId, DataType>,
+    operation: &IrOperation,
+    function: BlockId,
+) -> Result<(), VerificationError> {
+    match (policy, activation) {
+        (InstructionActivationPolicy::None, None) => {}
+        (InstructionActivationPolicy::None, Some(_)) => {
+            return Err(VerificationError::InvalidActivation(function, operation.id));
+        }
+        (InstructionActivationPolicy::EnableStatus { status, .. }, None) => {
+            if outputs
+                .iter()
+                .any(|output| output.formal == IrFormalRef::Instruction(status))
+            {
+                return Err(VerificationError::InvalidActivation(function, operation.id));
+            }
+        }
+        (
+            InstructionActivationPolicy::EnableStatus {
+                enable,
+                status,
+                status_when_disabled,
+                when_disabled,
+            },
+            Some(actual),
+        ) => {
+            if actual.enable_formal != enable
+                || actual.status_formal != status
+                || actual.status_when_disabled != status_when_disabled
+                || actual.when_disabled != when_disabled
+                || values.get(&actual.enable) != Some(&IrType::Bool)
+                || !outputs.iter().any(|output| {
+                    output.formal == IrFormalRef::Instruction(status)
+                        && output.data_type == IrType::Bool
+                })
+            {
+                return Err(VerificationError::InvalidActivation(function, operation.id));
+            }
+            insert_bound_type(bindings, enable, DataType::Bool, operation, function)?;
+            insert_bound_type(bindings, status, DataType::Bool, operation, function)?;
+        }
+    }
+    Ok(())
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_and_verify_instance_binding(
+    requirement: StateRequirement,
+    instance: Option<&IrInstanceIdentity>,
+    block_target: Option<(&ControllerProgram, BlockId)>,
+    bindings: &mut BTreeMap<InstructionFormalId, DataType>,
+    operation: &IrOperation,
+    function: BlockId,
+) -> Result<(), VerificationError> {
+    let valid = match (requirement, instance) {
+        (StateRequirement::None, None) => true,
+        (
+            StateRequirement::Explicit(expected),
+            Some(IrInstanceIdentity::Instruction { stable_id, kind }),
+        ) if *stable_id != 0 && *kind == expected => {
+            insert_bound_type(
+                bindings,
+                plc_program::FORMAL_STATE,
+                DataType::InstructionState(expected),
+                operation,
+                function,
+            )?;
+            true
+        }
+        (
+            StateRequirement::FunctionBlockInstance,
+            Some(IrInstanceIdentity::FunctionBlock(path)),
+        ) => {
+            let Some((program, target)) = block_target else {
+                return Err(VerificationError::InvalidInvocationInstance(
+                    function,
+                    operation.id,
+                ));
+            };
+            if !instance_path_targets(program, path, target) {
+                return Err(VerificationError::InvalidInvocationInstance(
+                    function,
+                    operation.id,
+                ));
+            }
+            insert_bound_type(
+                bindings,
+                plc_program::FORMAL_STATE,
+                DataType::BlockInstance(target),
+                operation,
+                function,
+            )?;
+            true
+        }
+        _ => false,
+    };
+    if !valid {
+        return Err(VerificationError::InvalidInvocationInstance(
+            function,
+            operation.id,
+        ));
+    }
+    Ok(())
+}
+
+fn instance_path_targets(
+    program: &ControllerProgram,
+    path: &InstancePath,
+    target: BlockId,
+) -> bool {
+    let Some(root) = program.block(path.root_instance_db) else {
+        return false;
+    };
+    let ProgramUnitKind::DataBlock(DataBlockKind::Instance { mut fb_type }) = root.kind else {
+        return false;
+    };
+    for member_id in &path.multi_instance_slots {
+        let Some(fb) = program.block(fb_type) else {
+            return false;
+        };
+        let Some(member) = fb.interface.member(*member_id) else {
+            return false;
+        };
+        let DataType::BlockInstance(next) = member.data_type else {
+            return false;
+        };
+        if member.role != InterfaceRole::Static {
+            return false;
+        }
+        fb_type = next;
+    }
+    fb_type == target
+}
+
+fn instruction_binding_error(
+    error: plc_program::InstructionBindingError,
+    function: BlockId,
+    operation: IrOperationId,
+) -> VerificationError {
+    match error {
+        plc_program::InstructionBindingError::UnknownInstruction(instruction) => {
+            VerificationError::UnknownInstruction(function, operation, instruction)
+        }
+        plc_program::InstructionBindingError::UnknownFormal(_, formal)
+        | plc_program::InstructionBindingError::DuplicateFormal(_, formal)
+        | plc_program::InstructionBindingError::TypeConstraint(_, formal) => {
+            VerificationError::InvalidInvocationFormal(
+                function,
+                operation,
+                IrFormalRef::Instruction(formal),
+            )
+        }
+        plc_program::InstructionBindingError::MissingRequiredFormal(_, formal) => {
+            VerificationError::MissingInvocationFormal(
+                function,
+                operation,
+                IrFormalRef::Instruction(formal),
+            )
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -825,8 +1531,116 @@ fn encode_operation(hasher: &mut CanonicalHasher, operation: &IrOperation) {
             hasher.u32(source.get());
             encode_type(hasher, destination);
         }
+        IrOperationKind::InvokeInstruction {
+            instruction,
+            inputs,
+            outputs,
+            instance,
+            activation,
+        } => {
+            hasher.u8(7);
+            hasher.u16(instruction.0);
+            encode_invocation(
+                hasher,
+                inputs,
+                outputs,
+                instance.as_ref(),
+                activation.as_ref(),
+            );
+        }
+        IrOperationKind::CallBlock {
+            call_instruction,
+            target,
+            inputs,
+            outputs,
+            instance,
+            activation,
+        } => {
+            hasher.u8(8);
+            hasher.u16(call_instruction.0);
+            hasher.u128(target.get());
+            encode_invocation(
+                hasher,
+                inputs,
+                outputs,
+                instance.as_ref(),
+                activation.as_ref(),
+            );
+        }
+        IrOperationKind::InvocationOutput { invocation, formal } => {
+            hasher.u8(9);
+            hasher.u32(invocation.get());
+            encode_formal(hasher, *formal);
+        }
     }
     hasher.string(operation.kind.runtime_operation().0);
+}
+
+fn encode_invocation(
+    hasher: &mut CanonicalHasher,
+    inputs: &[IrBoundInput],
+    outputs: &[IrDeclaredOutput],
+    instance: Option<&IrInstanceIdentity>,
+    activation: Option<&IrActivation>,
+) {
+    hasher.u64(inputs.len() as u64);
+    for input in inputs {
+        encode_formal(hasher, input.formal);
+        hasher.u32(input.value.get());
+    }
+    hasher.u64(outputs.len() as u64);
+    for output in outputs {
+        encode_formal(hasher, output.formal);
+        encode_type(hasher, &output.data_type);
+    }
+    match instance {
+        None => hasher.u8(0),
+        Some(IrInstanceIdentity::Instruction { stable_id, kind }) => {
+            hasher.u8(1);
+            hasher.u128(*stable_id);
+            hasher.u8(match kind {
+                StateKind::Edge => 1,
+                StateKind::Timer => 2,
+                StateKind::Counter => 3,
+            });
+        }
+        Some(IrInstanceIdentity::FunctionBlock(path)) => {
+            hasher.u8(2);
+            hasher.u128(path.root_instance_db.get());
+            hasher.u64(path.multi_instance_slots.len() as u64);
+            for member in &path.multi_instance_slots {
+                hasher.u128(member.get());
+            }
+        }
+    }
+    match activation {
+        None => hasher.bool(false),
+        Some(activation) => {
+            hasher.bool(true);
+            hasher.u32(activation.enable.get());
+            hasher.u16(activation.enable_formal.0);
+            hasher.u16(activation.status_formal.0);
+            hasher.bool(activation.status_when_disabled);
+            hasher.u8(match activation.when_disabled {
+                DisabledExecutionBehavior::DefaultOutputsNoStateChange => 1,
+                DisabledExecutionBehavior::PreserveOutputsNoStateChange => 2,
+                DisabledExecutionBehavior::SuppressEffects => 3,
+            });
+        }
+    }
+}
+
+fn encode_formal(hasher: &mut CanonicalHasher, formal: IrFormalRef) {
+    match formal {
+        IrFormalRef::Instruction(formal) => {
+            hasher.u8(1);
+            hasher.u16(formal.0);
+        }
+        IrFormalRef::BlockMember(member) => {
+            hasher.u8(2);
+            hasher.u128(member.get());
+        }
+    }
 }
 
 fn encode_terminator(hasher: &mut CanonicalHasher, terminator: &IrTerminatorKind) {
@@ -934,10 +1748,35 @@ fn encode_anchor(hasher: &mut CanonicalHasher, anchor: &SourceAnchor) {
     hasher.hash(anchor.source_revision_hash);
     hasher.u8(match anchor.language {
         crate::SourceLanguage::Scl => 1,
+        crate::SourceLanguage::Lad => 2,
+        crate::SourceLanguage::Fbd => 3,
     });
     hasher.u32(anchor.semantic_node_id.get());
-    hasher.u32(anchor.text_range.start);
-    hasher.u32(anchor.text_range.end);
+    match anchor.text_range {
+        Some(range) => {
+            hasher.bool(true);
+            hasher.u32(range.start);
+            hasher.u32(range.end);
+        }
+        None => hasher.bool(false),
+    }
+    for value in [
+        anchor.network_id,
+        anchor.node_id,
+        anchor.port_id,
+        anchor.edge_id,
+        anchor.operand_id,
+        anchor.call_site_id,
+        anchor.state_instance_id,
+    ] {
+        match value {
+            Some(value) => {
+                hasher.bool(true);
+                hasher.u128(value);
+            }
+            None => hasher.bool(false),
+        }
+    }
 }
 
 const fn unary_tag(value: UnaryOperator) -> u8 {
@@ -975,5 +1814,10 @@ const fn probe_kind_tag(value: ProbeKind) -> u8 {
         ProbeKind::Expression => 4,
         ProbeKind::Branch => 5,
         ProbeKind::Return => 6,
+        ProbeKind::NetworkPower => 7,
+        ProbeKind::PortValue => 8,
+        ProbeKind::EdgeValue => 9,
+        ProbeKind::Call => 10,
+        ProbeKind::State => 11,
     }
 }

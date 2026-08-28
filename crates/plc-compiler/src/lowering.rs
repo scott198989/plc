@@ -3,12 +3,14 @@ use alloc::{collections::BTreeMap, vec::Vec};
 use plc_program::{BlockId, DataType};
 
 use crate::{
-    BinaryOperator, IrBasicBlock, IrBasicBlockId, IrFunction, IrOperation, IrOperationId,
-    IrOperationKind, IrTerminator, IrTerminatorKind, IrType, IrValue, IrValueId, ProbeDefinition,
-    ProbeId, ProbeKind, ProbeTable, SclSource, SourceAnchor, SourceLanguage, SourceMapEntry,
-    SourceMapId, SourceMapSite, SourceMapTable, TYPED_IR_VERSION, TypedIrProgram, UnaryOperator,
+    BinaryOperator, IrBasicBlock, IrBasicBlockId, IrBoundInput, IrDeclaredOutput, IrFormalRef,
+    IrFunction, IrOperation, IrOperationId, IrOperationKind, IrTerminator, IrTerminatorKind,
+    IrType, IrValue, IrValueId, ProbeDefinition, ProbeId, ProbeKind, ProbeTable, SclSource,
+    SourceAnchor, SourceMapEntry, SourceMapId, SourceMapSite, SourceMapTable, TYPED_IR_VERSION,
+    TypedIrProgram, UnaryOperator,
     scl::{
-        BinaryOp, TypedBlock, TypedExpr, TypedExprKind, TypedStatement, TypedStatementKind, UnaryOp,
+        BinaryOp, TypedBlock, TypedCall, TypedExpr, TypedExprKind, TypedStatement,
+        TypedStatementKind, UnaryOp,
     },
 };
 
@@ -73,16 +75,15 @@ impl LoweringContext {
         let entry = builder.new_block()?;
         let end = builder.lower_statements(&typed.statements, Some(entry))?;
         if let Some(end) = end {
-            let causal = SourceAnchor {
-                owner_object_id: typed.owner,
-                source_revision_hash: source.revision_hash(),
-                language: SourceLanguage::Scl,
-                semantic_node_id: crate::SemanticNodeId::new(0),
-                text_range: crate::TextRange {
+            let causal = SourceAnchor::scl(
+                typed.owner,
+                source.revision_hash(),
+                crate::SemanticNodeId::new(0),
+                crate::TextRange {
                     start: 0,
                     end: u32::try_from(source.text().len()).unwrap_or(u32::MAX),
                 },
-            };
+            );
             builder.terminate(
                 end,
                 IrTerminatorKind::Return,
@@ -232,6 +233,10 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
                     branches,
                     else_body,
                 } => self.lower_if(block, statement, branches, else_body)?,
+                TypedStatementKind::Call(call) => {
+                    self.lower_call(block, statement, call)?;
+                    Some(block)
+                }
                 TypedStatementKind::Return => {
                     self.terminate(
                         block,
@@ -246,6 +251,72 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
             };
         }
         Ok(current)
+    }
+
+    fn lower_call(
+        &mut self,
+        block: IrBasicBlockId,
+        statement: &TypedStatement,
+        call: &TypedCall,
+    ) -> Result<(), LoweringError> {
+        let mut inputs = Vec::with_capacity(call.inputs.len());
+        for input in &call.inputs {
+            inputs.push(IrBoundInput {
+                formal: IrFormalRef::BlockMember(input.formal),
+                value: self.lower_expr(block, &input.value)?,
+            });
+        }
+        let mut outputs = Vec::with_capacity(call.outputs.len());
+        for output in &call.outputs {
+            outputs.push(IrDeclaredOutput {
+                formal: IrFormalRef::BlockMember(output.formal),
+                data_type: IrType::from_program_type(&output.target.data_type).ok_or_else(
+                    || LoweringError::UnsupportedType(output.target.data_type.clone()),
+                )?,
+            });
+        }
+        let anchor = self.anchor(statement.id, statement.range);
+        let (invocation, _) = self.emit_identified(
+            block,
+            None,
+            IrOperationKind::CallBlock {
+                call_instruction: call.instruction,
+                target: call.target,
+                inputs,
+                outputs,
+                instance: None,
+                activation: None,
+            },
+            anchor.clone(),
+            ProbeKind::Call,
+        )?;
+        for output in &call.outputs {
+            let data_type = IrType::from_program_type(&output.target.data_type)
+                .ok_or_else(|| LoweringError::UnsupportedType(output.target.data_type.clone()))?;
+            let value = self
+                .emit(
+                    block,
+                    Some(data_type),
+                    IrOperationKind::InvocationOutput {
+                        invocation,
+                        formal: IrFormalRef::BlockMember(output.formal),
+                    },
+                    anchor.clone(),
+                    ProbeKind::PortValue,
+                )?
+                .ok_or(LoweringError::ErrorNode)?;
+            self.emit(
+                block,
+                None,
+                IrOperationKind::StoreMember {
+                    target: output.target.id,
+                    value,
+                },
+                anchor.clone(),
+                ProbeKind::StorageWrite,
+            )?;
+        }
+        Ok(())
     }
 
     fn lower_if(
@@ -379,6 +450,18 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
         anchor: SourceAnchor,
         probe_kind: ProbeKind,
     ) -> Result<Option<IrValueId>, LoweringError> {
+        self.emit_identified(block, result_type, kind, anchor, probe_kind)
+            .map(|(_, value)| value)
+    }
+
+    fn emit_identified(
+        &mut self,
+        block: IrBasicBlockId,
+        result_type: Option<IrType>,
+        kind: IrOperationKind,
+        anchor: SourceAnchor,
+        probe_kind: ProbeKind,
+    ) -> Result<(IrOperationId, Option<IrValueId>), LoweringError> {
         let operation_id = self.context.next_operation()?;
         let result = match result_type {
             Some(data_type) => Some(IrValue {
@@ -411,7 +494,7 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
             source_map,
             probe,
         });
-        Ok(value_id)
+        Ok((operation_id, value_id))
     }
 
     fn terminate(
@@ -451,13 +534,7 @@ impl<'a, 'b> FunctionBuilder<'a, 'b> {
     }
 
     fn anchor(&self, node: crate::SemanticNodeId, range: crate::TextRange) -> SourceAnchor {
-        SourceAnchor {
-            owner_object_id: self.owner,
-            source_revision_hash: self.source.revision_hash(),
-            language: SourceLanguage::Scl,
-            semantic_node_id: node,
-            text_range: range,
-        }
+        SourceAnchor::scl(self.owner, self.source.revision_hash(), node, range)
     }
 
     fn finish(self, entry: IrBasicBlockId) -> Result<IrFunction, LoweringError> {
@@ -505,5 +582,121 @@ const fn lower_binary(value: BinaryOp) -> BinaryOperator {
         BinaryOp::And => BinaryOperator::And,
         BinaryOp::Xor => BinaryOperator::Xor,
         BinaryOp::Or => BinaryOperator::Or,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use plc_program::{
+        BlockInterface, ControllerId, ControllerProgram, DataType, EngineeringNumber,
+        InterfaceMember, InterfaceMemberId, InterfaceRole, ObDeclaration, ProgramBlock,
+        ProgramUnitKind,
+    };
+
+    use super::*;
+    use crate::{
+        Hash32, ResourceLimits, RuntimeAdapterError, RuntimeOperationId,
+        project_verified_ir_to_runtime, verify_typed_ir,
+    };
+
+    #[test]
+    #[allow(clippy::similar_names)]
+    fn real_scl_fc_call_lowers_to_verified_shared_ir_and_typed_runtime_gap() {
+        let caller_id = BlockId::new(1);
+        let callee_id = BlockId::new(2);
+        let arg = InterfaceMemberId::new(10);
+        let result = InterfaceMemberId::new(11);
+        let formal_in = InterfaceMemberId::new(20);
+        let formal_out = InterfaceMemberId::new(21);
+        let caller = ProgramBlock::new(
+            caller_id,
+            "Main",
+            EngineeringNumber::new(1).expect("nonzero"),
+            ProgramUnitKind::OrganizationBlock(ObDeclaration::CyclicMain),
+            BlockInterface::from_members([
+                InterfaceMember::plain(arg, "Arg", InterfaceRole::Temp, DataType::DInt, 0),
+                InterfaceMember::plain(result, "Result", InterfaceRole::Temp, DataType::DInt, 1),
+            ]),
+        );
+        let mut output =
+            InterfaceMember::plain(formal_out, "Y", InterfaceRole::Output, DataType::DInt, 0);
+        output.required_output_binding = true;
+        let callee = ProgramBlock::new(
+            callee_id,
+            "Scale",
+            EngineeringNumber::new(2).expect("nonzero"),
+            ProgramUnitKind::Function,
+            BlockInterface::from_members([
+                InterfaceMember::plain(formal_in, "X", InterfaceRole::Input, DataType::DInt, 0),
+                output,
+            ]),
+        );
+        let mut program = ControllerProgram::new(ControllerId::new(1));
+        program.insert_block(caller.clone()).expect("unique caller");
+        program.insert_block(callee).expect("unique callee");
+        let source = SclSource::new(caller_id, "Arg := DINT#2; Scale(X := Arg, Y => Result);");
+        let tree = crate::scl::parse_scl(&source, ResourceLimits::default());
+        assert!(tree.issues().is_empty(), "{:?}", tree.issues());
+        let (typed, issues) = crate::scl::bind_and_typecheck_with_program(&tree, &caller, &program);
+        assert!(issues.is_empty(), "{issues:?}");
+        let lowered = lower_typed_blocks(&[(typed, source)]).expect("shared lowering");
+        let mut tampered_functions = lowered.ir.functions().clone();
+        let operations = &mut tampered_functions
+            .get_mut(&caller_id)
+            .expect("caller function")
+            .blocks
+            .get_mut(&IrBasicBlockId::new(1))
+            .expect("entry block")
+            .operations;
+        let call_operation = operations
+            .iter_mut()
+            .find(|operation| matches!(operation.kind, IrOperationKind::CallBlock { .. }))
+            .expect("lowered call");
+        let IrOperationKind::CallBlock { outputs, .. } = &mut call_operation.kind else {
+            unreachable!("selected operation is a call");
+        };
+        outputs.push(IrDeclaredOutput {
+            formal: IrFormalRef::Instruction(plc_program::FORMAL_INPUT),
+            data_type: IrType::DInt,
+        });
+        outputs.sort_by_key(|output| output.formal);
+        let tampered = TypedIrProgram::from_untrusted_parts(TYPED_IR_VERSION, tampered_functions);
+        assert!(matches!(
+            verify_typed_ir(tampered, &lowered.source_maps, &lowered.probes, &program),
+            Err(crate::VerificationError::InvalidInvocationFormal(
+                owner,
+                _,
+                IrFormalRef::Instruction(plc_program::FORMAL_INPUT)
+            )) if owner == caller_id
+        ));
+        let verified = verify_typed_ir(lowered.ir, &lowered.source_maps, &lowered.probes, &program)
+            .expect("shared verification");
+        let operations =
+            &verified.program().functions()[&caller_id].blocks[&IrBasicBlockId::new(1)].operations;
+        assert!(operations.iter().any(|operation| matches!(
+            operation.kind,
+            IrOperationKind::CallBlock { target, .. } if target == callee_id
+        )));
+        assert!(operations.iter().any(|operation| matches!(
+            operation.kind,
+            IrOperationKind::InvocationOutput {
+                formal: IrFormalRef::BlockMember(member),
+                ..
+            } if member == formal_out
+        )));
+        let runtime = project_verified_ir_to_runtime(
+            &verified,
+            &lowered.source_maps,
+            &lowered.probes,
+            &program,
+            Hash32::ZERO,
+        );
+        assert!(matches!(
+            runtime,
+            Err(RuntimeAdapterError::UnsupportedOperation {
+                semantic_operation: RuntimeOperationId("EDU.RT.CALL_BLOCK.v1"),
+                ..
+            })
+        ));
     }
 }

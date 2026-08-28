@@ -20,13 +20,13 @@ use crate::{
     ARITHMETIC_POLICY_VERSION, BUILD_ARTIFACT_SCHEMA, BuildAttemptId, BuildDiagnostic,
     COMPILER_SEMANTICS_VERSION, CONVERSION_POLICY_VERSION, CancellationToken, DiagnosticCode,
     DiagnosticParameter, DiagnosticTarget, PROBE_SCHEMA_VERSION, ProbeTable, ResourceLimit,
-    ResourceLimits, SclSource, SemanticNodeId, SourceAnchor, SourceLanguage, SourceMapTable,
-    TYPE_SYSTEM_VERSION, VerifiedIr,
+    ResourceLimits, SclSource, SemanticNodeId, SourceAnchor, SourceMapTable, TYPE_SYSTEM_VERSION,
+    VerifiedIr,
     diagnostic::{RegistryError, phase2_diagnostic_registry},
     hash::CanonicalHasher,
     limits::{WorkMeter, WorkStop},
     lowering::lower_typed_blocks,
-    scl::{SyntaxTree, bind_and_typecheck, parse_scl},
+    scl::{SyntaxTree, bind_and_typecheck_with_program, parse_scl},
     verify_typed_ir,
 };
 
@@ -54,6 +54,7 @@ impl CompilerProfile {
         let version = String::from("1.0");
         let capabilities = vec![
             "scl.assignment".into(),
+            "scl.call.fc".into(),
             "scl.expression.baseline".into(),
             "scl.if".into(),
             "scl.return".into(),
@@ -536,7 +537,7 @@ impl BuildArtifact {
     pub fn runtime_projection(
         &self,
     ) -> Result<crate::RuntimeArtifactProjection, crate::RuntimeAdapterError> {
-        crate::runtime_adapter::lower_verified_ir_to_runtime(
+        crate::runtime_adapter::project_verified_ir_to_runtime(
             &self.verified_ir,
             &self.source_maps,
             &self.probe_table,
@@ -775,7 +776,8 @@ impl BuildContext<'_> {
                     )?;
                 }
             }
-            let (typed_block, issues) = bind_and_typecheck(tree, block);
+            let (typed_block, issues) =
+                bind_and_typecheck_with_program(tree, block, &self.attempt.snapshot.program);
             let source = self
                 .attempt
                 .snapshot
@@ -795,6 +797,7 @@ impl BuildContext<'_> {
         self.stage(CompilerStage::CapabilityAndResourceValidation, 1)?;
         for required in [
             "scl.assignment",
+            "scl.call.fc",
             "scl.expression.baseline",
             "scl.if",
             "scl.return",
@@ -1046,13 +1049,12 @@ impl BuildContext<'_> {
         source: &SclSource,
         issue: &crate::scl::SclIssue,
     ) -> Result<(), WorkStop> {
-        let anchor = SourceAnchor {
-            owner_object_id: block,
-            source_revision_hash: source.revision_hash(),
-            language: SourceLanguage::Scl,
-            semantic_node_id: issue.semantic_node.unwrap_or(SemanticNodeId::new(0)),
-            text_range: issue.range,
-        };
+        let anchor = SourceAnchor::scl(
+            block,
+            source.revision_hash(),
+            issue.semantic_node.unwrap_or(SemanticNodeId::new(0)),
+            issue.range,
+        );
         self.push(BuildDiagnostic::new(
             self.attempt.id,
             self.attempt.snapshot.snapshot_hash,

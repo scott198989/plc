@@ -76,8 +76,25 @@ pub(crate) enum StatementKind {
         branches: Vec<(Expr, Vec<Statement>)>,
         else_body: Vec<Statement>,
     },
+    Call {
+        callee: Name,
+        arguments: Vec<CallArgument>,
+    },
     Return,
     Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct CallArgument {
+    pub formal: Name,
+    pub range: TextRange,
+    pub actual: CallActual,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum CallActual {
+    Input(Expr),
+    Output(Name),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -207,6 +224,7 @@ impl Parser {
 
     fn parse_statement(&mut self) -> Statement {
         match self.current().kind {
+            TokenKind::Identifier if self.peek_kind(1) == TokenKind::LeftParen => self.parse_call(),
             TokenKind::Identifier => self.parse_assignment(),
             TokenKind::If => self.parse_if(),
             TokenKind::Return => self.parse_return(),
@@ -236,10 +254,7 @@ impl Parser {
             range: name_token.range,
         };
         let id = self.node_id();
-        if matches!(
-            self.current().kind,
-            TokenKind::Dot | TokenKind::LeftBracket | TokenKind::LeftParen
-        ) {
+        if matches!(self.current().kind, TokenKind::Dot | TokenKind::LeftBracket) {
             let start = name_token.range.start;
             self.issue(
                 DiagnosticCode::RECOGNIZED_UNSUPPORTED_SYNTAX,
@@ -275,6 +290,103 @@ impl Parser {
                 target: name,
                 value,
             },
+        }
+    }
+
+    fn parse_call(&mut self) -> Statement {
+        let callee_token = self.advance();
+        let callee = Name {
+            spelling: self.text(callee_token.range).into(),
+            range: callee_token.range,
+        };
+        let id = self.node_id();
+        self.consume(TokenKind::LeftParen);
+        let mut arguments = Vec::new();
+        while self.current().kind != TokenKind::RightParen && self.current().kind != TokenKind::Eof
+        {
+            let formal_token = *self.current();
+            if formal_token.kind != TokenKind::Identifier {
+                self.issue(
+                    DiagnosticCode::MALFORMED_STRUCTURE,
+                    formal_token.range,
+                    Some(id),
+                    "call arguments require a named formal",
+                );
+                self.recover_call_argument();
+                if self.consume(TokenKind::Comma) {
+                    continue;
+                }
+                break;
+            }
+            self.advance();
+            let formal = Name {
+                spelling: self.text(formal_token.range).into(),
+                range: formal_token.range,
+            };
+            let actual = if self.consume(TokenKind::Assign) {
+                CallActual::Input(self.parse_expression(0, 0))
+            } else if self.consume(TokenKind::BindOutput) {
+                let actual_token = *self.current();
+                if actual_token.kind == TokenKind::Identifier {
+                    self.advance();
+                    CallActual::Output(Name {
+                        spelling: self.text(actual_token.range).into(),
+                        range: actual_token.range,
+                    })
+                } else {
+                    self.missing(
+                        TokenKind::Identifier,
+                        "output call binding requires a writable identifier",
+                    );
+                    CallActual::Output(Name {
+                        spelling: String::new(),
+                        range: TextRange::empty(actual_token.range.start),
+                    })
+                }
+            } else {
+                self.missing(
+                    TokenKind::Assign,
+                    "call argument requires ':=' input or '=>' output binding",
+                );
+                self.recover_call_argument();
+                CallActual::Input(self.error_expr(formal.range))
+            };
+            let range = TextRange {
+                start: formal.range.start,
+                end: match &actual {
+                    CallActual::Input(expression) => expression.range.end,
+                    CallActual::Output(name) => name.range.end,
+                },
+            };
+            arguments.push(CallArgument {
+                formal,
+                range,
+                actual,
+            });
+            if !self.consume(TokenKind::Comma) {
+                break;
+            }
+        }
+        if !self.consume(TokenKind::RightParen) {
+            self.missing(TokenKind::RightParen, "call argument list requires ')'");
+        }
+        let end = self.require_semicolon();
+        Statement {
+            id,
+            range: TextRange {
+                start: callee.range.start,
+                end,
+            },
+            kind: StatementKind::Call { callee, arguments },
+        }
+    }
+
+    fn recover_call_argument(&mut self) {
+        while !matches!(
+            self.current().kind,
+            TokenKind::Comma | TokenKind::RightParen | TokenKind::Eof
+        ) {
+            self.advance();
         }
     }
 
@@ -625,6 +737,13 @@ impl Parser {
 
     fn current(&self) -> &Token {
         &self.tokens[self.index.min(self.tokens.len() - 1)]
+    }
+
+    fn peek_kind(&self, offset: usize) -> TokenKind {
+        self.tokens
+            .get(self.index.saturating_add(offset))
+            .unwrap_or_else(|| self.tokens.last().expect("lexer always emits EOF"))
+            .kind
     }
 
     fn advance(&mut self) -> Token {

@@ -49,7 +49,10 @@ fn public_analysis_reuses_real_binding_typing_and_source_identity() {
         );
         assert_eq!(occurrence.source.language, SourceLanguage::Scl);
         assert_eq!(
-            source.range_text(occurrence.source.text_range),
+            occurrence
+                .source
+                .text_range
+                .and_then(|range| source.range_text(range)),
             Some(occurrence.spelling.as_str())
         );
     }

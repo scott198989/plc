@@ -7,10 +7,12 @@ use plc_compiler::{
     LineColumn, ResourceLimits, SclSource, SourceAnchor, TextRange,
     scl::{
         SclOccurrenceResolution, SclSemanticSnapshot, SclSemanticSymbol, SclSymbolOccurrence,
-        TokenKind, analyze_scl, lex_scl,
+        TokenKind, analyze_scl, analyze_scl_with_program, lex_scl,
     },
 };
-use plc_program::{BlockId, DataType, InterfaceMemberId, InterfaceRole, ProgramBlock};
+use plc_program::{
+    BlockId, ControllerProgram, DataType, InterfaceMemberId, InterfaceRole, ProgramBlock,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum CompletionKind {
@@ -87,11 +89,24 @@ pub enum RenameError {
     NameCollision(InterfaceMemberId),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SignatureHelp {
-    /// The compiler's initial SCL grammar intentionally has no call syntax.
-    /// Returning this typed state prevents a UI from implying fake signatures.
-    NoCallableSyntaxInInitialProfile,
+    Call {
+        target: BlockId,
+        name: String,
+        formals: Vec<SignatureFormal>,
+    },
+    NotAtCallable,
+    ProgramContextRequired,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SignatureFormal {
+    pub member: InterfaceMemberId,
+    pub name: String,
+    pub role: InterfaceRole,
+    pub data_type: DataType,
+    pub required: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -123,6 +138,7 @@ pub enum SemanticTokenKind {
 pub struct SclLanguageService {
     snapshot: SclSemanticSnapshot,
     limits: ResourceLimits,
+    program: Option<ControllerProgram>,
 }
 
 impl SclLanguageService {
@@ -131,6 +147,21 @@ impl SclLanguageService {
         Self {
             snapshot: analyze_scl(source, block, limits),
             limits,
+            program: None,
+        }
+    }
+
+    #[must_use]
+    pub fn analyze_with_program(
+        source: &SclSource,
+        block: &ProgramBlock,
+        program: &ControllerProgram,
+        limits: ResourceLimits,
+    ) -> Self {
+        Self {
+            snapshot: analyze_scl_with_program(source, block, program, limits),
+            limits,
+            program: Some(program.clone()),
         }
     }
 
@@ -187,7 +218,11 @@ impl SclLanguageService {
         if let Some(occurrence) = occurrence_at(&self.snapshot, byte_offset) {
             return Some(match occurrence.resolution {
                 SclOccurrenceResolution::Resolved => HoverInfo::Symbol {
-                    definition: definition_for_occurrence(&self.snapshot, occurrence)?,
+                    definition: definition_for_occurrence(
+                        &self.snapshot,
+                        occurrence,
+                        self.program.as_ref(),
+                    )?,
                     access: occurrence.access,
                     source: occurrence.source.clone(),
                 },
@@ -203,8 +238,12 @@ impl SclLanguageService {
         self.snapshot
             .type_facts()
             .iter()
-            .filter(|fact| range_contains(fact.source.text_range, byte_offset))
-            .min_by_key(|fact| fact.source.text_range.len())
+            .filter(|fact| {
+                fact.source
+                    .text_range
+                    .is_some_and(|range| range_contains(range, byte_offset))
+            })
+            .min_by_key(|fact| fact.source.text_range.map_or(u32::MAX, TextRange::len))
             .map(|fact| HoverInfo::ExpressionType {
                 data_type: fact.data_type.clone(),
                 source: fact.source.clone(),
@@ -213,7 +252,11 @@ impl SclLanguageService {
 
     #[must_use]
     pub fn definition(&self, byte_offset: u32) -> Option<SymbolDefinition> {
-        definition_for_occurrence(&self.snapshot, occurrence_at(&self.snapshot, byte_offset)?)
+        definition_for_occurrence(
+            &self.snapshot,
+            occurrence_at(&self.snapshot, byte_offset)?,
+            self.program.as_ref(),
+        )
     }
 
     #[must_use]
@@ -280,8 +323,48 @@ impl SclLanguageService {
     }
 
     #[must_use]
-    pub const fn signature_help(&self, _byte_offset: u32) -> SignatureHelp {
-        SignatureHelp::NoCallableSyntaxInInitialProfile
+    pub fn signature_help(&self, byte_offset: u32) -> SignatureHelp {
+        let Some(program) = &self.program else {
+            return SignatureHelp::ProgramContextRequired;
+        };
+        let Some(target) = occurrence_at(&self.snapshot, byte_offset)
+            .and_then(|occurrence| occurrence.definition_owner)
+            .and_then(|owner| program.block(owner))
+        else {
+            return SignatureHelp::NotAtCallable;
+        };
+        let formals = target
+            .interface
+            .ordered_member_ids
+            .iter()
+            .filter_map(|id| target.interface.member(*id))
+            .filter(|member| {
+                matches!(
+                    member.role,
+                    InterfaceRole::Input
+                        | InterfaceRole::Output
+                        | InterfaceRole::InOut
+                        | InterfaceRole::Return
+                )
+            })
+            .map(|member| SignatureFormal {
+                member: member.id,
+                name: member.name.clone(),
+                role: member.role,
+                data_type: member.data_type.clone(),
+                required: match member.role {
+                    InterfaceRole::Input => member.default_value.is_none(),
+                    InterfaceRole::InOut => true,
+                    InterfaceRole::Output | InterfaceRole::Return => member.required_output_binding,
+                    InterfaceRole::Static | InterfaceRole::Temp | InterfaceRole::Constant => false,
+                },
+            })
+            .collect();
+        SignatureHelp::Call {
+            target: target.id,
+            name: target.display_name.clone(),
+            formals,
+        }
     }
 
     #[must_use]
@@ -304,7 +387,7 @@ impl SclLanguageService {
                 .snapshot
                 .occurrences()
                 .iter()
-                .find(|occurrence| occurrence.source.text_range == range)
+                .find(|occurrence| occurrence.source.text_range == Some(range))
                 .map_or(
                     SemanticTokenKind::Identifier,
                     |occurrence| match occurrence.resolution {
@@ -347,13 +430,24 @@ fn occurrence_at(snapshot: &SclSemanticSnapshot, byte_offset: u32) -> Option<&Sc
     snapshot
         .occurrences()
         .iter()
-        .filter(|occurrence| range_contains(occurrence.source.text_range, byte_offset))
-        .min_by_key(|occurrence| occurrence.source.text_range.len())
+        .filter(|occurrence| {
+            occurrence
+                .source
+                .text_range
+                .is_some_and(|range| range_contains(range, byte_offset))
+        })
+        .min_by_key(|occurrence| {
+            occurrence
+                .source
+                .text_range
+                .map_or(u32::MAX, TextRange::len)
+        })
 }
 
 fn definition_for_occurrence(
     snapshot: &SclSemanticSnapshot,
     occurrence: &SclSymbolOccurrence,
+    program: Option<&ControllerProgram>,
 ) -> Option<SymbolDefinition> {
     let member = occurrence.member?;
     snapshot
@@ -361,6 +455,18 @@ fn definition_for_occurrence(
         .iter()
         .find(|symbol| symbol.member == member)
         .map(symbol_definition)
+        .or_else(|| {
+            let owner = occurrence.definition_owner?;
+            let member = program?.block(owner)?.interface.member(member)?;
+            Some(SymbolDefinition {
+                owner,
+                member: member.id,
+                name: member.name.clone(),
+                data_type: member.data_type.clone(),
+                role: member.role,
+                declared_order: member.declared_order,
+            })
+        })
 }
 
 fn symbol_definition(symbol: &SclSemanticSymbol) -> SymbolDefinition {

@@ -1,9 +1,10 @@
 use alloc::{collections::BTreeMap, string::String, vec::Vec};
 
+use plc_compiler::IrFormalRef;
 use plc_core::{Sha256Digest, sha256};
 use plc_program::{
-    BlockId, CanonicalValue, DataType, InstructionCode, InterfaceMemberId, SideEffectClass,
-    StateRequirement, phase2_instruction_registry,
+    BlockId, CanonicalValue, DataType, DisabledExecutionBehavior as RegistryDisabledBehavior,
+    InstructionActivationPolicy, InstructionCode, InterfaceMemberId, phase2_instruction_registry,
 };
 
 use crate::{
@@ -58,6 +59,9 @@ pub struct FbdPort {
     pub activation: ActivationRole,
     pub status: PortStatus,
     pub effect_role: EffectRole,
+    /// Stable registry formal or callee-interface member identity. Primitive
+    /// constant/load/store ports use `None`.
+    pub formal: Option<IrFormalRef>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -280,24 +284,21 @@ pub fn disabled_output_behavior(kind: &NodeKind) -> DisabledOutputBehavior {
         }
         NodeKind::Instruction { code, .. } => phase2_instruction_registry().lookup(*code).map_or(
             DisabledOutputBehavior::NoEffect,
-            |definition| match definition.state_requirement {
-                StateRequirement::Explicit(plc_program::StateKind::Edge) => {
-                    DisabledOutputBehavior::DefaultValue
-                }
-                StateRequirement::Explicit(
-                    plc_program::StateKind::Timer | plc_program::StateKind::Counter,
-                ) => DisabledOutputBehavior::StoredValueWithoutUpdate,
-                StateRequirement::FunctionBlockInstance => DisabledOutputBehavior::NoEffect,
-                StateRequirement::None => match definition.side_effect {
-                    SideEffectClass::Pure => DisabledOutputBehavior::DefaultValue,
-                    SideEffectClass::WritesState => {
-                        DisabledOutputBehavior::StoredValueWithoutUpdate
+            |definition| match definition.activation {
+                InstructionActivationPolicy::None => DisabledOutputBehavior::NoEffect,
+                InstructionActivationPolicy::EnableStatus { when_disabled, .. } => {
+                    match when_disabled {
+                        RegistryDisabledBehavior::DefaultOutputsNoStateChange => {
+                            DisabledOutputBehavior::DefaultValue
+                        }
+                        RegistryDisabledBehavior::PreserveOutputsNoStateChange => {
+                            DisabledOutputBehavior::StoredValueWithoutUpdate
+                        }
+                        RegistryDisabledBehavior::SuppressEffects => {
+                            DisabledOutputBehavior::NoEffect
+                        }
                     }
-                    SideEffectClass::WritesValue
-                    | SideEffectClass::CallsBlock
-                    | SideEffectClass::ControlsFlow
-                    | SideEffectClass::ObservesOnly => DisabledOutputBehavior::NoEffect,
-                },
+                }
             },
         ),
     }
@@ -435,6 +436,17 @@ fn encode_port(bytes: &mut Vec<u8>, port: &FbdPort) {
         EffectRole::State => 5,
         EffectRole::Execution => 6,
     });
+    match port.formal {
+        None => bytes.push(0),
+        Some(IrFormalRef::Instruction(formal)) => {
+            bytes.push(1);
+            push_u16(bytes, formal.0);
+        }
+        Some(IrFormalRef::BlockMember(member)) => {
+            bytes.push(2);
+            push_u128(bytes, member.get());
+        }
+    }
 }
 
 fn encode_type(bytes: &mut Vec<u8>, data_type: &DataType) {

@@ -5,18 +5,18 @@ use alloc::{
 };
 
 use plc_program::{
-    BlockId, CanonicalValue, DataType, InterfaceMember, InterfaceMemberId, InterfaceRole,
-    ProgramBlock, ProgramUnitKind,
+    BlockId, CALL_FC, CanonicalValue, ControllerProgram, DataType, InterfaceMember,
+    InterfaceMemberId, InterfaceRole, ProgramBlock, ProgramUnitKind,
 };
 
 use crate::{
     DiagnosticCode, ResourceLimit, ResourceLimits, SclSource, SemanticNodeId, SourceAnchor,
-    SourceLanguage, TextRange,
+    TextRange,
 };
 
 use super::{
-    BinaryOp, Expr, ExprKind, Literal, MissingToken, SclIssue, Statement, StatementKind,
-    SyntaxTree, UnaryOp, parse_scl,
+    BinaryOp, CallActual, CallArgument, Expr, ExprKind, Literal, MissingToken, SclIssue, Statement,
+    StatementKind, SyntaxTree, UnaryOp, parse_scl,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -51,6 +51,7 @@ pub struct SclSymbolOccurrence {
     pub member: Option<InterfaceMemberId>,
     pub data_type: Option<DataType>,
     pub role: Option<InterfaceRole>,
+    pub definition_owner: Option<BlockId>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -119,6 +120,25 @@ pub fn analyze_scl(
     block: &ProgramBlock,
     limits: ResourceLimits,
 ) -> SclSemanticSnapshot {
+    analyze_scl_inner(source, block, None, limits)
+}
+
+#[must_use]
+pub fn analyze_scl_with_program(
+    source: &SclSource,
+    block: &ProgramBlock,
+    program: &ControllerProgram,
+    limits: ResourceLimits,
+) -> SclSemanticSnapshot {
+    analyze_scl_inner(source, block, Some(program), limits)
+}
+
+fn analyze_scl_inner(
+    source: &SclSource,
+    block: &ProgramBlock,
+    program: Option<&ControllerProgram>,
+    limits: ResourceLimits,
+) -> SclSemanticSnapshot {
     let tree = parse_scl(source, limits);
     let symbols = semantic_symbols(block);
     let mut diagnostics = tree.issues().to_vec();
@@ -141,7 +161,7 @@ pub fn analyze_scl(
         };
     }
     let (typed, semantic_diagnostics, mut occurrences) =
-        bind_and_typecheck_with_occurrences(&tree, block);
+        bind_and_typecheck_with_occurrences(&tree, block, program);
     diagnostics.extend(semantic_diagnostics);
     sort_issues(&mut diagnostics);
     occurrences.sort_by(|left, right| {
@@ -199,8 +219,29 @@ pub(crate) enum TypedStatementKind {
         branches: Vec<(TypedExpr, Vec<TypedStatement>)>,
         else_body: Vec<TypedStatement>,
     },
+    Call(TypedCall),
     Return,
     Error,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TypedCall {
+    pub instruction: plc_program::InstructionCode,
+    pub target: BlockId,
+    pub inputs: Vec<TypedCallInput>,
+    pub outputs: Vec<TypedCallOutput>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TypedCallInput {
+    pub formal: InterfaceMemberId,
+    pub value: TypedExpr,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct TypedCallOutput {
+    pub formal: InterfaceMemberId,
+    pub target: TypedMember,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -258,8 +299,28 @@ enum BoundStatementKind {
         branches: Vec<(BoundExpr, Vec<BoundStatement>)>,
         else_body: Vec<BoundStatement>,
     },
+    Call(BoundCall),
     Return,
     Error,
+}
+
+#[derive(Clone, Debug)]
+struct BoundCall {
+    target: Option<ProgramBlock>,
+    arguments: Vec<BoundCallArgument>,
+}
+
+#[derive(Clone, Debug)]
+struct BoundCallArgument {
+    range: TextRange,
+    formal: Option<TypedMember>,
+    actual: BoundCallActual,
+}
+
+#[derive(Clone, Debug)]
+enum BoundCallActual {
+    Input(BoundExpr),
+    Output(Option<TypedMember>),
 }
 
 #[derive(Clone, Debug)]
@@ -285,19 +346,30 @@ enum BoundExprKind {
     Error,
 }
 
+#[allow(dead_code)]
 pub(crate) fn bind_and_typecheck(
     tree: &SyntaxTree,
     block: &ProgramBlock,
 ) -> (TypedBlock, Vec<SclIssue>) {
-    let (typed, issues, _) = bind_and_typecheck_with_occurrences(tree, block);
+    let (typed, issues, _) = bind_and_typecheck_with_occurrences(tree, block, None);
+    (typed, issues)
+}
+
+pub(crate) fn bind_and_typecheck_with_program(
+    tree: &SyntaxTree,
+    block: &ProgramBlock,
+    program: &ControllerProgram,
+) -> (TypedBlock, Vec<SclIssue>) {
+    let (typed, issues, _) = bind_and_typecheck_with_occurrences(tree, block, Some(program));
     (typed, issues)
 }
 
 fn bind_and_typecheck_with_occurrences(
     tree: &SyntaxTree,
     block: &ProgramBlock,
+    program: Option<&ControllerProgram>,
 ) -> (TypedBlock, Vec<SclIssue>, Vec<SclSymbolOccurrence>) {
-    let (bound, mut issues, occurrences) = bind(tree, block);
+    let (bound, mut issues, occurrences) = bind(tree, block, program);
     let (typed, type_issues) = typecheck(&bound, block);
     issues.extend(type_issues);
     sort_issues(&mut issues);
@@ -307,6 +379,7 @@ fn bind_and_typecheck_with_occurrences(
 fn bind(
     tree: &SyntaxTree,
     block: &ProgramBlock,
+    program: Option<&ControllerProgram>,
 ) -> (BoundBlock, Vec<SclIssue>, Vec<SclSymbolOccurrence>) {
     let mut names = BTreeMap::<String, Vec<&InterfaceMember>>::new();
     for member in block.interface.members.values() {
@@ -321,6 +394,8 @@ fn bind(
         occurrences: Vec::new(),
         source_owner: tree.source().owner(),
         source_revision: tree.source().revision_hash(),
+        caller: block.id,
+        program,
     };
     let statements = binder.bind_statements(&tree.statements);
     (
@@ -340,6 +415,8 @@ struct Binder<'a> {
     occurrences: Vec<SclSymbolOccurrence>,
     source_owner: BlockId,
     source_revision: crate::Hash32,
+    caller: BlockId,
+    program: Option<&'a ControllerProgram>,
 }
 
 impl Binder<'_> {
@@ -373,6 +450,9 @@ impl Binder<'_> {
                     .collect(),
                 else_body: self.bind_statements(else_body),
             },
+            StatementKind::Call { callee, arguments } => {
+                BoundStatementKind::Call(self.bind_call(callee, arguments, statement.id))
+            }
             StatementKind::Return => BoundStatementKind::Return,
             StatementKind::Error => BoundStatementKind::Error,
         };
@@ -380,6 +460,174 @@ impl Binder<'_> {
             id: statement.id,
             range: statement.range,
             kind,
+        }
+    }
+
+    fn bind_call(
+        &mut self,
+        callee: &super::parser::Name,
+        arguments: &[CallArgument],
+        node: SemanticNodeId,
+    ) -> BoundCall {
+        let candidates: Vec<_> = self.program.map_or_else(Vec::new, |program| {
+            program
+                .blocks()
+                .values()
+                .filter(|block| block.display_name.eq_ignore_ascii_case(&callee.spelling))
+                .cloned()
+                .collect()
+        });
+        let target = match candidates.as_slice() {
+            [target] => {
+                self.external_occurrence(
+                    &callee.spelling,
+                    callee.range,
+                    node,
+                    SclAccessKind::Read,
+                    SclOccurrenceResolution::Resolved,
+                    Some(target.id),
+                    None,
+                );
+                Some(target.clone())
+            }
+            [] => {
+                self.external_occurrence(
+                    &callee.spelling,
+                    callee.range,
+                    node,
+                    SclAccessKind::Read,
+                    SclOccurrenceResolution::Unresolved,
+                    None,
+                    None,
+                );
+                self.issues.push(SclIssue {
+                    code: DiagnosticCode::UNRESOLVED_REFERENCE,
+                    range: callee.range,
+                    semantic_node: Some(node),
+                    cause: alloc::format!("unresolved callable block '{}'", callee.spelling),
+                });
+                None
+            }
+            _ => {
+                self.external_occurrence(
+                    &callee.spelling,
+                    callee.range,
+                    node,
+                    SclAccessKind::Read,
+                    SclOccurrenceResolution::Ambiguous,
+                    None,
+                    None,
+                );
+                self.issues.push(SclIssue {
+                    code: DiagnosticCode::AMBIGUOUS_REFERENCE,
+                    range: callee.range,
+                    semantic_node: Some(node),
+                    cause: alloc::format!(
+                        "case-insensitive callable block '{}' has multiple candidates",
+                        callee.spelling
+                    ),
+                });
+                None
+            }
+        };
+        let bound_arguments = arguments
+            .iter()
+            .map(|argument| self.bind_call_argument(argument, target.as_ref(), node))
+            .collect();
+        BoundCall {
+            target,
+            arguments: bound_arguments,
+        }
+    }
+
+    fn bind_call_argument(
+        &mut self,
+        argument: &CallArgument,
+        target: Option<&ProgramBlock>,
+        node: SemanticNodeId,
+    ) -> BoundCallArgument {
+        let formal = target.and_then(|target| {
+            let candidates: Vec<_> = target
+                .interface
+                .members
+                .values()
+                .filter(|member| member.name.eq_ignore_ascii_case(&argument.formal.spelling))
+                .collect();
+            match candidates.as_slice() {
+                [member] => {
+                    let typed = TypedMember {
+                        id: member.id,
+                        data_type: member.data_type.clone(),
+                        role: member.role,
+                    };
+                    self.external_occurrence(
+                        &argument.formal.spelling,
+                        argument.formal.range,
+                        node,
+                        SclAccessKind::Read,
+                        SclOccurrenceResolution::Resolved,
+                        Some(target.id),
+                        Some(&typed),
+                    );
+                    Some(typed)
+                }
+                [] => {
+                    self.external_occurrence(
+                        &argument.formal.spelling,
+                        argument.formal.range,
+                        node,
+                        SclAccessKind::Read,
+                        SclOccurrenceResolution::Unresolved,
+                        Some(target.id),
+                        None,
+                    );
+                    self.issues.push(SclIssue {
+                        code: DiagnosticCode::UNRESOLVED_REFERENCE,
+                        range: argument.formal.range,
+                        semantic_node: Some(node),
+                        cause: alloc::format!(
+                            "call target has no formal '{}'",
+                            argument.formal.spelling
+                        ),
+                    });
+                    None
+                }
+                _ => {
+                    self.external_occurrence(
+                        &argument.formal.spelling,
+                        argument.formal.range,
+                        node,
+                        SclAccessKind::Read,
+                        SclOccurrenceResolution::Ambiguous,
+                        Some(target.id),
+                        None,
+                    );
+                    self.issues.push(SclIssue {
+                        code: DiagnosticCode::AMBIGUOUS_REFERENCE,
+                        range: argument.formal.range,
+                        semantic_node: Some(node),
+                        cause: alloc::format!(
+                            "call formal '{}' is ambiguous",
+                            argument.formal.spelling
+                        ),
+                    });
+                    None
+                }
+            }
+        });
+        let actual = match &argument.actual {
+            CallActual::Input(expression) => BoundCallActual::Input(self.bind_expr(expression)),
+            CallActual::Output(name) => BoundCallActual::Output(self.resolve(
+                &name.spelling,
+                name.range,
+                node,
+                SclAccessKind::Write,
+            )),
+        };
+        BoundCallArgument {
+            range: argument.range,
+            formal,
+            actual,
         }
     }
 
@@ -493,19 +741,37 @@ impl Binder<'_> {
         member: Option<&TypedMember>,
     ) {
         self.occurrences.push(SclSymbolOccurrence {
-            source: SourceAnchor {
-                owner_object_id: self.source_owner,
-                source_revision_hash: self.source_revision,
-                language: SourceLanguage::Scl,
-                semantic_node_id: node,
-                text_range: range,
-            },
+            source: SourceAnchor::scl(self.source_owner, self.source_revision, node, range),
             spelling: spelling.into(),
             access,
             resolution,
             member: member.map(|value| value.id),
             data_type: member.map(|value| value.data_type.clone()),
             role: member.map(|value| value.role),
+            definition_owner: member.map(|_| self.caller),
+        });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn external_occurrence(
+        &mut self,
+        spelling: &str,
+        range: TextRange,
+        node: SemanticNodeId,
+        access: SclAccessKind,
+        resolution: SclOccurrenceResolution,
+        definition_owner: Option<BlockId>,
+        member: Option<&TypedMember>,
+    ) {
+        self.occurrences.push(SclSymbolOccurrence {
+            source: SourceAnchor::scl(self.source_owner, self.source_revision, node, range),
+            spelling: spelling.into(),
+            access,
+            resolution,
+            member: member.map(|value| value.id),
+            data_type: member.map(|value| value.data_type.clone()),
+            role: member.map(|value| value.role),
+            definition_owner,
         });
     }
 }
@@ -540,16 +806,21 @@ fn sort_issues(issues: &mut Vec<SclIssue>) {
 
 fn collect_folding_ranges(statements: &[Statement], ranges: &mut Vec<TextRange>) {
     for statement in statements {
-        if let StatementKind::If {
-            branches,
-            else_body,
-        } = &statement.kind
-        {
-            ranges.push(statement.range);
-            for (_, body) in branches {
-                collect_folding_ranges(body, ranges);
+        match &statement.kind {
+            StatementKind::If {
+                branches,
+                else_body,
+            } => {
+                ranges.push(statement.range);
+                for (_, body) in branches {
+                    collect_folding_ranges(body, ranges);
+                }
+                collect_folding_ranges(else_body, ranges);
             }
-            collect_folding_ranges(else_body, ranges);
+            StatementKind::Assignment { .. }
+            | StatementKind::Call { .. }
+            | StatementKind::Return
+            | StatementKind::Error => {}
         }
     }
 }
@@ -574,6 +845,11 @@ fn collect_type_facts(
                 }
                 collect_type_facts(else_body, source, facts);
             }
+            TypedStatementKind::Call(call) => {
+                for input in &call.inputs {
+                    collect_expr_type_facts(&input.value, source, facts);
+                }
+            }
             TypedStatementKind::Return | TypedStatementKind::Error => {}
         }
     }
@@ -588,13 +864,12 @@ fn collect_expr_type_facts(
         return;
     }
     facts.push(SclTypeFact {
-        source: SourceAnchor {
-            owner_object_id: source.owner(),
-            source_revision_hash: source.revision_hash(),
-            language: SourceLanguage::Scl,
-            semantic_node_id: expression.id,
-            text_range: expression.range,
-        },
+        source: SourceAnchor::scl(
+            source.owner(),
+            source.revision_hash(),
+            expression.id,
+            expression.range,
+        ),
         data_type: expression.data_type.clone(),
     });
     match &expression.kind {
@@ -671,6 +946,7 @@ impl TypeChecker {
         (typed, flow)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn check_statement(
         &mut self,
         statement: &BoundStatement,
@@ -754,6 +1030,7 @@ impl TypeChecker {
                     else_body: typed_else,
                 }
             }
+            BoundStatementKind::Call(call) => self.check_call(statement, call, &mut flow),
             BoundStatementKind::Return => {
                 if self.return_member.is_some() && !flow.return_assigned {
                     self.issue(
@@ -776,6 +1053,152 @@ impl TypeChecker {
             },
             flow,
         )
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn check_call(
+        &mut self,
+        statement: &BoundStatement,
+        call: &BoundCall,
+        flow: &mut FlowState,
+    ) -> TypedStatementKind {
+        let Some(target) = &call.target else {
+            return TypedStatementKind::Error;
+        };
+        if target.kind == ProgramUnitKind::Function {
+            let mut inputs = Vec::new();
+            let mut outputs = Vec::new();
+            let mut seen = BTreeSet::new();
+            for argument in &call.arguments {
+                let Some(formal) = &argument.formal else {
+                    continue;
+                };
+                if !seen.insert(formal.id) {
+                    self.issue(
+                        DiagnosticCode::ILLEGAL_OR_OVERLAPPING_BINDING,
+                        argument.range,
+                        statement.id,
+                        "call formal is bound more than once",
+                    );
+                    continue;
+                }
+                match (&argument.actual, formal.role) {
+                    (BoundCallActual::Input(value), InterfaceRole::Input) => {
+                        let value = self.check_expr(value, Some(&formal.data_type), flow);
+                        if value.data_type != formal.data_type && value.kind != TypedExprKind::Error
+                        {
+                            self.issue(
+                                DiagnosticCode::TYPE_MISMATCH,
+                                argument.range,
+                                statement.id,
+                                "call input type does not match its formal",
+                            );
+                        }
+                        inputs.push(TypedCallInput {
+                            formal: formal.id,
+                            value,
+                        });
+                    }
+                    (BoundCallActual::Input(value), InterfaceRole::InOut) => {
+                        let value = self.check_expr(value, Some(&formal.data_type), flow);
+                        let TypedExprKind::Member(actual) = &value.kind else {
+                            self.issue(
+                                DiagnosticCode::ILLEGAL_OR_OVERLAPPING_BINDING,
+                                argument.range,
+                                statement.id,
+                                "IN_OUT binding requires one writable caller variable",
+                            );
+                            continue;
+                        };
+                        if matches!(actual.role, InterfaceRole::Input | InterfaceRole::Constant)
+                            || value.data_type != formal.data_type
+                        {
+                            self.issue(
+                                DiagnosticCode::TYPE_MISMATCH,
+                                argument.range,
+                                statement.id,
+                                "IN_OUT actual must be writable and exactly typed",
+                            );
+                        }
+                        let actual = actual.clone();
+                        inputs.push(TypedCallInput {
+                            formal: formal.id,
+                            value,
+                        });
+                        outputs.push(TypedCallOutput {
+                            formal: formal.id,
+                            target: actual,
+                        });
+                    }
+                    (
+                        BoundCallActual::Output(Some(actual)),
+                        InterfaceRole::Output | InterfaceRole::Return,
+                    ) => {
+                        if matches!(actual.role, InterfaceRole::Input | InterfaceRole::Constant)
+                            || actual.data_type != formal.data_type
+                        {
+                            self.issue(
+                                DiagnosticCode::TYPE_MISMATCH,
+                                argument.range,
+                                statement.id,
+                                "call output actual must be writable and exactly typed",
+                            );
+                        }
+                        outputs.push(TypedCallOutput {
+                            formal: formal.id,
+                            target: actual.clone(),
+                        });
+                    }
+                    (BoundCallActual::Output(None | Some(_)) | BoundCallActual::Input(_), _) => {
+                        self.issue(
+                            DiagnosticCode::ILLEGAL_OR_OVERLAPPING_BINDING,
+                            argument.range,
+                            statement.id,
+                            "call binding operator disagrees with formal direction",
+                        );
+                    }
+                }
+            }
+            for member in target.interface.members.values() {
+                let required = match member.role {
+                    InterfaceRole::Input => member.default_value.is_none(),
+                    InterfaceRole::InOut => true,
+                    InterfaceRole::Output | InterfaceRole::Return => member.required_output_binding,
+                    InterfaceRole::Static | InterfaceRole::Temp | InterfaceRole::Constant => false,
+                };
+                if required && !seen.contains(&member.id) {
+                    self.issue(
+                        DiagnosticCode::REQUIRED_BINDING_MISSING,
+                        statement.range,
+                        statement.id,
+                        alloc::format!("required call formal '{}' is not bound", member.name),
+                    );
+                }
+            }
+            inputs.sort_by_key(|binding| binding.formal);
+            outputs.sort_by_key(|binding| binding.formal);
+            for output in &outputs {
+                if output.target.role == InterfaceRole::Temp {
+                    flow.assigned_temps.insert(output.target.id);
+                }
+                if Some(output.target.id) == self.return_member {
+                    flow.return_assigned = true;
+                }
+            }
+            return TypedStatementKind::Call(TypedCall {
+                instruction: CALL_FC,
+                target: target.id,
+                inputs,
+                outputs,
+            });
+        }
+        self.issue(
+            DiagnosticCode::INSTANCE_INVALID,
+            statement.range,
+            statement.id,
+            "SCL FB calls require explicit instance syntax; this call form only targets FCs",
+        );
+        TypedStatementKind::Error
     }
 
     #[allow(clippy::too_many_lines)]

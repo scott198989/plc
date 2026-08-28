@@ -1,20 +1,24 @@
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{collections::BTreeMap, vec, vec::Vec};
 
 use plc_compiler::{
-    BinaryOperator, IrBasicBlock, IrBasicBlockId, IrFunction, IrOperation, IrOperationId,
-    IrOperationKind, IrTerminator, IrTerminatorKind, IrType, IrValue, IrValueId, ProbeId,
-    SourceMapId, SourceMapSite, TYPED_IR_VERSION, TypedIrProgram, UnaryOperator,
+    BinaryOperator, GraphSourceIds, Hash32, IrActivation, IrBasicBlock, IrBasicBlockId,
+    IrBoundInput, IrDeclaredOutput, IrFunction, IrInstanceIdentity, IrOperation, IrOperationId,
+    IrOperationKind, IrTerminator, IrTerminatorKind, IrType, IrValue, IrValueId, ProbeDefinition,
+    ProbeId, ProbeKind, ProbeTable, SemanticNodeId, SourceAnchor, SourceLanguage, SourceMapEntry,
+    SourceMapId, SourceMapSite, SourceMapTable, TYPED_IR_VERSION, TypedIrProgram, UnaryOperator,
+    VerificationError, VerifiedIr, verify_typed_ir,
 };
 use plc_program::{
     ADD, BOOL_AND, BOOL_NOT, BOOL_OR, BOOL_XOR, BlockId, COMPARE_EQ, COMPARE_GE, COMPARE_GT,
-    COMPARE_LE, COMPARE_LT, COMPARE_NE, DIVIDE, DataType, InstructionCode, InterfaceMemberId,
-    InterfaceRole, MODULO, MOVE, MULTIPLY, ProgramBlock, SUBTRACT,
+    COMPARE_LE, COMPARE_LT, COMPARE_NE, ControllerProgram, DIVIDE, DataType,
+    InstructionActivationPolicy, InstructionCode, InterfaceMemberId, InterfaceRole, MODULO, MOVE,
+    MULTIPLY, ProgramBlock, SUBTRACT, StateRequirement, phase2_instruction_registry,
 };
 
 use crate::{
     ActivationRole, ConnectionId, ConnectionKind, FbdDiagnostic, FbdDocument, FbdDocumentId,
     FbdNetwork, InstanceIdentity, NetworkId, NodeId, NodeKind, PortDirection, PortId,
-    TypeAdapterError, data_type_to_ir_type, validate_fbd,
+    TypeAdapterError, data_type_to_ir_type, validate_fbd, validate_fbd_with_program,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -57,6 +61,12 @@ pub enum FbdLowerError {
     ActivationControlUnavailable {
         node: NodeId,
     },
+    ProgramContextRequired {
+        node: NodeId,
+    },
+    Verification(VerificationError),
+    InvalidGraphSource(NodeId),
+    InvalidStateInstance(NodeId),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -166,6 +176,9 @@ pub enum FbdProbeKind {
     SymbolWrite,
     ExpressionOutput,
     NetworkExit,
+    Instruction,
+    Call,
+    State,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -236,6 +249,14 @@ pub struct FbdLoweredProgram {
     pub ir: TypedIrProgram,
     pub source_maps: FbdSourceMapTable,
     pub probes: FbdProbeTable,
+    pub compiler_source_maps: SourceMapTable,
+    pub compiler_probes: ProbeTable,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct VerifiedFbdProgram {
+    pub lowered: FbdLoweredProgram,
+    pub verified_ir: VerifiedIr,
 }
 
 /// Lowers a valid FBD graph into the one shared compiler IR. Calls, stateful
@@ -254,11 +275,56 @@ pub fn lower_fbd_to_ir(
     if !owner.kind.is_executable() {
         return Err(FbdLowerError::NonExecutableOwner);
     }
-    let validation = validate_fbd(document);
+    lower_fbd(document, owner, None)
+}
+
+/// Contextual lowering for calls plus independent shared-IR verification.
+pub fn lower_fbd_to_verified_ir(
+    document: &FbdDocument,
+    program: &ControllerProgram,
+) -> Result<VerifiedFbdProgram, FbdLowerError> {
+    let owner = program
+        .block(document.owner)
+        .ok_or(FbdLowerError::OwnerMismatch {
+            document: document.owner,
+            block: document.owner,
+        })?;
+    let lowered = lower_fbd(document, owner, Some(program))?;
+    let verified_ir = verify_typed_ir(
+        lowered.ir.clone(),
+        &lowered.compiler_source_maps,
+        &lowered.compiler_probes,
+        program,
+    )
+    .map_err(FbdLowerError::Verification)?;
+    Ok(VerifiedFbdProgram {
+        lowered,
+        verified_ir,
+    })
+}
+
+fn lower_fbd(
+    document: &FbdDocument,
+    owner: &ProgramBlock,
+    program: Option<&ControllerProgram>,
+) -> Result<FbdLoweredProgram, FbdLowerError> {
+    if document.owner != owner.id {
+        return Err(FbdLowerError::OwnerMismatch {
+            document: document.owner,
+            block: owner.id,
+        });
+    }
+    if !owner.kind.is_executable() {
+        return Err(FbdLowerError::NonExecutableOwner);
+    }
+    let validation = program.map_or_else(
+        || validate_fbd(document),
+        |program| validate_fbd_with_program(document, program),
+    );
     if !validation.can_lower() {
         return Err(FbdLowerError::InvalidGraph(validation.diagnostics));
     }
-    let mut context = LoweringContext::new(document, owner);
+    let mut context = LoweringContext::new(document, owner, program);
     let mut blocks = BTreeMap::new();
     for (network_index, network_id) in document.ordered_network_ids.iter().enumerate() {
         let network = &document.networks[network_id];
@@ -285,29 +351,41 @@ pub fn lower_fbd_to_ir(
         probes: FbdProbeTable {
             entries: context.probes,
         },
+        compiler_source_maps: SourceMapTable::from_untrusted_entries(context.compiler_source_maps),
+        compiler_probes: ProbeTable::from_untrusted_entries(context.compiler_probes),
     })
 }
 
 struct LoweringContext<'a> {
     document: &'a FbdDocument,
     owner: &'a ProgramBlock,
+    program: Option<&'a ControllerProgram>,
     next_operation: u32,
     next_value: u32,
     next_mapping: u32,
     source_maps: BTreeMap<SourceMapId, FbdSourceMapEntry>,
     probes: BTreeMap<ProbeId, FbdProbe>,
+    compiler_source_maps: BTreeMap<SourceMapId, SourceMapEntry>,
+    compiler_probes: BTreeMap<ProbeId, ProbeDefinition>,
 }
 
 impl<'a> LoweringContext<'a> {
-    const fn new(document: &'a FbdDocument, owner: &'a ProgramBlock) -> Self {
+    const fn new(
+        document: &'a FbdDocument,
+        owner: &'a ProgramBlock,
+        program: Option<&'a ControllerProgram>,
+    ) -> Self {
         Self {
             document,
             owner,
+            program,
             next_operation: 1,
             next_value: 1,
             next_mapping: 1,
             source_maps: BTreeMap::new(),
             probes: BTreeMap::new(),
+            compiler_source_maps: BTreeMap::new(),
+            compiler_probes: BTreeMap::new(),
         }
     }
 
@@ -330,13 +408,6 @@ impl<'a> LoweringContext<'a> {
                 .nodes
                 .get(node_id)
                 .ok_or(FbdLowerError::MissingNode(*node_id))?;
-            if node
-                .ports
-                .values()
-                .any(|port| port.activation != ActivationRole::None)
-            {
-                return Err(FbdLowerError::ActivationControlUnavailable { node: node.id });
-            }
             self.lower_node(
                 network,
                 basic_block,
@@ -387,27 +458,28 @@ impl<'a> LoweringContext<'a> {
         port_values: &mut BTreeMap<PortId, IrValueId>,
         operations: &mut Vec<IrOperation>,
     ) -> Result<(), FbdLowerError> {
-        let inputs = node
-            .ordered_port_ids
-            .iter()
-            .filter_map(|id| node.ports.get(id))
-            .filter(|port| port.direction == PortDirection::Input)
-            .map(|port| {
-                let source = incoming
-                    .get(&port.id)
-                    .ok_or(FbdLowerError::MissingPortValue {
-                        node: node.id,
-                        port: port.id,
-                    })?;
-                port_values
-                    .get(source)
-                    .copied()
-                    .ok_or(FbdLowerError::MissingPortValue {
-                        node: node.id,
-                        port: *source,
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
+        let input_bindings =
+            node.ordered_port_ids
+                .iter()
+                .filter_map(|id| node.ports.get(id))
+                .filter(|port| port.direction == PortDirection::Input)
+                .map(|port| {
+                    let source = incoming
+                        .get(&port.id)
+                        .ok_or(FbdLowerError::MissingPortValue {
+                            node: node.id,
+                            port: port.id,
+                        })?;
+                    let value = port_values.get(source).copied().ok_or(
+                        FbdLowerError::MissingPortValue {
+                            node: node.id,
+                            port: *source,
+                        },
+                    )?;
+                    Ok((port, value))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+        let inputs: Vec<_> = input_bindings.iter().map(|(_, value)| *value).collect();
         let outputs: Vec<_> = node
             .ordered_port_ids
             .iter()
@@ -525,61 +597,278 @@ impl<'a> LoweringContext<'a> {
                 )?;
             }
             NodeKind::Instruction { code, instance } => {
-                if instance.is_some() {
-                    return Err(FbdLowerError::SharedIrOperationUnavailable {
+                let has_activation = node
+                    .ports
+                    .values()
+                    .any(|port| port.activation != ActivationRole::None);
+                let use_direct_expression =
+                    instance.is_none() && !has_activation && outputs.len() == 1;
+                if use_direct_expression {
+                    let [output] = outputs.as_slice() else {
+                        return Err(FbdLowerError::InvalidNodeArity { node: node.id });
+                    };
+                    let result_type = Self::ir_type(node.id, output.data_type.as_ref())?;
+                    let ordinary_inputs: Vec<_> = input_bindings
+                        .iter()
+                        .filter(|(port, _)| port.activation == ActivationRole::None)
+                        .map(|(_, value)| *value)
+                        .collect();
+                    let input_types = input_bindings
+                        .iter()
+                        .filter(|(port, _)| port.activation == ActivationRole::None)
+                        .map(|(port, _)| {
+                            port.data_type
+                                .as_ref()
+                                .ok_or(FbdLowerError::IncompatibleNodeType { node: node.id })
+                        })
+                        .collect::<Result<Vec<_>, _>>()?;
+                    let kind = lower_instruction_kind(
+                        node.id,
+                        *code,
+                        &ordinary_inputs,
+                        &input_types,
+                        output
+                            .data_type
+                            .as_ref()
+                            .ok_or(FbdLowerError::IncompatibleNodeType { node: node.id })?,
+                        &result_type,
+                    )?;
+                    let result = self.push_value_operation(
+                        network.id,
+                        basic_block,
+                        node,
+                        Some(output.id),
+                        kind,
+                        result_type,
+                        FbdProbeKind::ExpressionOutput,
+                        None,
+                        instance.clone(),
+                        operations,
+                    )?;
+                    port_values.insert(output.id, result);
+                    return Ok(());
+                }
+                let definition = phase2_instruction_registry().lookup(*code).ok_or(
+                    FbdLowerError::SharedIrOperationUnavailable {
                         node: node.id,
                         instruction: *code,
-                    });
-                }
-                let [output] = outputs.as_slice() else {
-                    return Err(FbdLowerError::InvalidNodeArity { node: node.id });
-                };
-                let result_type = Self::ir_type(node.id, output.data_type.as_ref())?;
-                let input_types = node
-                    .ordered_port_ids
-                    .iter()
-                    .filter_map(|id| node.ports.get(id))
-                    .filter(|port| port.direction == PortDirection::Input)
-                    .map(|port| {
-                        port.data_type
-                            .as_ref()
-                            .ok_or(FbdLowerError::IncompatibleNodeType { node: node.id })
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
-                let kind = lower_instruction_kind(
-                    node.id,
-                    *code,
-                    &inputs,
-                    &input_types,
-                    output
-                        .data_type
-                        .as_ref()
-                        .ok_or(FbdLowerError::IncompatibleNodeType { node: node.id })?,
-                    &result_type,
+                    },
                 )?;
-                let result = self.push_value_operation(
+                let mut invocation_inputs = input_bindings
+                    .iter()
+                    .filter(|(port, _)| port.activation == ActivationRole::None)
+                    .map(|(port, value)| {
+                        Ok(IrBoundInput {
+                            formal: port
+                                .formal
+                                .ok_or(FbdLowerError::IncompatibleNodeType { node: node.id })?,
+                            value: *value,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, FbdLowerError>>()?;
+                invocation_inputs.sort_by_key(|binding| binding.formal);
+                let mut declared_outputs = outputs
+                    .iter()
+                    .map(|port| {
+                        Ok(IrDeclaredOutput {
+                            formal: port
+                                .formal
+                                .ok_or(FbdLowerError::IncompatibleNodeType { node: node.id })?,
+                            data_type: Self::ir_type(node.id, port.data_type.as_ref())?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, FbdLowerError>>()?;
+                declared_outputs.sort_by_key(|output| output.formal);
+                let activation = Self::activation(node, definition.activation, &input_bindings)?;
+                let shared_instance =
+                    instruction_instance(node.id, definition.state_requirement, instance.as_ref())?;
+                let invocation = self.push_invocation_operation(
                     network.id,
                     basic_block,
                     node,
-                    Some(output.id),
-                    kind,
-                    result_type,
-                    FbdProbeKind::ExpressionOutput,
-                    None,
-                    instance.clone(),
+                    IrOperationKind::InvokeInstruction {
+                        instruction: *code,
+                        inputs: invocation_inputs,
+                        outputs: declared_outputs,
+                        instance: shared_instance,
+                        activation,
+                    },
+                    if instance.is_some() {
+                        FbdProbeKind::State
+                    } else {
+                        FbdProbeKind::Instruction
+                    },
                     operations,
                 )?;
-                port_values.insert(output.id, result);
+                for output in outputs {
+                    let formal = output
+                        .formal
+                        .ok_or(FbdLowerError::IncompatibleNodeType { node: node.id })?;
+                    let result_type = Self::ir_type(node.id, output.data_type.as_ref())?;
+                    let value = self.push_value_operation(
+                        network.id,
+                        basic_block,
+                        node,
+                        Some(output.id),
+                        IrOperationKind::InvocationOutput { invocation, formal },
+                        result_type,
+                        FbdProbeKind::ExpressionOutput,
+                        None,
+                        instance.clone(),
+                        operations,
+                    )?;
+                    port_values.insert(output.id, value);
+                }
             }
-            NodeKind::Call { code, .. } => {
-                return Err(FbdLowerError::SharedIrOperationUnavailable {
-                    node: node.id,
-                    instruction: *code,
-                });
+            NodeKind::Call {
+                code,
+                target,
+                instance,
+            } => {
+                if self.program.is_none() {
+                    return Err(FbdLowerError::ProgramContextRequired { node: node.id });
+                }
+                let definition = phase2_instruction_registry().lookup(*code).ok_or(
+                    FbdLowerError::SharedIrOperationUnavailable {
+                        node: node.id,
+                        instruction: *code,
+                    },
+                )?;
+                let mut invocation_inputs = input_bindings
+                    .iter()
+                    .filter(|(port, _)| port.activation == ActivationRole::None)
+                    .map(|(port, value)| {
+                        Ok(IrBoundInput {
+                            formal: port
+                                .formal
+                                .ok_or(FbdLowerError::IncompatibleNodeType { node: node.id })?,
+                            value: *value,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, FbdLowerError>>()?;
+                invocation_inputs.sort_by_key(|binding| binding.formal);
+                let mut declared_outputs = outputs
+                    .iter()
+                    .map(|port| {
+                        Ok(IrDeclaredOutput {
+                            formal: port
+                                .formal
+                                .ok_or(FbdLowerError::IncompatibleNodeType { node: node.id })?,
+                            data_type: Self::ir_type(node.id, port.data_type.as_ref())?,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, FbdLowerError>>()?;
+                declared_outputs.sort_by_key(|output| output.formal);
+                let activation = Self::activation(node, definition.activation, &input_bindings)?;
+                let shared_instance = call_instance(node.id, instance.as_ref())?;
+                let invocation = self.push_invocation_operation(
+                    network.id,
+                    basic_block,
+                    node,
+                    IrOperationKind::CallBlock {
+                        call_instruction: *code,
+                        target: *target,
+                        inputs: invocation_inputs,
+                        outputs: declared_outputs,
+                        instance: shared_instance,
+                        activation,
+                    },
+                    FbdProbeKind::Call,
+                    operations,
+                )?;
+                for output in outputs {
+                    let formal = output
+                        .formal
+                        .ok_or(FbdLowerError::IncompatibleNodeType { node: node.id })?;
+                    let result_type = Self::ir_type(node.id, output.data_type.as_ref())?;
+                    let value = self.push_value_operation(
+                        network.id,
+                        basic_block,
+                        node,
+                        Some(output.id),
+                        IrOperationKind::InvocationOutput { invocation, formal },
+                        result_type,
+                        FbdProbeKind::ExpressionOutput,
+                        None,
+                        instance.clone(),
+                        operations,
+                    )?;
+                    port_values.insert(output.id, value);
+                }
             }
             NodeKind::Unresolved { .. } => unreachable!("validation rejects unresolved nodes"),
         }
         Ok(())
+    }
+
+    fn activation(
+        node: &crate::FbdNode,
+        policy: InstructionActivationPolicy,
+        inputs: &[(&crate::FbdPort, IrValueId)],
+    ) -> Result<Option<IrActivation>, FbdLowerError> {
+        let enabled = inputs
+            .iter()
+            .find(|(port, _)| port.activation == ActivationRole::Enable)
+            .map(|(_, value)| *value);
+        match (policy, enabled) {
+            (
+                InstructionActivationPolicy::None
+                | InstructionActivationPolicy::EnableStatus { .. },
+                None,
+            ) => Ok(None),
+            (InstructionActivationPolicy::None, Some(_)) => {
+                Err(FbdLowerError::ActivationControlUnavailable { node: node.id })
+            }
+            (
+                InstructionActivationPolicy::EnableStatus {
+                    enable,
+                    status,
+                    status_when_disabled,
+                    when_disabled,
+                },
+                Some(enable_value),
+            ) => Ok(Some(IrActivation {
+                enable: enable_value,
+                enable_formal: enable,
+                status_formal: status,
+                status_when_disabled,
+                when_disabled,
+            })),
+        }
+    }
+
+    fn push_invocation_operation(
+        &mut self,
+        network: NetworkId,
+        basic_block: IrBasicBlockId,
+        node: &crate::FbdNode,
+        kind: IrOperationKind,
+        probe_kind: FbdProbeKind,
+        operations: &mut Vec<IrOperation>,
+    ) -> Result<IrOperationId, FbdLowerError> {
+        let operation_id = self.operation_id()?;
+        let site = SourceMapSite {
+            function: self.document.owner,
+            basic_block,
+            operation: Some(operation_id),
+        };
+        let source = self.location(
+            network,
+            Some(node.id),
+            None,
+            call_target(&node.kind),
+            state_identity(&node.kind),
+            None,
+        );
+        let (source_map, probe) = self.map_site(site, source, probe_kind, None)?;
+        operations.push(IrOperation {
+            id: operation_id,
+            result: None,
+            kind,
+            source_map,
+            probe,
+        });
+        Ok(operation_id)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -676,6 +965,17 @@ impl<'a> LoweringContext<'a> {
             .ok_or(FbdLowerError::IdSpaceExhausted)?;
         let source_map = SourceMapId::new(numeric);
         let probe = ProbeId::new(numeric);
+        let anchors = self.compiler_anchors(&source)?;
+        let compiler_probe_kind = match kind {
+            FbdProbeKind::Constant => ProbeKind::Constant,
+            FbdProbeKind::SymbolRead => ProbeKind::StorageRead,
+            FbdProbeKind::SymbolWrite => ProbeKind::StorageWrite,
+            FbdProbeKind::ExpressionOutput => ProbeKind::PortValue,
+            FbdProbeKind::NetworkExit => ProbeKind::Return,
+            FbdProbeKind::Instruction => ProbeKind::Expression,
+            FbdProbeKind::Call => ProbeKind::Call,
+            FbdProbeKind::State => ProbeKind::State,
+        };
         self.source_maps.insert(
             source_map,
             FbdSourceMapEntry {
@@ -691,11 +991,96 @@ impl<'a> LoweringContext<'a> {
                 source_map,
                 site,
                 kind,
-                value_type,
+                value_type: value_type.clone(),
                 source,
             },
         );
+        self.compiler_source_maps.insert(
+            source_map,
+            SourceMapEntry {
+                id: source_map,
+                site,
+                anchors,
+                compiler_generated: false,
+            },
+        );
+        self.compiler_probes.insert(
+            probe,
+            ProbeDefinition {
+                id: probe,
+                site,
+                kind: compiler_probe_kind,
+                value_type,
+                source_map,
+            },
+        );
         Ok((source_map, probe))
+    }
+
+    fn compiler_anchors(
+        &self,
+        source: &FbdSourceLocation,
+    ) -> Result<Vec<SourceAnchor>, FbdLowerError> {
+        let semantic_node = source
+            .node
+            .and_then(|node_id| {
+                self.document
+                    .networks
+                    .get(&source.network)?
+                    .nodes
+                    .get(&node_id)?
+                    .semantic_order
+                    .checked_add(1)
+            })
+            .unwrap_or(0);
+        let state_instance_id = source
+            .state_instance
+            .as_ref()
+            .map(|identity| match identity {
+                InstanceIdentity::Instruction(id) => id.get(),
+                InstanceIdentity::FunctionBlock {
+                    root_instance_db, ..
+                } => root_instance_db.get(),
+            });
+        let base_ids = GraphSourceIds {
+            network_id: Some(source.network.get()),
+            node_id: source.node.map(NodeId::get),
+            port_id: source.port.map(PortId::get),
+            edge_id: None,
+            operand_id: source.symbol.map(InterfaceMemberId::get),
+            call_site_id: source.call_target.and(source.node.map(NodeId::get)),
+            state_instance_id,
+        };
+        let revision = Hash32::from_bytes(self.document.semantic_fingerprint().0);
+        let mut anchors = vec![
+            SourceAnchor::graph(
+                source.owner,
+                revision,
+                SourceLanguage::Fbd,
+                SemanticNodeId::new(semantic_node),
+                base_ids,
+            )
+            .ok_or(FbdLowerError::InvalidGraphSource(
+                source.node.unwrap_or_else(|| NodeId::new(0)),
+            ))?,
+        ];
+        for connection in &source.connections {
+            let mut ids = base_ids;
+            ids.edge_id = Some(connection.get());
+            anchors.push(
+                SourceAnchor::graph(
+                    source.owner,
+                    revision,
+                    SourceLanguage::Fbd,
+                    SemanticNodeId::new(semantic_node),
+                    ids,
+                )
+                .ok_or(FbdLowerError::InvalidGraphSource(
+                    source.node.unwrap_or_else(|| NodeId::new(0)),
+                ))?,
+            );
+        }
+        Ok(anchors)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -776,6 +1161,44 @@ fn incoming_data_sources(network: &FbdNetwork) -> BTreeMap<PortId, PortId> {
         .filter(|connection| connection.kind == ConnectionKind::Data)
         .map(|connection| (connection.target, connection.source))
         .collect()
+}
+
+fn instruction_instance(
+    node: NodeId,
+    requirement: StateRequirement,
+    instance: Option<&InstanceIdentity>,
+) -> Result<Option<IrInstanceIdentity>, FbdLowerError> {
+    match (requirement, instance) {
+        (StateRequirement::None, None) => Ok(None),
+        (StateRequirement::Explicit(kind), Some(InstanceIdentity::Instruction(identity)))
+            if identity.get() != 0 =>
+        {
+            Ok(Some(IrInstanceIdentity::Instruction {
+                stable_id: identity.get(),
+                kind,
+            }))
+        }
+        _ => Err(FbdLowerError::InvalidStateInstance(node)),
+    }
+}
+
+fn call_instance(
+    node: NodeId,
+    instance: Option<&InstanceIdentity>,
+) -> Result<Option<IrInstanceIdentity>, FbdLowerError> {
+    match instance {
+        None => Ok(None),
+        Some(InstanceIdentity::FunctionBlock {
+            root_instance_db,
+            multi_instance_members,
+        }) => Ok(Some(IrInstanceIdentity::FunctionBlock(
+            plc_program::InstancePath {
+                root_instance_db: *root_instance_db,
+                multi_instance_slots: multi_instance_members.clone(),
+            },
+        ))),
+        Some(InstanceIdentity::Instruction(_)) => Err(FbdLowerError::InvalidStateInstance(node)),
+    }
 }
 
 fn lower_instruction_kind(

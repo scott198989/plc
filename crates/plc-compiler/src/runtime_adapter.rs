@@ -164,7 +164,15 @@ impl From<ArtifactError> for RuntimeAdapterError {
     }
 }
 
-pub(crate) fn lower_verified_ir_to_runtime(
+/// Projects independently verified IR into the Phase 2 runtime operation set.
+/// Unsupported semantic operations fail with a stable typed gap; they are
+/// never approximated or interpreted in the compiler.
+///
+/// # Errors
+///
+/// Returns a deterministic binding, mapping, runtime-artifact, or unsupported
+/// operation error. No partial runtime artifact is returned.
+pub fn project_verified_ir_to_runtime(
     verified_ir: &VerifiedIr,
     source_maps: &SourceMapTable,
     probes: &ProbeTable,
@@ -503,11 +511,16 @@ fn lower_operation(
         }),
         IrOperationKind::Unary { .. }
         | IrOperationKind::Binary { .. }
-        | IrOperationKind::Convert { .. } => Err(RuntimeAdapterError::UnsupportedOperation {
-            owner,
-            operation: operation.id,
-            semantic_operation: operation.kind.runtime_operation(),
-        }),
+        | IrOperationKind::Convert { .. }
+        | IrOperationKind::InvokeInstruction { .. }
+        | IrOperationKind::CallBlock { .. }
+        | IrOperationKind::InvocationOutput { .. } => {
+            Err(RuntimeAdapterError::UnsupportedOperation {
+                owner,
+                operation: operation.id,
+                semantic_operation: operation.kind.runtime_operation(),
+            })
+        }
     }
 }
 

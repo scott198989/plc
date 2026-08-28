@@ -1,13 +1,14 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use plc_program::{
-    BindingActual, BlockId, BlockInterface, CALL_FB, CALL_FC, CallSite, CallSiteId, CanonicalValue,
-    ControllerId, ControllerProgram, DataBlockKind, DataType, DependencyReason, EngineeringNumber,
-    InstanceOwner, InstructionCategory, InstructionCode, InstructionUse, InstructionUseId,
-    InterfaceMember, InterfaceMemberId, InterfaceRole, InvalidationCode, IssueCode, NO_OP,
-    ObDeclaration, PHASE2_INSTRUCTION_REGISTRY_VERSION, ParameterBinding, ProgramBlock,
-    ProgramUnitKind, StateKind, StateRequirement, TIMER_ON_DELAY, VariableRef,
-    phase2_instruction_registry, validate_program,
+    BindingActual, BlockId, BlockInterface, BoundInstructionFormal, CALL_FB, CALL_FC, CallSite,
+    CallSiteId, CanonicalValue, ControllerId, ControllerProgram, DataBlockKind, DataType,
+    DependencyReason, EngineeringNumber, FORMAL_INPUT, FORMAL_OUTPUT, InstanceOwner,
+    InstructionActivationPolicy, InstructionBindingError, InstructionCategory, InstructionCode,
+    InstructionUse, InstructionUseId, InterfaceMember, InterfaceMemberId, InterfaceRole,
+    InvalidationCode, IssueCode, MOVE, NO_OP, ObDeclaration, PHASE2_INSTRUCTION_REGISTRY_VERSION,
+    ParameterBinding, ProgramBlock, ProgramUnitKind, StateKind, StateRequirement, TIMER_ON_DELAY,
+    VariableRef, phase2_instruction_registry, validate_program,
 };
 
 const MAIN: BlockId = BlockId::new(1);
@@ -251,6 +252,46 @@ fn shared_registry_is_closed_ordered_versioned_and_descriptive() {
         Some(StateRequirement::FunctionBlockInstance)
     );
     assert!(registry.lookup(InstructionCode(u16::MAX)).is_none());
+    assert_eq!(registry.validate(), Ok(()));
+    assert!(matches!(
+        registry.lookup(MOVE).map(|entry| entry.activation),
+        Some(InstructionActivationPolicy::EnableStatus { .. })
+    ));
+
+    let bound = registry
+        .bind_types(
+            MOVE,
+            [
+                BoundInstructionFormal {
+                    formal: FORMAL_OUTPUT,
+                    data_type: DataType::DInt,
+                },
+                BoundInstructionFormal {
+                    formal: FORMAL_INPUT,
+                    data_type: DataType::DInt,
+                },
+            ],
+        )
+        .expect("registry canonicalizes stable formal identities");
+    assert_eq!(bound.instruction(), MOVE);
+    assert_eq!(bound.formals()[0].formal, FORMAL_INPUT);
+    assert_eq!(bound.data_type(FORMAL_OUTPUT), Some(&DataType::DInt));
+    assert_eq!(
+        registry.bind_types(
+            MOVE,
+            [
+                BoundInstructionFormal {
+                    formal: FORMAL_INPUT,
+                    data_type: DataType::DInt,
+                },
+                BoundInstructionFormal {
+                    formal: FORMAL_OUTPUT,
+                    data_type: DataType::Bool,
+                },
+            ],
+        ),
+        Err(InstructionBindingError::TypeConstraint(MOVE, FORMAL_OUTPUT))
+    );
 }
 
 #[test]

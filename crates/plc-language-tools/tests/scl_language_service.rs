@@ -3,8 +3,8 @@ use plc_language_tools::{
     HoverInfo, RenameError, SclLanguageService, SemanticTokenKind, SignatureHelp,
 };
 use plc_program::{
-    BlockId, BlockInterface, DataType, EngineeringNumber, InterfaceMember, InterfaceMemberId,
-    InterfaceRole, ProgramBlock, ProgramUnitKind,
+    BlockId, BlockInterface, ControllerId, ControllerProgram, DataType, EngineeringNumber,
+    InterfaceMember, InterfaceMemberId, InterfaceRole, ProgramBlock, ProgramUnitKind,
 };
 
 fn block() -> ProgramBlock {
@@ -249,12 +249,98 @@ fn source_identity_changes_with_content_while_semantic_occurrences_remain_naviga
 }
 
 #[test]
-fn signature_help_is_truthful_for_the_initial_no_call_grammar() {
+fn signature_help_and_definition_use_compiler_bound_fc_call_formals() {
+    let source_block = ProgramBlock::new(
+        BlockId::new(3),
+        "Caller",
+        EngineeringNumber::new(3).expect("nonzero"),
+        ProgramUnitKind::Function,
+        BlockInterface::from_members([
+            InterfaceMember::plain(
+                InterfaceMemberId::new(30),
+                "Arg",
+                InterfaceRole::Temp,
+                DataType::DInt,
+                0,
+            ),
+            InterfaceMember::plain(
+                InterfaceMemberId::new(31),
+                "Result",
+                InterfaceRole::Temp,
+                DataType::DInt,
+                1,
+            ),
+        ]),
+    );
+    let mut output = InterfaceMember::plain(
+        InterfaceMemberId::new(41),
+        "Y",
+        InterfaceRole::Output,
+        DataType::DInt,
+        0,
+    );
+    output.required_output_binding = true;
+    let scale_block = ProgramBlock::new(
+        BlockId::new(4),
+        "Scale",
+        EngineeringNumber::new(4).expect("nonzero"),
+        ProgramUnitKind::Function,
+        BlockInterface::from_members([
+            InterfaceMember::plain(
+                InterfaceMemberId::new(40),
+                "X",
+                InterfaceRole::Input,
+                DataType::DInt,
+                0,
+            ),
+            output,
+        ]),
+    );
+    let mut program = ControllerProgram::new(ControllerId::new(1));
+    program
+        .insert_block(source_block.clone())
+        .expect("unique caller");
+    program.insert_block(scale_block).expect("unique callee");
+    let text = "Arg := DINT#2; Scale(X := Arg, Y => Result);";
+    let source = SclSource::new(source_block.id, text);
+    let service = SclLanguageService::analyze_with_program(
+        &source,
+        &source_block,
+        &program,
+        ResourceLimits::default(),
+    );
+    assert!(
+        service.diagnostics().is_empty(),
+        "{:?}",
+        service.diagnostics()
+    );
+    let signature = service.signature_help(byte_offset(text, "Scale", 0) + 1);
+    let SignatureHelp::Call {
+        target,
+        name,
+        formals,
+    } = signature
+    else {
+        panic!("real FC signature expected");
+    };
+    assert_eq!(target, BlockId::new(4));
+    assert_eq!(name, "Scale");
+    assert_eq!(formals.len(), 2);
+    assert_eq!(formals[0].member, InterfaceMemberId::new(40));
+    assert!(formals[0].required);
+    assert_eq!(
+        service
+            .definition(byte_offset(text, "X", 0))
+            .expect("callee formal definition")
+            .owner,
+        BlockId::new(4)
+    );
+
     let source = SclSource::new(BlockId::new(1), "OutputQ := InputA;");
     let service = SclLanguageService::analyze(&source, &block(), ResourceLimits::default());
     assert_eq!(
         service.signature_help(0),
-        SignatureHelp::NoCallableSyntaxInInitialProfile
+        SignatureHelp::ProgramContextRequired
     );
 }
 
