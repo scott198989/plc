@@ -475,6 +475,13 @@ pub enum CommissioningError {
         cpu_state: CpuState,
     },
     LifecycleRequiresLoadedPackage,
+    RequiredVirtualHardwareInvalid {
+        controller_id: VirtualControllerId,
+        configured_fingerprint: Hash32,
+        actual_fingerprint: Hash32,
+        present: bool,
+        fault_state_hash: Hash32,
+    },
     ReplacementInstanceIdentityUnchanged,
     ControllerEpochExhausted,
     LifecycleRolledBack {
@@ -1939,6 +1946,29 @@ impl VirtualUniverse {
         restart: RestartKind,
     ) -> Result<(), CommissioningError> {
         let target = self.validate_session_binding(binding)?;
+        {
+            let instance = self
+                .controllers
+                .get(&target)
+                .ok_or(SessionError::TargetUnavailable)?;
+            let offline = self.offline.get(&instance.offline_controller_id).ok_or(
+                CommissioningError::UnknownOfflineController(instance.offline_controller_id),
+            )?;
+            let actual = instance.actual_hardware();
+            let configured_fingerprint = offline.configured.configured_hardware_fingerprint;
+            if !actual.present
+                || actual.fault_state_hash != Hash32::ZERO
+                || actual.fingerprint != configured_fingerprint
+            {
+                return Err(CommissioningError::RequiredVirtualHardwareInvalid {
+                    controller_id: target,
+                    configured_fingerprint,
+                    actual_fingerprint: actual.fingerprint,
+                    present: actual.present,
+                    fault_state_hash: actual.fault_state_hash,
+                });
+            }
+        }
         let instance = self
             .controllers
             .get_mut(&target)

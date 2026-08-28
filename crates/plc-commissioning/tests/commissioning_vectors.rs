@@ -1461,3 +1461,66 @@ fn online_session_observes_faulted_cpu_without_changing_target_state() {
         faulted_state_hash
     );
 }
+
+#[test]
+fn request_run_rejects_invalid_required_virtual_hardware_without_state_mutation() {
+    let base = package(
+        1,
+        &base_members(),
+        "source-map-required-hardware",
+        "semantic-required-hardware",
+        "hardware-required-hardware",
+        "build-required-hardware",
+    );
+    let mut universe = universe_for(&base);
+    commit(&mut universe, &base, PostLoadMode::Stop);
+    open_session(&mut universe);
+
+    let controller_epoch = universe
+        .controller(CONTROLLER)
+        .unwrap()
+        .runtime()
+        .controller_epoch();
+    let target_state_hash = universe
+        .controller(CONTROLLER)
+        .unwrap()
+        .semantic_state_hash();
+    let fault_state_hash = hash("required-module-pulled");
+    universe
+        .apply_actual_hardware_fault(ActualHardwareFaultCommand {
+            command_id: 0x6400,
+            target_controller_id: CONTROLLER,
+            expected_universe_epoch: universe.universe_epoch(),
+            expected_controller_epoch: controller_epoch,
+            expected_target_state_hash: target_state_hash,
+            present: false,
+            fault_state_hash,
+        })
+        .unwrap();
+
+    let before = universe
+        .controller(CONTROLLER)
+        .unwrap()
+        .semantic_state_hash();
+    let error = universe
+        .request_run(
+            universe.session_command_binding(SESSION).unwrap(),
+            RestartKind::Resume,
+        )
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        CommissioningError::RequiredVirtualHardwareInvalid {
+            controller_id: CONTROLLER,
+            configured_fingerprint,
+            actual_fingerprint,
+            present: false,
+            fault_state_hash: actual_fault,
+        } if configured_fingerprint == base.hardware_fingerprint()
+            && actual_fingerprint == base.hardware_fingerprint()
+            && actual_fault == fault_state_hash
+    ));
+    let controller = universe.controller(CONTROLLER).unwrap();
+    assert_eq!(controller.runtime().cpu_state(), CpuState::Stop);
+    assert_eq!(controller.semantic_state_hash(), before);
+}
