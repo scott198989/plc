@@ -9,9 +9,9 @@ use plc_hardware::{
     ArrayBound, CanonicalType, InstructionStateKind, PrimitiveType, StructMember, TypeDeclarationId,
 };
 use plc_program::{
-    BlockId, BlockInterface, CanonicalValue, ControllerId, ControllerProgram, DataBlockKind,
-    DataType, EngineeringNumber, InterfaceMember, InterfaceMemberId, InterfaceRole, ObDeclaration,
-    ProgramBlock, ProgramUnitKind, RetainPolicy,
+    BlockId, BlockInterface, CanonicalF32, CanonicalF64, CanonicalValue, ControllerId,
+    ControllerProgram, DataBlockKind, DataType, EngineeringNumber, InterfaceMember,
+    InterfaceMemberId, InterfaceRole, ObDeclaration, ProgramBlock, ProgramUnitKind, RetainPolicy,
 };
 
 use crate::{ProjectDiagnostic, ProjectDiagnosticPhase};
@@ -1165,14 +1165,31 @@ pub(crate) fn parse_data_type(value: &str) -> Result<DataType, String> {
     let upper = value.to_ascii_uppercase();
     match upper.as_str() {
         "BOOL" => Ok(DataType::Bool),
+        "SINT" => Ok(DataType::SInt),
         "INT" => Ok(DataType::Int),
         "DINT" => Ok(DataType::DInt),
+        "LINT" => Ok(DataType::LInt),
+        "USINT" => Ok(DataType::USInt),
+        "UINT" => Ok(DataType::UInt),
+        "UDINT" => Ok(DataType::UDInt),
+        "ULINT" => Ok(DataType::ULInt),
+        "BYTE" => Ok(DataType::Byte),
+        "WORD" => Ok(DataType::Word),
+        "DWORD" => Ok(DataType::DWord),
+        "LWORD" => Ok(DataType::LWord),
         "REAL" => Ok(DataType::Real),
+        "LREAL" => Ok(DataType::LReal),
+        "CHAR" => Ok(DataType::Char),
         "TIME" => Ok(DataType::Time),
         _ if upper.starts_with("STRING[") && upper.ends_with(']') => {
             let capacity = upper[7..upper.len() - 1]
                 .parse::<u16>()
                 .map_err(|_| format!("invalid STRING capacity in '{value}'"))?;
+            if capacity > 254 {
+                return Err(format!(
+                    "STRING capacity {capacity} exceeds the canonical limit of 254"
+                ));
+            }
             Ok(DataType::String { capacity })
         }
         _ => Err(format!("canonical data type '{value}' is unsupported")),
@@ -1220,15 +1237,43 @@ pub(crate) fn parse_value(
     }
     match (value, data_type) {
         (PayloadValue::Bool(value), DataType::Bool) => Ok(CanonicalValue::Bool(*value)),
+        (PayloadValue::Signed(value), DataType::SInt) => i8::try_from(*value)
+            .map(CanonicalValue::SInt)
+            .map_err(|_| "SINT value is out of range".to_owned()),
         (PayloadValue::Signed(value), DataType::Int) => i16::try_from(*value)
             .map(CanonicalValue::Int)
             .map_err(|_| "INT value is out of range".to_owned()),
         (PayloadValue::Signed(value), DataType::DInt) => i32::try_from(*value)
             .map(CanonicalValue::DInt)
             .map_err(|_| "DINT value is out of range".to_owned()),
+        (PayloadValue::Signed(value), DataType::LInt) => Ok(CanonicalValue::LInt(*value)),
+        (PayloadValue::Unsigned(value), DataType::USInt) => u8::try_from(*value)
+            .map(CanonicalValue::USInt)
+            .map_err(|_| "USINT value is out of range".to_owned()),
+        (PayloadValue::Unsigned(value), DataType::UInt) => u16::try_from(*value)
+            .map(CanonicalValue::UInt)
+            .map_err(|_| "UINT value is out of range".to_owned()),
+        (PayloadValue::Unsigned(value), DataType::UDInt) => u32::try_from(*value)
+            .map(CanonicalValue::UDInt)
+            .map_err(|_| "UDINT value is out of range".to_owned()),
+        (PayloadValue::Unsigned(value), DataType::ULInt) => Ok(CanonicalValue::ULInt(*value)),
+        (PayloadValue::Unsigned(value), DataType::Byte) => u8::try_from(*value)
+            .map(CanonicalValue::Byte)
+            .map_err(|_| "BYTE bit pattern is out of range".to_owned()),
+        (PayloadValue::Unsigned(value), DataType::Word) => u16::try_from(*value)
+            .map(CanonicalValue::Word)
+            .map_err(|_| "WORD bit pattern is out of range".to_owned()),
+        (PayloadValue::Unsigned(value), DataType::DWord) => u32::try_from(*value)
+            .map(CanonicalValue::DWord)
+            .map_err(|_| "DWORD bit pattern is out of range".to_owned()),
+        (PayloadValue::Unsigned(value), DataType::LWord) => Ok(CanonicalValue::LWord(*value)),
         (PayloadValue::Unsigned(value), DataType::Real) => u32::try_from(*value)
-            .map(CanonicalValue::RealBits)
-            .map_err(|_| "REAL bit pattern exceeds UInt32".to_owned()),
+            .map_err(|_| "REAL bit pattern exceeds UInt32".to_owned())
+            .and_then(canonical_real_value),
+        (PayloadValue::Unsigned(value), DataType::LReal) => canonical_lreal_value(*value),
+        (PayloadValue::Unsigned(value), DataType::Char) => u8::try_from(*value)
+            .map(CanonicalValue::Char)
+            .map_err(|_| "CHAR code unit is out of range".to_owned()),
         (PayloadValue::Signed(value), DataType::Time) => {
             Ok(CanonicalValue::TimeMilliseconds(*value))
         }
@@ -1246,26 +1291,294 @@ fn parse_contract_value(
     data_type: &DataType,
 ) -> Result<CanonicalValue, String> {
     let kind = record_text(record, "kind")?;
-    match (kind, data_type) {
-        ("bool", DataType::Bool) => match record.get("value") {
-            Some(PayloadValue::Bool(value)) => Ok(CanonicalValue::Bool(*value)),
-            _ => Err("canonical BOOL value must contain Boolean value".to_owned()),
-        },
-        ("signed-integer", DataType::Int) => record_decimal_signed(record, "value")
-            .and_then(|value| {
-                i16::try_from(value).map_err(|_| "INT value is out of range".to_owned())
-            })
-            .map(CanonicalValue::Int),
-        ("signed-integer", DataType::DInt) => record_decimal_signed(record, "value")
-            .and_then(|value| {
-                i32::try_from(value).map_err(|_| "DINT value is out of range".to_owned())
-            })
-            .map(CanonicalValue::DInt),
-        ("time", DataType::Time) => {
-            record_decimal_signed(record, "milliseconds").map(CanonicalValue::TimeMilliseconds)
-        }
+    let actual_type_id = record_text(record, "typeId")?;
+    let expected_type_id = canonical_data_type_id(data_type).ok_or_else(|| {
+        "canonical typed values require a primitive declared data type".to_owned()
+    })?;
+    if actual_type_id != expected_type_id {
+        return Err(format!(
+            "canonical typed value typeId '{actual_type_id}' does not match declared type '{expected_type_id}'"
+        ));
+    }
+    match kind {
+        "bool" => parse_contract_bool(record, data_type),
+        "signed-integer" => parse_contract_signed_integer(record, data_type),
+        "unsigned-integer" => parse_contract_unsigned_integer(record, data_type),
+        "bit-string" => parse_contract_bit_string(record, data_type),
+        "floating" => parse_contract_floating(record, data_type),
+        "char" => parse_contract_char(record, data_type),
+        "string" => parse_contract_string(record, data_type),
+        "time" => parse_contract_time(record, data_type),
         _ => Err("canonical typed value kind does not match its declared data type".to_owned()),
     }
+}
+
+fn parse_contract_bool(
+    record: &BTreeMap<String, PayloadValue>,
+    data_type: &DataType,
+) -> Result<CanonicalValue, String> {
+    require_contract_fields(record, &["kind", "typeId", "value"])?;
+    match (record.get("value"), data_type) {
+        (Some(PayloadValue::Bool(value)), DataType::Bool) => Ok(CanonicalValue::Bool(*value)),
+        _ => Err("canonical BOOL value must contain Boolean value".to_owned()),
+    }
+}
+
+fn parse_contract_signed_integer(
+    record: &BTreeMap<String, PayloadValue>,
+    data_type: &DataType,
+) -> Result<CanonicalValue, String> {
+    require_contract_fields(record, &["kind", "typeId", "value"])?;
+    let value = record_contract_signed(record, "value")?;
+    match data_type {
+        DataType::SInt => i8::try_from(value)
+            .map(CanonicalValue::SInt)
+            .map_err(|_| "SINT value is out of range".to_owned()),
+        DataType::Int => i16::try_from(value)
+            .map(CanonicalValue::Int)
+            .map_err(|_| "INT value is out of range".to_owned()),
+        DataType::DInt => i32::try_from(value)
+            .map(CanonicalValue::DInt)
+            .map_err(|_| "DINT value is out of range".to_owned()),
+        DataType::LInt => Ok(CanonicalValue::LInt(value)),
+        _ => Err("canonical typed value kind does not match its declared data type".to_owned()),
+    }
+}
+
+fn parse_contract_unsigned_integer(
+    record: &BTreeMap<String, PayloadValue>,
+    data_type: &DataType,
+) -> Result<CanonicalValue, String> {
+    require_contract_fields(record, &["kind", "typeId", "value"])?;
+    let value = record_contract_unsigned(record, "value")?;
+    match data_type {
+        DataType::USInt => u8::try_from(value)
+            .map(CanonicalValue::USInt)
+            .map_err(|_| "USINT value is out of range".to_owned()),
+        DataType::UInt => u16::try_from(value)
+            .map(CanonicalValue::UInt)
+            .map_err(|_| "UINT value is out of range".to_owned()),
+        DataType::UDInt => u32::try_from(value)
+            .map(CanonicalValue::UDInt)
+            .map_err(|_| "UDINT value is out of range".to_owned()),
+        DataType::ULInt => Ok(CanonicalValue::ULInt(value)),
+        _ => Err("canonical typed value kind does not match its declared data type".to_owned()),
+    }
+}
+
+fn parse_contract_bit_string(
+    record: &BTreeMap<String, PayloadValue>,
+    data_type: &DataType,
+) -> Result<CanonicalValue, String> {
+    require_contract_fields(record, &["bitsHex", "kind", "typeId"])?;
+    match data_type {
+        DataType::Byte => u8::try_from(record_contract_hex(record, "bitsHex", 2)?)
+            .map(CanonicalValue::Byte)
+            .map_err(|_| "BYTE bit pattern is out of range".to_owned()),
+        DataType::Word => u16::try_from(record_contract_hex(record, "bitsHex", 4)?)
+            .map(CanonicalValue::Word)
+            .map_err(|_| "WORD bit pattern is out of range".to_owned()),
+        DataType::DWord => u32::try_from(record_contract_hex(record, "bitsHex", 8)?)
+            .map(CanonicalValue::DWord)
+            .map_err(|_| "DWORD bit pattern is out of range".to_owned()),
+        DataType::LWord => record_contract_hex(record, "bitsHex", 16).map(CanonicalValue::LWord),
+        _ => Err("canonical typed value kind does not match its declared data type".to_owned()),
+    }
+}
+
+fn parse_contract_floating(
+    record: &BTreeMap<String, PayloadValue>,
+    data_type: &DataType,
+) -> Result<CanonicalValue, String> {
+    require_contract_fields(record, &["ieeeHex", "kind", "typeId"])?;
+    match data_type {
+        DataType::Real => u32::try_from(record_contract_hex(record, "ieeeHex", 8)?)
+            .map_err(|_| "REAL bit pattern exceeds UInt32".to_owned())
+            .and_then(canonical_real_value),
+        DataType::LReal => canonical_lreal_value(record_contract_hex(record, "ieeeHex", 16)?),
+        _ => Err("canonical typed value kind does not match its declared data type".to_owned()),
+    }
+}
+
+fn parse_contract_char(
+    record: &BTreeMap<String, PayloadValue>,
+    data_type: &DataType,
+) -> Result<CanonicalValue, String> {
+    require_contract_fields(record, &["codeUnit", "kind", "typeId"])?;
+    if !matches!(data_type, DataType::Char) {
+        return Err("canonical typed value kind does not match its declared data type".to_owned());
+    }
+    u8::try_from(record_unsigned(record, "codeUnit")?)
+        .map(CanonicalValue::Char)
+        .map_err(|_| "CHAR code unit is out of range".to_owned())
+}
+
+fn parse_contract_string(
+    record: &BTreeMap<String, PayloadValue>,
+    data_type: &DataType,
+) -> Result<CanonicalValue, String> {
+    require_contract_fields(record, &["capacity", "codeUnits", "kind", "typeId"])?;
+    let DataType::String { capacity } = data_type else {
+        return Err("canonical typed value kind does not match its declared data type".to_owned());
+    };
+    let contract_capacity = u16::try_from(record_unsigned(record, "capacity")?)
+        .map_err(|_| "STRING contract capacity exceeds UInt16".to_owned())?;
+    if contract_capacity != *capacity {
+        return Err(format!(
+            "STRING contract capacity {contract_capacity} does not match declared capacity {capacity}"
+        ));
+    }
+    let Some(PayloadValue::List(code_units)) = record.get("codeUnits") else {
+        return Err("canonical STRING codeUnits must be a list".to_owned());
+    };
+    if code_units.len() > usize::from(*capacity) {
+        return Err("canonical STRING value exceeds its declared capacity".to_owned());
+    }
+    code_units
+        .iter()
+        .enumerate()
+        .map(|(index, value)| match value {
+            PayloadValue::Unsigned(value) => u8::try_from(*value)
+                .map_err(|_| format!("canonical STRING codeUnits[{index}] exceeds UInt8")),
+            _ => Err(format!(
+                "canonical STRING codeUnits[{index}] must be unsigned"
+            )),
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map(CanonicalValue::StringBytes)
+}
+
+fn parse_contract_time(
+    record: &BTreeMap<String, PayloadValue>,
+    data_type: &DataType,
+) -> Result<CanonicalValue, String> {
+    require_contract_fields(record, &["kind", "milliseconds", "typeId"])?;
+    if !matches!(data_type, DataType::Time) {
+        return Err("canonical typed value kind does not match its declared data type".to_owned());
+    }
+    record_contract_signed(record, "milliseconds").map(CanonicalValue::TimeMilliseconds)
+}
+
+fn canonical_data_type_id(data_type: &DataType) -> Option<&'static str> {
+    match data_type {
+        DataType::Bool => Some("BOOL"),
+        DataType::SInt => Some("SINT"),
+        DataType::Int => Some("INT"),
+        DataType::DInt => Some("DINT"),
+        DataType::LInt => Some("LINT"),
+        DataType::USInt => Some("USINT"),
+        DataType::UInt => Some("UINT"),
+        DataType::UDInt => Some("UDINT"),
+        DataType::ULInt => Some("ULINT"),
+        DataType::Byte => Some("BYTE"),
+        DataType::Word => Some("WORD"),
+        DataType::DWord => Some("DWORD"),
+        DataType::LWord => Some("LWORD"),
+        DataType::Real => Some("REAL"),
+        DataType::LReal => Some("LREAL"),
+        DataType::Char => Some("CHAR"),
+        DataType::Time => Some("TIME"),
+        DataType::String { .. } => Some("STRING"),
+        DataType::Named(_) | DataType::BlockInstance(_) | DataType::InstructionState(_) => None,
+    }
+}
+
+fn require_contract_fields(
+    record: &BTreeMap<String, PayloadValue>,
+    expected: &[&str],
+) -> Result<(), String> {
+    if record.len() == expected.len() && expected.iter().all(|key| record.contains_key(*key)) {
+        return Ok(());
+    }
+    Err(format!(
+        "canonical typed value fields must be exactly [{}]",
+        expected.join(", ")
+    ))
+}
+
+fn record_contract_signed(
+    record: &BTreeMap<String, PayloadValue>,
+    key: &str,
+) -> Result<i64, String> {
+    match record.get(key) {
+        Some(PayloadValue::Signed(value)) => Ok(*value),
+        Some(PayloadValue::String(value)) if canonical_signed_decimal(value) => value
+            .parse::<i64>()
+            .map_err(|_| format!("record field '{key}' exceeds canonical DecimalInt64")),
+        Some(_) => Err(format!(
+            "record field '{key}' must be signed or canonical DecimalInt64 text"
+        )),
+        None => Err(format!("required record field '{key}' is absent")),
+    }
+}
+
+fn record_contract_unsigned(
+    record: &BTreeMap<String, PayloadValue>,
+    key: &str,
+) -> Result<u64, String> {
+    match record.get(key) {
+        Some(PayloadValue::Unsigned(value)) => Ok(*value),
+        Some(PayloadValue::String(value)) if canonical_unsigned_decimal(value) => value
+            .parse::<u64>()
+            .map_err(|_| format!("record field '{key}' exceeds canonical DecimalUInt64")),
+        Some(_) => Err(format!(
+            "record field '{key}' must be unsigned or canonical DecimalUInt64 text"
+        )),
+        None => Err(format!("required record field '{key}' is absent")),
+    }
+}
+
+fn canonical_signed_decimal(value: &str) -> bool {
+    value == "0"
+        || value
+            .strip_prefix('-')
+            .is_some_and(canonical_nonzero_unsigned_decimal)
+        || canonical_nonzero_unsigned_decimal(value)
+}
+
+fn canonical_unsigned_decimal(value: &str) -> bool {
+    value == "0" || canonical_nonzero_unsigned_decimal(value)
+}
+
+fn canonical_nonzero_unsigned_decimal(value: &str) -> bool {
+    value
+        .as_bytes()
+        .first()
+        .is_some_and(|first| matches!(first, b'1'..=b'9'))
+        && value.as_bytes()[1..].iter().all(u8::is_ascii_digit)
+}
+
+fn record_contract_hex(
+    record: &BTreeMap<String, PayloadValue>,
+    key: &str,
+    digits: usize,
+) -> Result<u64, String> {
+    let value = record_text(record, key)?;
+    if value.len() != digits
+        || !value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || matches!(byte, b'A'..=b'F'))
+    {
+        return Err(format!(
+            "record field '{key}' must contain exactly {digits} uppercase hexadecimal digits"
+        ));
+    }
+    u64::from_str_radix(value, 16)
+        .map_err(|_| format!("record field '{key}' is not canonical hexadecimal"))
+}
+
+fn canonical_real_value(bits: u32) -> Result<CanonicalValue, String> {
+    if CanonicalF32::from_bits(bits).bits() != bits {
+        return Err("REAL NaN must use canonical bit pattern 7FC00000".to_owned());
+    }
+    Ok(CanonicalValue::RealBits(bits))
+}
+
+fn canonical_lreal_value(bits: u64) -> Result<CanonicalValue, String> {
+    if CanonicalF64::from_bits(bits).bits() != bits {
+        return Err("LREAL NaN must use canonical bit pattern 7FF8000000000000".to_owned());
+    }
+    Ok(CanonicalValue::LRealBits(bits))
 }
 
 fn parse_tag(
