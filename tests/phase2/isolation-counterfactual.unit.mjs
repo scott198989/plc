@@ -6,8 +6,10 @@ import {
   EXPECTED_DIRECTIVE_SHA256,
   ISOLATION_VERIFICATION_IDS,
   analyzeCapabilityEvents,
+  analyzeHostNetworkAdapters,
   analyzeNetLogTargets,
   analyzeProcessEndpoints,
+  assessConfigurationCoverage,
   assessEvidenceCompleteness,
   classifyUrl,
   deriveProcessTree,
@@ -109,6 +111,39 @@ test("process endpoint analysis separately accounts exact loopback and fails ext
   ]));
 });
 
+test("host adapter analysis requires before-and-after capture and rejects every active adapter", () => {
+  const disabled = analyzeHostNetworkAdapters([
+    {
+      adapters: [{ ifIndex: 7, MediaConnectionState: "Disconnected", Name: "Ethernet", Status: "Disabled" }],
+      boundary: "preflight",
+      capturedAt: "2020-01-01T00:00:00.000Z",
+    },
+    {
+      adapters: [{ ifIndex: 7, MediaConnectionState: "Disconnected", Name: "Ethernet", Status: "Disabled" }],
+      boundary: "postflight",
+      capturedAt: "2020-01-01T00:01:00.000Z",
+    },
+  ]);
+  assert.equal(disabled.captureComplete, true);
+  assert.equal(disabled.adaptersDisabled, true);
+
+  const active = analyzeHostNetworkAdapters([
+    {
+      adapters: [{ ifIndex: 7, MediaConnectionState: "Connected", Name: "Wi-Fi", Status: "Up" }],
+      boundary: "preflight",
+      capturedAt: "2020-01-01T00:00:00.000Z",
+    },
+    {
+      adapters: [{ ifIndex: 7, MediaConnectionState: "Connected", Name: "Wi-Fi", Status: "Up" }],
+      boundary: "postflight",
+      capturedAt: "2020-01-01T00:01:00.000Z",
+    },
+  ]);
+  assert.equal(active.adaptersDisabled, false);
+  assert.equal(active.activeAdapters.length, 2);
+  assert.equal(analyzeHostNetworkAdapters([{ adapters: [] }]).captureComplete, false);
+});
+
 test("capability analysis allows only the packaged blob worker", () => {
   const result = analyzeCapabilityEvents([
     { api: "Worker", classification: "allowed-internal-blob-worker", outcome: "allowed", target: "blob:http://127.0.0.1/id" },
@@ -189,12 +224,48 @@ test("NUL-delimited Git status preserves spaces and quotes without display quoti
   ]);
 });
 
-test("evidence completeness fails closed on stale, partial, or non-Windows runs", () => {
+test("configuration coverage rejects unresolved, partial, and non-credit evidence", () => {
+  const digest = "A".repeat(64);
+  const baseline = {
+    approvalDecisionId: "OQ-0001",
+    approvalSha256: digest,
+    approvalStatus: "APPROVED",
+    evidenceBindings: [{
+      completeLogs: true,
+      configurationId: "windows-x64-chromium",
+      evidenceManifestSha256: digest,
+      matchesCandidate: true,
+      result: "PASS",
+    }],
+    expectedConfigurationIds: ["windows-x64-chromium"],
+  };
+  assert.equal(assessConfigurationCoverage(baseline).complete, true);
+  assert.equal(assessConfigurationCoverage({ ...baseline, approvalDecisionId: null }).complete, false);
+  assert.equal(assessConfigurationCoverage({ ...baseline, approvalStatus: "UNRESOLVED" }).complete, false);
+  assert.equal(assessConfigurationCoverage({ ...baseline, expectedConfigurationIds: [] }).complete, false);
+  assert.equal(assessConfigurationCoverage({
+    ...baseline,
+    evidenceBindings: [...baseline.evidenceBindings, ...baseline.evidenceBindings],
+  }).complete, false);
+  for (const result of ["SKIPPED", "FLAKY", "UNAVAILABLE", "STALE", "INCONCLUSIVE", "FAIL"]) {
+    assert.equal(assessConfigurationCoverage({
+      ...baseline,
+      evidenceBindings: [{ ...baseline.evidenceBindings[0], result }],
+    }).complete, false, result);
+  }
+});
+
+test("evidence completeness fails closed on stale, partial, or unsupported runs while date alone does not expire a match", () => {
+  const digest = "A".repeat(64);
   const baseline = {
     assertions: {
-      adaptersDisabled: true,
+      browserCapabilityAdaptersDisabled: true,
       externalAttemptCount: 0,
+      fixedNativeLocalBackingProven: true,
+      hostNetworkAdaptersDisabled: true,
+      liveLanDiscoveryInvarianceProven: true,
       loopbackTrafficAccounted: true,
+      vendorDeployableExportRejectionProven: true,
       zeroExternalAttempts: true,
     },
     authority: { directiveSha256Matches: true },
@@ -207,19 +278,78 @@ test("evidence completeness fails closed on stale, partial, or non-Windows runs"
       pageErrors: [],
       playwrightRequests: [],
     },
-    candidate: { exact: true },
+    candidate: {
+      commit: "1".repeat(40),
+      exact: true,
+      head: "1".repeat(40),
+      inputBlobBindings: [{
+        candidateSha256: digest,
+        localSha256: digest,
+        matchesCandidate: true,
+        path: "tests/phase2/isolation-counterfactual.unit.mjs",
+      }],
+      workspaceChanges: [],
+    },
     chromiumNetLog: { parsed: true },
+    completedAt: "2000-01-01T00:01:00.000Z",
+    configurationCoverage: {
+      approvalDecisionId: "OQ-0001",
+      approvalSha256: digest,
+      approvalStatus: "APPROVED",
+      evidenceBindings: [{
+        completeLogs: true,
+        configurationId: "windows-x64-chromium",
+        evidenceManifestSha256: digest,
+        matchesCandidate: true,
+        result: "PASS",
+      }],
+      expectedConfigurationIds: ["windows-x64-chromium"],
+    },
+    hostNetworkAdapters: {
+      analysis: { adaptersDisabled: true, captureComplete: true },
+      snapshots: [{ adapters: [] }, { adapters: [] }],
+    },
     osNetwork: { samplerComplete: true, samples: [] },
     package: { staticScan: { pass: true } },
     platform: { os: "win32" },
+    startedAt: "2000-01-01T00:00:00.000Z",
     workflow: {
       completed: true,
       fuzzCases: Array.from({ length: DEFAULT_FUZZ_CASES.length * 2 }, () => ({ injected: true })),
     },
   };
   assert.equal(assessEvidenceCompleteness(baseline).complete, true);
-  assert.equal(assessEvidenceCompleteness({ ...baseline, candidate: { exact: false } }).complete, false);
+  assert.equal(assessEvidenceCompleteness({
+    ...baseline,
+    candidate: { ...baseline.candidate, exact: false },
+  }).complete, false);
+  assert.equal(assessEvidenceCompleteness({
+    ...baseline,
+    candidate: {
+      ...baseline.candidate,
+      inputBlobBindings: [{ ...baseline.candidate.inputBlobBindings[0], matchesCandidate: false }],
+    },
+  }).complete, false);
   assert.equal(assessEvidenceCompleteness({ ...baseline, platform: { os: "linux" } }).complete, false);
   assert.equal(assessEvidenceCompleteness({ ...baseline, chromiumNetLog: { parsed: false } }).complete, false);
-  assert.equal(assessEvidenceCompleteness({ ...baseline, assertions: { externalAttemptCount: 1 } }).complete, false);
+  assert.equal(assessEvidenceCompleteness({
+    ...baseline,
+    assertions: { ...baseline.assertions, externalAttemptCount: 1 },
+  }).complete, false);
+  for (const flag of [
+    "browserCapabilityAdaptersDisabled",
+    "fixedNativeLocalBackingProven",
+    "hostNetworkAdaptersDisabled",
+    "liveLanDiscoveryInvarianceProven",
+    "vendorDeployableExportRejectionProven",
+  ]) {
+    assert.equal(assessEvidenceCompleteness({
+      ...baseline,
+      assertions: { ...baseline.assertions, [flag]: false },
+    }).complete, false, flag);
+  }
+  assert.equal(assessEvidenceCompleteness({
+    ...baseline,
+    configurationCoverage: { ...baseline.configurationCoverage, approvalDecisionId: null },
+  }).complete, false);
 });

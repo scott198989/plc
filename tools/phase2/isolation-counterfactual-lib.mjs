@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { isIP } from "node:net";
 
-export const EVIDENCE_SCHEMA_VERSION = "1.0";
+export const EVIDENCE_SCHEMA_VERSION = "1.1";
 export const ISOLATION_VERIFICATION_IDS = Object.freeze([
   "VER-ISO-0001",
   "VER-ISO-0002",
@@ -39,6 +39,7 @@ export const DEFAULT_FUZZ_CASES = Object.freeze([
 
 const LOOPBACK_HOSTS = new Set(["localhost", "localhost.localdomain", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"]);
 const UNSPECIFIED_HOSTS = new Set(["", "0.0.0.0", "::", "0:0:0:0:0:0:0:0", "*"]);
+const SHA256_PATTERN = /^[A-F0-9]{64}$/u;
 
 export const sha256 = (value) =>
   createHash("sha256").update(value).digest("hex").toUpperCase();
@@ -208,6 +209,46 @@ export function analyzeProcessEndpoints(samples, allowlistedRemoteEndpoints = ne
     externalAttempts: deduplicate(externalAttempts),
     loopbackAccounted: deduplicate(loopbackAccounted),
     observations: deduplicate(observations),
+  };
+}
+
+export function analyzeHostNetworkAdapters(snapshots) {
+  const normalizedSnapshots = [];
+  const activeAdapters = [];
+  for (const snapshot of Array.isArray(snapshots) ? snapshots : []) {
+    if (!Array.isArray(snapshot?.adapters)) {
+      continue;
+    }
+    const adapters = snapshot.adapters.map((adapter) => {
+      const normalized = {
+        interfaceDescription: String(adapter.interfaceDescription ?? adapter.InterfaceDescription ?? ""),
+        interfaceIndex: Number(adapter.interfaceIndex ?? adapter.ifIndex ?? adapter.InterfaceIndex ?? 0),
+        mediaConnectionState: String(adapter.mediaConnectionState ?? adapter.MediaConnectionState ?? ""),
+        name: String(adapter.name ?? adapter.Name ?? ""),
+        status: String(adapter.status ?? adapter.Status ?? ""),
+      };
+      const status = normalized.status.toLocaleLowerCase("en-US");
+      const mediaState = normalized.mediaConnectionState.toLocaleLowerCase("en-US");
+      if (status === "up" || mediaState === "connected" || mediaState === "1") {
+        activeAdapters.push({ boundary: snapshot.boundary ?? null, capturedAt: snapshot.capturedAt ?? null, ...normalized });
+      }
+      return normalized;
+    });
+    normalizedSnapshots.push({
+      adapters,
+      boundary: snapshot.boundary ?? null,
+      capturedAt: snapshot.capturedAt ?? null,
+    });
+  }
+  const boundaries = new Set(normalizedSnapshots.map(({ boundary }) => String(boundary ?? "")));
+  const captureComplete =
+    boundaries.has("preflight") &&
+    [...boundaries].some((boundary) => boundary.startsWith("postflight"));
+  return {
+    activeAdapters: deduplicate(activeAdapters),
+    adaptersDisabled: captureComplete && activeAdapters.length === 0,
+    captureComplete,
+    snapshots: normalizedSnapshots,
   };
 }
 
@@ -393,6 +434,43 @@ export function analyzeNetLogTargets(parsed, allowedOrigins = new Set(), allowed
   };
 }
 
+export function assessConfigurationCoverage(coverage) {
+  const failures = [];
+  const approvalDecisionId = String(coverage?.approvalDecisionId ?? "");
+  if (
+    !/^(?:OQ-0001|ADR-[A-Z0-9-]+)$/u.test(approvalDecisionId) ||
+    coverage?.approvalStatus !== "APPROVED" ||
+    !SHA256_PATTERN.test(String(coverage?.approvalSha256 ?? ""))
+  ) {
+    failures.push("The supported platform/configuration set has no approved decision binding");
+  }
+  const expected = Array.isArray(coverage?.expectedConfigurationIds)
+    ? coverage.expectedConfigurationIds.map(String)
+    : [];
+  if (expected.length === 0 || new Set(expected).size !== expected.length) {
+    failures.push("The supported configuration set is empty or contains duplicates");
+  }
+  const bindings = Array.isArray(coverage?.evidenceBindings) ? coverage.evidenceBindings : [];
+  const bindingConfigurationIds = bindings.map((binding) => String(binding.configurationId ?? ""));
+  if (new Set(bindingConfigurationIds).size !== bindingConfigurationIds.length) {
+    failures.push("Configuration evidence bindings contain duplicate identities");
+  }
+  const byConfiguration = new Map(bindings.map((binding) => [String(binding.configurationId ?? ""), binding]));
+  for (const configurationId of expected) {
+    const binding = byConfiguration.get(configurationId);
+    if (
+      binding === undefined ||
+      binding.completeLogs !== true ||
+      binding.matchesCandidate !== true ||
+      binding.result !== "PASS" ||
+      !SHA256_PATTERN.test(String(binding.evidenceManifestSha256 ?? ""))
+    ) {
+      failures.push(`Configuration ${configurationId} lacks complete exact-candidate PASS evidence`);
+    }
+  }
+  return { complete: failures.length === 0, failures };
+}
+
 export function assessEvidenceCompleteness(report) {
   const failures = [];
   const requiredArrays = [
@@ -413,11 +491,41 @@ export function assessEvidenceCompleteness(report) {
   if (report.candidate?.exact !== true) {
     failures.push("The run is not bound to an exact clean candidate");
   }
+  const candidateBindings = report.candidate?.inputBlobBindings;
+  if (
+    report.candidate?.head !== report.candidate?.commit ||
+    !Array.isArray(report.candidate?.workspaceChanges) ||
+    report.candidate.workspaceChanges.length !== 0 ||
+    !Array.isArray(candidateBindings) ||
+    candidateBindings.length === 0 ||
+    candidateBindings.some((binding) =>
+      binding.matchesCandidate !== true ||
+      !SHA256_PATTERN.test(String(binding.candidateSha256 ?? "")) ||
+      !SHA256_PATTERN.test(String(binding.localSha256 ?? "")))
+  ) {
+    failures.push("Candidate commit, workspace, requirement, test, or harness byte bindings are incomplete");
+  }
   if (report.authority?.directiveSha256Matches !== true) {
     failures.push("The issued Phase 2 directive hash does not match");
   }
-  if (report.assertions?.adaptersDisabled !== true) {
-    failures.push("Host adapters were not proven disabled");
+  if (report.assertions?.browserCapabilityAdaptersDisabled !== true) {
+    failures.push("Browser file/device/network capability adapters were not proven disabled");
+  }
+  if (
+    report.assertions?.hostNetworkAdaptersDisabled !== true ||
+    report.hostNetworkAdapters?.analysis?.captureComplete !== true ||
+    report.hostNetworkAdapters?.analysis?.adaptersDisabled !== true
+  ) {
+    failures.push("Host network adapters were not proven disabled before and after the workflow");
+  }
+  if (report.assertions?.liveLanDiscoveryInvarianceProven !== true) {
+    failures.push("Controlled live-LAN discovery invariance was not proven");
+  }
+  if (report.assertions?.fixedNativeLocalBackingProven !== true) {
+    failures.push("Fixed native local non-provider non-removable file backing was not proven");
+  }
+  if (report.assertions?.vendorDeployableExportRejectionProven !== true) {
+    failures.push("Every export surface was not proven to reject vendor or deployable artifacts");
   }
   if (report.assertions?.loopbackTrafficAccounted !== true) {
     failures.push("Loopback test/control traffic was not separately accounted");
@@ -458,6 +566,8 @@ export function assessEvidenceCompleteness(report) {
   if (report.chromiumNetLog?.parsed !== true) {
     failures.push("Chromium NetLog was unavailable or malformed");
   }
+  const configurationCoverage = assessConfigurationCoverage(report.configurationCoverage);
+  failures.push(...configurationCoverage.failures);
   return { complete: failures.length === 0, failures };
 }
 

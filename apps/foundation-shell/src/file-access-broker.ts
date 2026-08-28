@@ -1,6 +1,11 @@
 const PROJECT_EXTENSION = ".vlabproj";
 const PROJECT_MIME_TYPE = "application/vnd.govs.virtual-plc-project";
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
+const MAX_PROJECT_NAME_CODE_UNITS = 255;
+
+const FORBIDDEN_FILE_NAME_CHARACTERS = /[<>:"/\\|?*\u0000-\u001f\u007f]/u;
+const FORBIDDEN_FILE_NAME_CHARACTERS_GLOBAL = /[<>:"/\\|?*\u0000-\u001f\u007f]/gu;
+const RESERVED_WINDOWS_FILE_STEM = /^(?:AUX|CON|NUL|PRN|COM[1-9¹²³]|LPT[1-9¹²³])$/iu;
 
 type PickerAccept = Readonly<Record<string, readonly string[]>>;
 
@@ -13,6 +18,11 @@ type ProjectFileHandle = Readonly<{
   }>;
   kind: "file";
   name: string;
+}>;
+
+type ProjectFileGrant = Readonly<{
+  displayName: string;
+  handle: ProjectFileHandle;
 }>;
 
 type PickerWindow = Window &
@@ -53,6 +63,7 @@ export class FileAccessError extends Error {
     | "ACCESS_CANCELLED"
     | "ACCESS_UNAVAILABLE"
     | "INVALID_EXTENSION"
+    | "INVALID_FILE_NAME"
     | "PROJECT_TOO_LARGE"
     | "READ_FAILED"
     | "UNKNOWN_GRANT"
@@ -77,7 +88,7 @@ const projectPickerType = {
  * and canonical bytes, never a path or a host capability.
  */
 export class FileAccessBroker {
-  readonly #grants = new Map<string, ProjectFileHandle>();
+  readonly #grants = new Map<string, ProjectFileGrant>();
 
   public canOpen(): boolean {
     return typeof (window as PickerWindow).showOpenFilePicker === "function";
@@ -92,7 +103,7 @@ export class FileAccessBroker {
     if (picker === undefined) {
       throw new FileAccessError(
         "ACCESS_UNAVAILABLE",
-        "This browser cannot grant local project-file access.",
+        "This browser cannot grant project-file access.",
       );
     }
 
@@ -106,23 +117,11 @@ export class FileAccessBroker {
     } catch (error) {
       throw normalizePickerError(error, "open");
     }
-    const handle = handles[0];
-    if (handle === undefined || handle.kind !== "file") {
-      throw new FileAccessError("READ_FAILED", "No project file was granted.");
-    }
-    assertProjectName(handle.name);
-
-    let file: File;
-    try {
-      file = await handle.getFile();
-    } catch {
-      throw new FileAccessError("READ_FAILED", "The selected project could not be read.");
-    }
-    assertProjectSize(file.size);
-    const bytes = new Uint8Array(await file.arrayBuffer());
+    const grant = inspectGrantedHandle(handles[0], "open");
+    const bytes = await readProjectBytes(grant.handle);
     const grantId = crypto.randomUUID();
-    this.#grants.set(grantId, handle);
-    return { bytes, displayName: handle.name, grantId };
+    this.#grants.set(grantId, grant);
+    return { bytes, displayName: grant.displayName, grantId };
   }
 
   public async requestSaveAs(
@@ -133,7 +132,7 @@ export class FileAccessBroker {
     if (picker === undefined) {
       throw new FileAccessError(
         "ACCESS_UNAVAILABLE",
-        "This browser cannot grant local project-file access.",
+        "This browser cannot grant project-file access.",
       );
     }
     assertProjectSize(bytes.byteLength);
@@ -148,10 +147,15 @@ export class FileAccessBroker {
     } catch (error) {
       throw normalizePickerError(error, "save");
     }
-    assertProjectName(handle.name);
+    const grant = inspectGrantedHandle(handle, "save");
     const grantId = crypto.randomUUID();
-    this.#grants.set(grantId, handle);
-    return this.writeAndVerify(grantId, bytes);
+    this.#grants.set(grantId, grant);
+    try {
+      return await this.writeAndVerify(grantId, bytes);
+    } catch (error) {
+      this.#grants.delete(grantId);
+      throw error;
+    }
   }
 
   public async save(
@@ -170,26 +174,26 @@ export class FileAccessBroker {
     grantId: string,
     bytes: Uint8Array<ArrayBuffer>,
   ): Promise<SavedProjectFile> {
-    const handle = this.#grants.get(grantId);
-    if (handle === undefined) {
+    const grant = this.#grants.get(grantId);
+    if (grant === undefined) {
       throw new FileAccessError("UNKNOWN_GRANT", "The project file grant is no longer active.");
     }
 
     let writable: Awaited<ReturnType<ProjectFileHandle["createWritable"]>> | undefined;
     try {
-      writable = await handle.createWritable();
+      writable = await grant.handle.createWritable();
       await writable.write(bytes);
       await writable.close();
       writable = undefined;
 
-      const reopened = await handle.getFile();
+      const reopened = await grant.handle.getFile();
       assertProjectSize(reopened.size);
       const reopenedBytes = new Uint8Array(await reopened.arrayBuffer());
-      if (!equalBytes(bytes, reopenedBytes)) {
+      if (reopenedBytes.byteLength !== reopened.size || !equalBytes(bytes, reopenedBytes)) {
         throw new Error("The reopened bytes differ from the save payload.");
       }
       return {
-        displayName: handle.name,
+        displayName: grant.displayName,
         grantId,
         verifiedBytes: reopenedBytes.byteLength,
       };
@@ -220,11 +224,95 @@ const normalizePickerError = (
   );
 };
 
+/**
+ * Inspect only the two side-effect-free metadata fields exposed by the web
+ * File System Access contract before the broker performs selected-byte I/O.
+ *
+ * This deliberately does not claim that `kind` and `name` attest a fixed,
+ * native, non-provider, non-removable backing volume. The browser API exposes
+ * no such attestation, so VER-ISO-0004 remains blocked on an approved host
+ * architecture even though path-shaped and device-shaped names fail closed.
+ */
+const inspectGrantedHandle = (
+  handle: ProjectFileHandle | undefined,
+  operation: "open" | "save",
+): ProjectFileGrant => {
+  if (handle === undefined || handle === null || typeof handle !== "object") {
+    throw fileBoundaryFailure(operation, "No project file was granted.");
+  }
+
+  let kind: unknown;
+  let name: unknown;
+  try {
+    kind = handle.kind;
+    name = handle.name;
+  } catch {
+    throw fileBoundaryFailure(operation, "The granted file metadata could not be inspected.");
+  }
+  if (kind !== "file" || typeof name !== "string") {
+    throw fileBoundaryFailure(operation, "The granted object is not a project file.");
+  }
+  assertProjectName(name);
+  return { displayName: name, handle };
+};
+
+const readProjectBytes = async (
+  handle: ProjectFileHandle,
+): Promise<Uint8Array<ArrayBuffer>> => {
+  try {
+    const file = await handle.getFile();
+    assertProjectSize(file.size);
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (bytes.byteLength !== file.size) {
+      throw new Error("The selected file changed while it was being read.");
+    }
+    return bytes;
+  } catch (error) {
+    if (error instanceof FileAccessError) {
+      throw error;
+    }
+    throw new FileAccessError("READ_FAILED", "The selected project could not be read.");
+  }
+};
+
+const fileBoundaryFailure = (
+  operation: "open" | "save",
+  message: string,
+): FileAccessError => new FileAccessError(
+  operation === "open" ? "READ_FAILED" : "WRITE_FAILED",
+  message,
+);
+
 const assertProjectName = (name: string): void => {
   if (!name.toLocaleLowerCase("en-US").endsWith(PROJECT_EXTENSION)) {
     throw new FileAccessError(
       "INVALID_EXTENSION",
       `Project files must use the ${PROJECT_EXTENSION} extension.`,
+    );
+  }
+  if (
+    name.length > MAX_PROJECT_NAME_CODE_UNITS ||
+    name !== name.trim() ||
+    name.endsWith(".") ||
+    FORBIDDEN_FILE_NAME_CHARACTERS.test(name)
+  ) {
+    throw new FileAccessError(
+      "INVALID_FILE_NAME",
+      "Project files must use one bounded file name, not a path, endpoint, device, pipe, or print target.",
+    );
+  }
+  const stem = name.slice(0, -PROJECT_EXTENSION.length);
+  if (
+    stem.length === 0 ||
+    stem !== stem.trim() ||
+    stem.endsWith(".") ||
+    stem === "." ||
+    stem === ".." ||
+    isReservedProjectStem(stem)
+  ) {
+    throw new FileAccessError(
+      "INVALID_FILE_NAME",
+      "The selected project file name is reserved or empty.",
     );
   }
 };
@@ -242,8 +330,24 @@ const normalizeSuggestedName = (name: string): string => {
   const withoutExtension = name.toLocaleLowerCase("en-US").endsWith(PROJECT_EXTENSION)
     ? name.slice(0, -PROJECT_EXTENSION.length)
     : name;
-  const safeName = withoutExtension.replaceAll(/[<>:"/\\|?*\u0000-\u001f]/gu, " ").trim();
-  return `${safeName || "Untitled project"}${PROJECT_EXTENSION}`;
+  const normalized = withoutExtension
+    .replaceAll(FORBIDDEN_FILE_NAME_CHARACTERS_GLOBAL, " ")
+    .trim()
+    .replace(/[. ]+$/u, "");
+  const admissible = normalized.length > 0 && !isReservedProjectStem(normalized)
+    ? normalized
+    : "Untitled project";
+  const maximumStemLength = MAX_PROJECT_NAME_CODE_UNITS - PROJECT_EXTENSION.length;
+  const bounded = admissible
+    .slice(0, maximumStemLength)
+    .replace(/[\ud800-\udbff]$/u, "")
+    .replace(/[. ]+$/u, "");
+  return `${bounded || "Untitled project"}${PROJECT_EXTENSION}`;
+};
+
+const isReservedProjectStem = (stem: string): boolean => {
+  const candidate = stem.split(".", 1)[0]?.replace(/[. ]+$/u, "") ?? "";
+  return RESERVED_WINDOWS_FILE_STEM.test(candidate);
 };
 
 const equalBytes = (left: Uint8Array, right: Uint8Array): boolean => {

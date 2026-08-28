@@ -14,6 +14,7 @@ import {
   EXPECTED_DIRECTIVE_SHA256,
   ISOLATION_VERIFICATION_IDS,
   analyzeCapabilityEvents,
+  analyzeHostNetworkAdapters,
   analyzeNetLogTargets,
   analyzeProcessEndpoints,
   assessEvidenceCompleteness,
@@ -33,7 +34,7 @@ const projectRoot = path.resolve(options.root ?? projectRootDefault);
 const artifactPath = path.resolve(projectRoot, options.artifact ?? "dist/index.html");
 const outputDirectory = path.resolve(
   projectRoot,
-  options.output ?? ".phase2-verification/P2-ISO-WINDOWS-ADAPTERS-OFF",
+  options.output ?? ".phase2-verification/P2-ISO-WINDOWS-COUNTERFACTUAL",
 );
 const candidateRef = options.candidateRef ?? "HEAD";
 const developmentRun = options.developmentRun === true;
@@ -56,6 +57,7 @@ const netLogPath = path.join(outputDirectory, "chromium-netlog.json");
 const reportPath = path.join(outputDirectory, "counterfactual-isolation.json");
 const browserLogPath = path.join(outputDirectory, "browser-events.json");
 const processLogPath = path.join(outputDirectory, "windows-process-network.json");
+const hostAdapterLogPath = path.join(outputDirectory, "windows-network-adapters.json");
 const serverLogPath = path.join(outputDirectory, "artifact-server.json");
 const manifestPath = path.join(outputDirectory, "evidence-manifest.json");
 
@@ -84,11 +86,15 @@ const browserPath = await findBrowser();
 
 const report = {
   assertions: {
-    adaptersDisabled: false,
+    browserCapabilityAdaptersDisabled: false,
     externalAttemptCount: -1,
+    fixedNativeLocalBackingProven: false,
+    hostNetworkAdaptersDisabled: false,
+    liveLanDiscoveryInvarianceProven: false,
     loopbackTrafficAccounted: false,
     packageStaticScan: packageStaticScan.pass,
     processAttributionBoundedToBrowserTree: platform() === "win32",
+    vendorDeployableExportRejectionProven: false,
     zeroExternalAttempts: false,
   },
   authority: {
@@ -118,7 +124,16 @@ const report = {
     relevantEventCount: 0,
   },
   completedAt: null,
-  configuration: "windows-chromium-adapters-offline-host-adapters-disabled",
+  configuration: "windows-chromium-browser-capabilities-disabled-host-network-state-observed",
+  configurationCoverage: {
+    approvalDecisionId: null,
+    approvalSha256: null,
+    approvalStatus: "UNRESOLVED",
+    currentConfigurationId: `win32-${arch()}-chromium-headless-browser-capabilities-disabled`,
+    evidenceBindings: [],
+    expectedConfigurationIds: [],
+    status: "BLOCKED_SUPPORTED_SET_UNRESOLVED",
+  },
   evidenceKind: "PHASE2_PACKAGED_COUNTERFACTUAL_ISOLATION",
   harness: {
     harnessSha256: sha256(harnessBytes),
@@ -130,8 +145,13 @@ const report = {
     "Windows Get-NetTCPConnection/Get-NetUDPEndpoint sampling is periodic and can miss very short-lived OS endpoints; Chromium NetLog and browser/CDP instrumentation provide complementary continuous browser-stack evidence.",
     "The web File System Access API does not expose a backing-volume, provider, redirect, remote, or removable-media attestation. This harness can prove picker adapters are absent in the adapters-off workflow, but cannot elevate browser handle metadata into a fixed-native-local-backing proof.",
     "Dynamic import has no replaceable JavaScript hook. It is covered by packaged static scanning, CSP connect-src none, Playwright routing, CDP request capture, and Chromium NetLog rather than by a direct import() wrapper.",
-    "Current live-LAN topology is not mutated. Discovery invariance is supported by adapters-off execution and zero attributable access, but a controlled multi-LAN counterfactual still requires a separate lab/CI matrix.",
+    "Current live-LAN topology is not mutated. Browser-offline execution and zero attributable access are partial evidence only; controlled live-LAN discovery invariance still requires a separate approved lab/CI matrix.",
   ],
+  hostNetworkAdapters: {
+    analysis: null,
+    errors: [],
+    snapshots: [],
+  },
   osNetwork: {
     analysis: null,
     browserRootPid: null,
@@ -154,6 +174,28 @@ const report = {
   result: "ERROR",
   schemaVersion: EVIDENCE_SCHEMA_VERSION,
   startedAt,
+  unresolvedProofs: [
+    {
+      clause: "controlled live-LAN discovery invariance",
+      reason: "The harness does not mutate LAN topology and no approved controlled LAN matrix is available.",
+      verificationId: "VER-ISO-0003",
+    },
+    {
+      clause: "fixed native local non-provider non-removable backing before selected-byte I/O",
+      reason: "The browser File System Access handle exposes kind and name but no trustworthy backing-volume attestation.",
+      verificationId: "VER-ISO-0004",
+    },
+    {
+      clause: "every export rejects vendor and deployable artifacts",
+      reason: "No complete executable negative matrix covers every export surface.",
+      verificationId: "VER-ISO-0004",
+    },
+    {
+      clause: "every supported platform and configuration has complete exact-candidate evidence",
+      reason: "OQ-0001 production packaging and supported-configuration approval remains unresolved.",
+      verificationId: "VER-ISO-0005",
+    },
+  ],
   workflow: {
     completed: false,
     commands: [],
@@ -170,6 +212,8 @@ let context;
 let processSampler;
 let artifactUrl;
 let workflowError = null;
+
+await captureHostNetworkAdapterSnapshot(report, "preflight");
 
 try {
   if (directiveSha256 !== EXPECTED_DIRECTIVE_SHA256) {
@@ -274,11 +318,11 @@ try {
   await page.goto(artifactUrl, { waitUntil: "load" });
   await page.getByText("Core plc-engineering-core@0.2.0", { exact: true }).waitFor();
   await context.setOffline(true);
-  report.assertions.adaptersDisabled = await page.evaluate(() => {
+  report.assertions.browserCapabilityAdaptersDisabled = await page.evaluate(() => {
     const snapshot = window.__phase2IsolationSnapshot();
     return snapshot.adaptersDisabled === true;
   });
-  if (!report.assertions.adaptersDisabled) {
+  if (!report.assertions.browserCapabilityAdaptersDisabled) {
     throw new Error("Browser capability adapters were not disabled before the workflow.");
   }
 
@@ -362,6 +406,14 @@ try {
     processCausality.applicationAttributable.length === 0 &&
     netLogCausality.applicationAttributable.length === 0;
 
+  await captureHostNetworkAdapterSnapshot(report, "postflight");
+  report.hostNetworkAdapters.analysis = analyzeHostNetworkAdapters(
+    report.hostNetworkAdapters.snapshots,
+  );
+  report.assertions.hostNetworkAdaptersDisabled =
+    report.hostNetworkAdapters.errors.length === 0 &&
+    report.hostNetworkAdapters.analysis.adaptersDisabled === true;
+
   const completeness = assessEvidenceCompleteness(report);
   report.completeness = completeness;
   report.result = completeness.complete ? "PASS" : developmentRun ? "INCONCLUSIVE_DEVELOPMENT" : "FAIL";
@@ -387,10 +439,20 @@ try {
     artifactServer.close();
     await once(artifactServer, "close").catch(() => undefined);
   }
+  if (report.hostNetworkAdapters.snapshots.length < 2) {
+    await captureHostNetworkAdapterSnapshot(report, "postflight-finally");
+  }
+  report.hostNetworkAdapters.analysis = analyzeHostNetworkAdapters(
+    report.hostNetworkAdapters.snapshots,
+  );
+  report.assertions.hostNetworkAdaptersDisabled =
+    report.hostNetworkAdapters.errors.length === 0 &&
+    report.hostNetworkAdapters.analysis.adaptersDisabled === true;
   report.completedAt = new Date().toISOString();
 
   await Promise.all([
     writeJson(browserLogPath, report.browser),
+    writeJson(hostAdapterLogPath, report.hostNetworkAdapters),
     writeJson(processLogPath, report.osNetwork),
     writeJson(serverLogPath, {
       allowlistedOrigin: artifactUrl === undefined ? null : new URL(artifactUrl).origin,
@@ -401,6 +463,7 @@ try {
   await writeEvidenceManifest(manifestPath, outputDirectory, [
     reportPath,
     browserLogPath,
+    hostAdapterLogPath,
     processLogPath,
     serverLogPath,
     ...(await fileExists(netLogPath) ? [netLogPath] : []),
@@ -1010,6 +1073,38 @@ async function captureWindowsProcessEndpoints(rootPid) {
     endpoints: asArray(parsed.endpoints).filter((endpoint) => processIds.has(Number(endpoint.owningProcess))),
     processes: tree,
     rootPid,
+  };
+}
+
+async function captureHostNetworkAdapterSnapshot(report_, boundary) {
+  try {
+    report_.hostNetworkAdapters.snapshots.push({
+      ...(await captureWindowsNetworkAdapters()),
+      boundary,
+    });
+  } catch (error) {
+    report_.hostNetworkAdapters.errors.push({ boundary, ...serializeError(error) });
+  }
+}
+
+async function captureWindowsNetworkAdapters() {
+  if (platform() !== "win32") {
+    throw new Error("Host network-adapter capture is implemented only for Windows.");
+  }
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    "$adapters = @(Get-NetAdapter -IncludeHidden -ErrorAction Stop | Select-Object Name,InterfaceDescription,ifIndex,Status,MediaConnectionState)",
+    "[pscustomobject]@{ adapters=$adapters } | ConvertTo-Json -Compress -Depth 5",
+  ].join("; ");
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script],
+    { encoding: "utf8", maxBuffer: 4 * 1024 * 1024, windowsHide: true },
+  );
+  const parsed = JSON.parse(stdout.trim());
+  return {
+    adapters: asArray(parsed.adapters),
+    capturedAt: new Date().toISOString(),
   };
 }
 
