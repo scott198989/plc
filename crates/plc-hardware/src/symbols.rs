@@ -1111,6 +1111,14 @@ impl SymbolUniverse {
                 ));
             }
             validate_address_type(tag, address, &mut diagnostics);
+            if address.area() == SymbolAddressArea::Marker && tag.hardware_channel_id.is_some() {
+                diagnostics.push(Diagnostic::blocking(
+                    DiagnosticCode::TypeMismatch,
+                    DiagnosticTarget::new(TargetKind::Tag, tag.id.uuid())
+                        .field("hardwareChannelId"),
+                    "M storage is controller-owned marker memory and cannot bind a hardware channel",
+                ));
+            }
             if tag.retain_policy == RetainPolicy::Retentive
                 && address.area() != SymbolAddressArea::Marker
             {
@@ -1640,8 +1648,10 @@ fn is_reserved_keyword(input: &str) -> bool {
             | "CHAR"
             | "CONSTANT"
             | "CONTINUE"
+            | "CONFIGURATION"
             | "DATE"
             | "DATE_AND_TIME"
+            | "DATA_BLOCK"
             | "DINT"
             | "DO"
             | "DWORD"
@@ -1649,13 +1659,16 @@ fn is_reserved_keyword(input: &str) -> bool {
             | "ELSIF"
             | "END_BLOCK"
             | "END_CASE"
+            | "END_CONFIGURATION"
             | "END_DATA_BLOCK"
             | "END_FOR"
             | "END_FUNCTION"
             | "END_FUNCTION_BLOCK"
             | "END_IF"
             | "END_ORGANIZATION_BLOCK"
+            | "END_PROGRAM"
             | "END_REPEAT"
+            | "END_RESOURCE"
             | "END_STRUCT"
             | "END_TYPE"
             | "END_VAR"
@@ -1675,8 +1688,10 @@ fn is_reserved_keyword(input: &str) -> bool {
             | "OF"
             | "OR"
             | "ORGANIZATION_BLOCK"
+            | "PROGRAM"
             | "REAL"
             | "REPEAT"
+            | "RESOURCE"
             | "RETURN"
             | "SINT"
             | "STRING"
@@ -1694,10 +1709,14 @@ fn is_reserved_keyword(input: &str) -> bool {
             | "USINT"
             | "VAR"
             | "VAR_CONSTANT"
+            | "VAR_CONFIG"
+            | "VAR_ACCESS"
+            | "VAR_EXTERNAL"
             | "VAR_GLOBAL"
             | "VAR_INPUT"
             | "VAR_IN_OUT"
             | "VAR_OUTPUT"
+            | "VAR_STAT"
             | "VAR_TEMP"
             | "WHILE"
             | "WORD"
