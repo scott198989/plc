@@ -10,6 +10,7 @@
     "src/engineering-worker-handler.ts",
     "src/file-access-broker.ts",
     "src/project-receipt-projection.ts",
+    "src/replay-types.ts",
     "src/ui-model.ts",
     "src/wasm-kernel.ts",
     "src/workbench-types.ts",

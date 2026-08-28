@@ -52,6 +52,7 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const DECIMAL_UINT64_PATTERN = /^(?:0|[1-9][0-9]*)$/u;
 const HASH_PATTERN = /^[A-Fa-f0-9]{64}$/u;
+const NATIVE_FILE_GRANT_PATTERN = /^p2-native-v1:[0-9a-f]{16}$/u;
 const SIGNED_DECIMAL_PATTERN = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/u;
 const PROJECT_STORAGE_KINDS = new Set<ProjectStorageKind>([
   "folder",
@@ -94,6 +95,12 @@ type EngineeringRequest =
       operation: RuntimeOperation;
       requestId: string;
     }>
+  | Readonly<{ kind: "engineering.replay.export"; requestId: string }>
+  | Readonly<{
+      bytes: ArrayBuffer;
+      kind: "engineering.replay.verify";
+      requestId: string;
+    }>
   | Readonly<{
       kind: "engineering.persistence.prepare";
       mode: "save" | "save-as";
@@ -120,9 +127,27 @@ type PreparedSave = Readonly<{
   suggestedName: string;
 }>;
 
+type ReplayPackageExport = Readonly<{
+  bytes: ArrayBuffer;
+  packageHash: string;
+}>;
+
+type ReplayVerificationReceipt = Readonly<{
+  contentFingerprint: string;
+  divergence: null;
+  eventCount: number;
+  expectedBoundaryCount: number;
+  finalSnapshotHash: string;
+  observedBoundaryCount: number;
+  schemaVersion: 1;
+  verified: true;
+}>;
+
 type EngineeringResponseValue =
   | Readonly<{ coreVersion: string; status: "HEALTHY" }>
   | PreparedSave
+  | ReplayPackageExport
+  | ReplayVerificationReceipt
   | WorkbenchOperationResult
   | WorkbenchSnapshot
   | null;
@@ -278,6 +303,10 @@ class EngineeringWorkerEngine {
         return this.executeProjectOperation(request.requestId, request.operation);
       case "engineering.runtime.command":
         return this.executeRuntimeOperation(request.requestId, request.operation);
+      case "engineering.replay.export":
+        return this.exportReplayPackage();
+      case "engineering.replay.verify":
+        return this.verifyReplayPackage(request.bytes);
       case "engineering.persistence.prepare":
         return this.prepareSave(request.mode, request.newDocumentId);
       case "engineering.persistence.commit":
@@ -331,12 +360,13 @@ class EngineeringWorkerEngine {
     request: Extract<EngineeringRequest, { kind: "engineering.project.open" }>,
   ): Promise<WorkbenchSnapshot> {
     const transactionId = await deriveUuid(`${request.requestId}:open`);
+    const contractGrantId = await deriveUuid(`native-file-grant:${request.fileGrantId}`);
     const message = this.commandMessage(
       request.requestId,
       transactionId,
       "0",
       [],
-      { commandKind: "persistence.open", sourceGrantId: request.fileGrantId },
+      { commandKind: "persistence.open", sourceGrantId: contractGrantId },
     );
     validateCommandMessage(message);
 
@@ -428,6 +458,20 @@ class EngineeringWorkerEngine {
     return this.snapshot(query, await deriveUuid(`${requestId}:runtime:snapshot`));
   }
 
+  private async exportReplayPackage(): Promise<ReplayPackageExport> {
+    this.requireQuery();
+    const bytes = (await this.#kernelPromise).exportReplayBaseline();
+    const digest = await sha256(bytes);
+    return { bytes: bytes.slice().buffer, packageHash: digest.hex };
+  }
+
+  private async verifyReplayPackage(bytes: ArrayBuffer): Promise<ReplayVerificationReceipt> {
+    this.requireQuery();
+    return parseReplayVerification(
+      (await this.#kernelPromise).verifyReplayPackage(new Uint8Array(bytes)),
+    );
+  }
+
   private async prepareSave(
     mode: "save" | "save-as",
     newDocumentId: string | null,
@@ -478,6 +522,7 @@ class EngineeringWorkerEngine {
       ? requireUuid(pending.newDocumentId, "pending Save As document identity")
       : before.project.documentId;
     const transactionId = await deriveUuid(`${request.requestId}:save`);
+    const contractGrantId = await deriveUuid(`native-file-grant:${request.fileGrantId}`);
     const message = this.commandMessage(
       request.requestId,
       transactionId,
@@ -487,7 +532,7 @@ class EngineeringWorkerEngine {
         commandKind: "persistence.save",
         documentId,
         mode: pending.mode,
-        targetGrantId: request.fileGrantId,
+        targetGrantId: contractGrantId,
       },
     );
     validateCommandMessage(message);
@@ -898,7 +943,7 @@ class EngineeringWorkerEngine {
 let engine: EngineeringWorkerEngine | null = null;
 
 export const executeEngineeringRequest = async (input: unknown): Promise<EngineeringResponse> => {
-  let requestId = "00000000-0000-4000-8000-000000000000";
+  let requestId = correlatedRequestId(input);
   try {
     const request = parseEngineeringRequest(input);
     requestId = request.requestId;
@@ -1371,7 +1416,7 @@ const parseEngineeringRequest = (input: unknown): EngineeringRequest => {
       }
       return {
         bytes: record.bytes,
-        fileGrantId: requireUuid(record.fileGrantId, "file grant ID"),
+        fileGrantId: requireNativeFileGrantId(record.fileGrantId),
         kind,
         requestId,
       };
@@ -1381,6 +1426,15 @@ const parseEngineeringRequest = (input: unknown): EngineeringRequest => {
     case "engineering.runtime.command":
       requireExactKeys(record, ["kind", "operation", "requestId"], "engineering runtime request");
       return { kind, operation: parseRuntimeOperation(record.operation), requestId };
+    case "engineering.replay.export":
+      requireExactKeys(record, ["kind", "requestId"], "engineering replay export request");
+      return { kind, requestId };
+    case "engineering.replay.verify":
+      requireExactKeys(record, ["bytes", "kind", "requestId"], "engineering replay verify request");
+      if (!(record.bytes instanceof ArrayBuffer) || record.bytes.byteLength < 1 || record.bytes.byteLength > MAX_PROJECT_BYTES) {
+        throw new EngineeringWorkerError("INVALID_REQUEST", "The replay package violates its byte limit.");
+      }
+      return { bytes: record.bytes, kind, requestId };
     case "engineering.persistence.prepare": {
       requireExactKeys(
         record,
@@ -1406,7 +1460,7 @@ const parseEngineeringRequest = (input: unknown): EngineeringRequest => {
         "engineering commit-save request",
       );
       return {
-        fileGrantId: requireUuid(record.fileGrantId, "file grant ID"),
+        fileGrantId: requireNativeFileGrantId(record.fileGrantId),
         kind,
         pendingSaveId: requireUuid(record.pendingSaveId, "pending save ID"),
         requestId,
@@ -1917,6 +1971,58 @@ const parseKernelCommandResult = (bytes: Uint8Array): RawKernelCommandResult => 
   };
 };
 
+const parseReplayVerification = (bytes: Uint8Array): ReplayVerificationReceipt => {
+  const receipt = requireRecord(decodeJson(bytes), "replay verification receipt");
+  requireExactKeys(
+    receipt,
+    [
+      "contentFingerprint",
+      "divergence",
+      "eventCount",
+      "expectedBoundaryCount",
+      "finalSnapshotHash",
+      "observedBoundaryCount",
+      "schemaVersion",
+      "verified",
+    ],
+    "replay verification receipt",
+  );
+  const eventCount = requireSafeInteger(receipt.eventCount, "replay event count", 1, 65_536);
+  const expectedBoundaryCount = requireSafeInteger(
+    receipt.expectedBoundaryCount,
+    "expected replay boundary count",
+    1,
+    65_536,
+  );
+  const observedBoundaryCount = requireSafeInteger(
+    receipt.observedBoundaryCount,
+    "observed replay boundary count",
+    1,
+    65_536,
+  );
+  if (
+    receipt.schemaVersion !== 1 ||
+    requireBoolean(receipt.verified, "replay verification state") !== true ||
+    receipt.divergence !== null ||
+    observedBoundaryCount !== expectedBoundaryCount
+  ) {
+    throw new EngineeringWorkerError(
+      "REPLAY_DIVERGED",
+      "The replay package did not reproduce its exact deterministic boundaries.",
+    );
+  }
+  return {
+    contentFingerprint: upperHash(requireHash(receipt.contentFingerprint, "replay content fingerprint")),
+    divergence: null,
+    eventCount,
+    expectedBoundaryCount,
+    finalSnapshotHash: upperHash(requireHash(receipt.finalSnapshotHash, "replay final snapshot hash")),
+    observedBoundaryCount,
+    schemaVersion: 1,
+    verified: true,
+  };
+};
+
 const decodeJson = (bytes: Uint8Array): unknown => {
   if (bytes.byteLength < 2 || bytes.byteLength > MAX_PROJECT_BYTES) {
     throw new EngineeringWorkerError("INVALID_CORE_RESPONSE", "The project kernel response is out of bounds.");
@@ -1998,6 +2104,34 @@ const requireUuid = (input: unknown, label: string): string => {
     throw new EngineeringWorkerError("INVALID_REQUEST", `${label} must be a canonical UUID.`);
   }
   return input;
+};
+
+const requireNativeFileGrantId = (input: unknown): string => {
+  if (typeof input !== "string" || !NATIVE_FILE_GRANT_PATTERN.test(input)) {
+    throw new EngineeringWorkerError(
+      "INVALID_REQUEST",
+      "The project file grant must be an opaque native broker grant.",
+    );
+  }
+  return input;
+};
+
+const correlatedRequestId = (input: unknown): string => {
+  if (
+    typeof input !== "object" ||
+    input === null ||
+    Array.isArray(input) ||
+    Object.getPrototypeOf(input) !== Object.prototype
+  ) {
+    return "00000000-0000-4000-8000-000000000000";
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(input, "requestId");
+  return descriptor !== undefined &&
+    "value" in descriptor &&
+    typeof descriptor.value === "string" &&
+    UUID_PATTERN.test(descriptor.value)
+    ? descriptor.value
+    : "00000000-0000-4000-8000-000000000000";
 };
 
 const requireHash = (input: unknown, label: string): string => {

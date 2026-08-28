@@ -1700,6 +1700,21 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 
 .runtime-summary__actions button { width: 100%; }
 
+.runtime-summary__replay {
+  grid-column: 1 / -1;
+  border-top: 1px solid #b8dac9;
+  padding: 8px 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: #176044;
+  background: #eef7f1;
+  font-size: 9px;
+}
+
+.runtime-summary__replay strong { font-size: 10px; }
+.runtime-summary__replay code { margin-left: auto; color: #48635a; }
+
 .load-preview-card {
   border: 1px solid #c89d63;
   border-left: 4px solid var(--amber);

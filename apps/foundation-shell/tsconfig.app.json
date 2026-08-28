@@ -15,6 +15,7 @@
     "src/main.tsx",
     "src/project-receipt-projection.ts",
     "src/ProjectHome.tsx",
+    "src/replay-types.ts",
     "src/ui-model.ts",
     "src/vite-env.d.ts",
     "src/wasm-kernel.ts",

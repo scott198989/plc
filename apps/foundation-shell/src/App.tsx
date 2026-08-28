@@ -4,6 +4,7 @@ import { EngineeringClient } from "./engineering-client";
 import { EngineeringWorkbench } from "./EngineeringWorkbench";
 import { FileAccessBroker, FileAccessError } from "./file-access-broker";
 import { ProjectHome } from "./ProjectHome";
+import type { ReplayVerificationReceipt } from "./replay-types";
 import type { RuntimeOperation } from "./runtime-types";
 import type { WorkbenchOperation, WorkbenchSnapshot } from "./workbench-types";
 
@@ -21,6 +22,7 @@ export const App = (): React.JSX.Element => {
   const [snapshot, setSnapshot] = useState<WorkbenchSnapshot | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [replayReceipt, setReplayReceipt] = useState<ReplayVerificationReceipt | null>(null);
   const [closeRequested, setCloseRequested] = useState(false);
 
   useEffect(() => {
@@ -74,6 +76,7 @@ export const App = (): React.JSX.Element => {
     const created = await runBusy(() => services.client.createProject(displayName));
     if (created !== null) {
       setSnapshot(created);
+      setReplayReceipt(null);
     }
   }, [runBusy, services]);
 
@@ -83,6 +86,7 @@ export const App = (): React.JSX.Element => {
       try {
         const next = await services.client.openProject(opened.bytes, opened.grantId);
         setSnapshot(next);
+        setReplayReceipt(null);
       } catch (reason) {
         services.files.revoke(opened.grantId);
         throw reason;
@@ -91,6 +95,7 @@ export const App = (): React.JSX.Element => {
   }, [runBusy, services]);
 
   const executeOperation = useCallback(async (operation: WorkbenchOperation): Promise<void> => {
+    setReplayReceipt(null);
     const result = await runBusy(() => services.client.execute(operation));
     if (result === null) {
       return;
@@ -103,9 +108,20 @@ export const App = (): React.JSX.Element => {
   }, [runBusy, services]);
 
   const executeRuntimeOperation = useCallback(async (operation: RuntimeOperation): Promise<void> => {
+    setReplayReceipt(null);
     const next = await runBusy(() => services.client.executeRuntime(operation));
     if (next !== null) {
       setSnapshot(next);
+    }
+  }, [runBusy, services]);
+
+  const verifyReplay = useCallback(async (): Promise<void> => {
+    const verified = await runBusy(async () => {
+      const replayPackage = await services.client.exportReplayPackage();
+      return services.client.verifyReplayPackage(new Uint8Array(replayPackage.bytes));
+    });
+    if (verified !== null) {
+      setReplayReceipt(verified);
     }
   }, [runBusy, services]);
 
@@ -145,12 +161,14 @@ export const App = (): React.JSX.Element => {
     }
     setSnapshot(null);
     setError(null);
+    setReplayReceipt(null);
   }, [snapshot]);
 
   const discardAndClose = useCallback((): void => {
     setCloseRequested(false);
     setSnapshot(null);
     setError(null);
+    setReplayReceipt(null);
   }, []);
 
   const saveAndClose = useCallback(async (): Promise<void> => {
@@ -180,7 +198,9 @@ export const App = (): React.JSX.Element => {
         onClose={closeProject}
         onOperation={executeOperation}
         onRuntimeOperation={executeRuntimeOperation}
+        onVerifyReplay={verifyReplay}
         onSave={async (mode) => { await saveProject(mode); }}
+        replayReceipt={replayReceipt}
         snapshot={snapshot}
       />
       {closeRequested && (

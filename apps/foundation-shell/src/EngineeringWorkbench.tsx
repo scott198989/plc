@@ -19,6 +19,7 @@ import {
   updateGraphNodeFields,
 } from "./canonical-authoring";
 import { RuntimeInspector, RuntimeToolbar } from "./RuntimeWorkbench";
+import type { ReplayVerificationReceipt } from "./replay-types";
 import type { EngineeringRuntimeView, RuntimeOperation } from "./runtime-types";
 import type {
   ProjectPayload,
@@ -36,6 +37,8 @@ type EngineeringWorkbenchProps = Readonly<{
   onOperation: (operation: WorkbenchOperation) => Promise<void>;
   onRuntimeOperation: (operation: RuntimeOperation) => Promise<void>;
   onSave: (mode: "save" | "save-as") => Promise<void>;
+  onVerifyReplay: () => Promise<void>;
+  replayReceipt: ReplayVerificationReceipt | null;
   snapshot: WorkbenchSnapshot;
 }>;
 
@@ -71,6 +74,8 @@ export const EngineeringWorkbench = ({
   onOperation,
   onRuntimeOperation,
   onSave,
+  onVerifyReplay,
+  replayReceipt,
   snapshot,
 }: EngineeringWorkbenchProps): React.JSX.Element => {
   const [selectedId, setSelectedId] = useState(snapshot.projectRootId);
@@ -223,6 +228,8 @@ export const EngineeringWorkbench = ({
       <RuntimeToolbar
         busy={busy}
         onOperation={onRuntimeOperation}
+        onVerifyReplay={onVerifyReplay}
+        replayReceipt={replayReceipt}
         runtime={snapshot.runtime}
       />
 
@@ -407,6 +414,8 @@ export const EngineeringWorkbench = ({
                   busy={busy}
                   onNavigate={selectObject}
                   onOperation={onRuntimeOperation}
+                  onVerifyReplay={onVerifyReplay}
+                  replayReceipt={replayReceipt}
                   runtime={snapshot.runtime}
                 />
               </div>

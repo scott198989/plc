@@ -772,14 +772,22 @@ mod tests {
             .expect("production replay baseline export");
         let decoded = ReplayPackage::decode(&bytes, ReplayDecodeLimits::edu21())
             .expect("canonical replay package");
-        assert!(decoded.events().is_empty());
-        assert!(decoded.boundaries().is_empty());
+        assert!(!decoded.events().is_empty());
+        assert_eq!(decoded.boundaries().len(), 1);
+        assert!(
+            decoded
+                .events()
+                .iter()
+                .any(|event| event.kind == plc_runtime::ReplayEventKind::ScanCompleted)
+        );
         let result = bridge
             .verify_replay_package(&bytes)
             .expect("production bridge replay execution");
         let json = String::from_utf8(result).expect("replay result JSON");
         assert!(json.contains(r#""verified":true"#));
-        assert!(json.contains(r#""observedBoundaryCount":0"#));
+        assert!(json.contains(r#""eventCount":"#));
+        assert!(json.contains(r#""expectedBoundaryCount":1"#));
+        assert!(json.contains(r#""observedBoundaryCount":1"#));
         assert!(json.contains(&decoded.content_fingerprint().to_hex()));
     }
 

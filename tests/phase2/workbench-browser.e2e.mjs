@@ -379,6 +379,14 @@ try {
     (value) => value.trim() === "Stop",
     "snapshot restore did not recover the captured STOP state",
   );
+  await page.getByRole("button", { name: "Verify replay", exact: true }).click();
+  await page.getByLabel("Replay verified", { exact: true }).waitFor();
+  const replayReceipt = page.getByLabel("Replay verification receipt", { exact: true });
+  await replayReceipt.waitFor();
+  const replayReceiptText = (await replayReceipt.innerText()).trim();
+  if (!/^Deterministic replay verified\s+\d+ events · 1 boundary\s+[A-Fa-f0-9]{10}…[A-Fa-f0-9]{6}$/u.test(replayReceiptText)) {
+    throw new Error(`closed replay receipt was incomplete: ${JSON.stringify(replayReceiptText)}`);
+  }
 
   const runtimeScreenshot = path.join(evidenceDirectory, "workbench-runtime-commissioning.png");
   await page.screenshot({ fullPage: true, path: runtimeScreenshot });
@@ -442,7 +450,14 @@ try {
 
   const receiptBeforeSave = (await page.locator(".runtime-toolbar__receipt").innerText()).trim();
   await page.locator('button[title="Save as"]').click();
-  await page.getByRole("status", { name: "Saved", exact: true }).waitFor();
+  try {
+    await page.getByRole("status", { name: "Saved", exact: true }).waitFor();
+  } catch (error) {
+    const alert = page.getByRole("alert");
+    const detail = await alert.count() > 0 ? await alert.innerText() : "no alert was rendered";
+    const broker = await page.evaluate(() => window.__phase2MemoryFileSnapshot());
+    throw new Error(`Save As did not reach a verified clean state: ${detail}; broker=${JSON.stringify(broker)}; ${error.message}`);
+  }
   await page.getByText("Online session active", { exact: true }).waitFor();
   const receiptAfterSave = (await page.locator(".runtime-toolbar__receipt").innerText()).trim();
   if (receiptAfterSave !== receiptBeforeSave) {
@@ -586,6 +601,7 @@ try {
       "rename",
       "build-power-preview-commit-online-run-scan",
       "causal-io-monitor-modify-force-trace-snapshot-diagnose-navigate",
+      "export-and-verify-nonempty-closed-replay",
       "save-as-close-open-project-with-fresh-runtime",
     ],
     isolatedLoopbackArtifact: true,
@@ -747,46 +763,76 @@ async function waitForCondition(condition, message, timeoutMilliseconds = 30_000
 async function installMemoryFileAccess(context) {
   await context.addInitScript(() => {
     const fileName = "renamed-training-cell.vlabproj";
-    const mimeType = "application/vnd.govs.virtual-plc-project";
+    const attestationId = "fixed-local-v1:00000001:0000000000000001";
+    const grantId = "p2-native-v1:0000000000000001";
     let committedBytes = null;
     let openPickerCalls = 0;
     let savePickerCalls = 0;
     let writeCount = 0;
 
-    const handle = {
-      async createWritable() {
-        let stagedBytes = null;
-        let finished = false;
-        return {
-          async abort() {
-            stagedBytes = null;
-            finished = true;
-          },
-          async close() {
-            if (finished || stagedBytes === null) {
-              throw new Error("No staged project bytes are available.");
-            }
-            committedBytes = stagedBytes.slice();
-            writeCount += 1;
-            finished = true;
-          },
-          async write(data) {
-            if (finished || !(data instanceof Uint8Array)) {
-              throw new TypeError("The fake project handle accepts one Uint8Array write.");
-            }
-            stagedBytes = data.slice();
-          },
-        };
-      },
-      async getFile() {
+    const attestation = Object.freeze({
+      attestationId,
+      fixedDrive: true,
+      kind: "fixed-native-local-v1",
+      nativeLocal: true,
+      platform: "windows",
+      providerBacked: false,
+      redirected: false,
+      removable: false,
+      special: false,
+    });
+    const savedResult = () => Object.freeze({
+      attestationId,
+      displayName: fileName,
+      grantId,
+      protocolVersion: 1,
+      verifiedBytes: committedBytes?.byteLength ?? 0,
+    });
+    const bridge = Object.freeze({
+      attestation,
+      contract: "govs.project-file-broker",
+      open: async () => {
+        openPickerCalls += 1;
         if (committedBytes === null) {
-          throw new Error("No project has been saved to the fake file handle.");
+          throw Object.freeze({ code: "ACCESS_CANCELLED" });
         }
-        return new File([committedBytes], fileName, { type: mimeType });
+        return Object.freeze({
+          attestationId,
+          bytes: committedBytes.slice(),
+          displayName: fileName,
+          grantId,
+          protocolVersion: 1,
+        });
       },
-      kind: "file",
-      name: fileName,
-    };
+      protocolVersion: 1,
+      revoke: () => undefined,
+      save: async (request) => {
+        if (
+          request?.protocolVersion !== 1 ||
+          request.grantId !== grantId ||
+          !(request.bytes instanceof Uint8Array)
+        ) {
+          throw Object.freeze({ code: "UNKNOWN_GRANT" });
+        }
+        committedBytes = request.bytes.slice();
+        writeCount += 1;
+        return savedResult();
+      },
+      saveAs: async (request) => {
+        savePickerCalls += 1;
+        if (
+          request?.protocolVersion !== 1 ||
+          typeof request.projectName !== "string" ||
+          !/^[A-Za-z0-9 _().-]+\.vlabproj$/iu.test(request.projectName) ||
+          !(request.bytes instanceof Uint8Array)
+        ) {
+          throw Object.freeze({ code: "ATTESTATION_FAILED" });
+        }
+        committedBytes = request.bytes.slice();
+        writeCount += 1;
+        return savedResult();
+      },
+    });
 
     Object.defineProperties(window, {
       __phase2MemoryFileSnapshot: {
@@ -799,23 +845,10 @@ async function installMemoryFileAccess(context) {
         }),
         writable: false,
       },
-      showOpenFilePicker: {
+      govsProjectFileBrokerV1: {
         configurable: false,
-        value: async () => {
-          openPickerCalls += 1;
-          if (committedBytes === null) {
-            throw new DOMException("No saved project is available.", "NotFoundError");
-          }
-          return [handle];
-        },
-        writable: false,
-      },
-      showSaveFilePicker: {
-        configurable: false,
-        value: async () => {
-          savePickerCalls += 1;
-          return handle;
-        },
+        enumerable: false,
+        value: bridge,
         writable: false,
       },
     });

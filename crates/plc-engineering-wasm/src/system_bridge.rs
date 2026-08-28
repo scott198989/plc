@@ -14,11 +14,10 @@ use plc_observability::{
 };
 use plc_runtime::{CanonicalValue, CpuState, Hash32, ValueType};
 use plc_system::{
-    ENGINEERING_REPLAY_ALGORITHM, EngineeringReadModel, EngineeringReplayError,
-    EngineeringReplayExecutor, EngineeringSession, EngineeringSessionSnapshot, ProjectDiagnostic,
-    ProjectDiagnosticPhase, ReplayDecodeLimits, ReplayPackage, ReplayPackageError,
-    ReplayPackageSpec, RestoreApproval, SystemCommandIdentity, SystemError, project_hardware,
-    project_software,
+    EngineeringReadModel, EngineeringReplayError, EngineeringReplayExecutor, EngineeringSession,
+    EngineeringSessionSnapshot, ProjectDiagnostic, ProjectDiagnosticPhase, ReplayDecodeLimits,
+    ReplayPackage, ReplayPackageError, RestoreApproval, SystemCommandIdentity, SystemError,
+    project_hardware, project_software,
 };
 
 const SYSTEM_COMMAND_MAGIC: &str = "PES-SYSTEM-COMMAND-1";
@@ -245,32 +244,22 @@ impl SystemBridge {
         Ok(self.runtime_query_string()?.into_bytes())
     }
 
-    /// Exports the current captured aggregate snapshot as a canonical closed
-    /// replay baseline. It contains no vendor artifact or deployable payload.
+    /// Exports the current captured aggregate snapshot as a canonical,
+    /// non-empty closed replay validation package. It contains no vendor
+    /// artifact or deployable payload.
     pub(crate) fn export_replay_baseline(&self) -> Result<Vec<u8>, SystemBridgeError> {
         let snapshot = self
             .pending_snapshot
             .as_ref()
             .ok_or(SystemBridgeError::NoPendingSnapshot)?;
-        let session = self.session_ref()?;
-        let read = session.read_model()?;
-        let profile = read
-            .profile_fingerprint
+        let controller = self
+            .controller_object_id
             .ok_or(SystemBridgeError::RuntimeUnavailable)?;
-        let runtime = session
-            .universe()
-            .controller(read.runtime_controller_id)
-            .map(plc_commissioning::ControllerInstance::runtime)
-            .ok_or(SystemBridgeError::RuntimeUnavailable)?;
-        let package = ReplayPackage::encode(ReplayPackageSpec::edu21(
+        let package = EngineeringReplayExecutor::record_validation_package(
+            self.project().clone(),
+            controller,
             snapshot,
-            snapshot.loaded_artifact_fingerprint,
-            profile,
-            runtime.deterministic_seed(),
-            ENGINEERING_REPLAY_ALGORITHM,
-            Vec::new(),
-            Vec::new(),
-        ))?;
+        )?;
         Ok(package.bytes().to_vec())
     }
 
@@ -314,6 +303,10 @@ impl SystemBridge {
         }
         output.push_str(r#","finalSnapshotHash":"#);
         push_json_string(&mut output, &execution.final_snapshot.content_hash.to_hex());
+        output.push_str(r#","eventCount":"#);
+        write!(output, "{}", package.events().len()).expect("write to String");
+        output.push_str(r#","expectedBoundaryCount":"#);
+        write!(output, "{}", package.boundaries().len()).expect("write to String");
         output.push_str(r#","observedBoundaryCount":"#);
         write!(output, "{}", execution.observed_boundaries.len()).expect("write to String");
         output.push_str(r#","schemaVersion":1,"verified":"#);

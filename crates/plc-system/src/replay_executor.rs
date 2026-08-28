@@ -10,12 +10,14 @@ use std::fmt;
 use plc_commissioning::PostLoadMode;
 use plc_core::{ObjectId, Project};
 use plc_observability::StableTargetId;
-use plc_runtime::{Hash32, ReplayEvent, ReplayEventKind, Sha256};
+use plc_runtime::{CpuState, Hash32, ReplayEvent, ReplayEventKind, Sha256};
 
 use crate::{
-    EngineeringSession, EngineeringSessionSnapshot, ReplayBoundaryHash, ReplayDecodeLimits,
-    ReplayDivergence, ReplayPackage, ReplayPackageError, ReplayPackageEvent, ReplayPayloadValue,
-    ReplayResultStatus, ReplayStateRegion, RestoreApproval, SystemCommandIdentity, SystemError,
+    ActorKind, EngineeringSession, EngineeringSessionSnapshot, ReplayActorProvenance,
+    ReplayBoundaryHash, ReplayCommandResult, ReplayDecodeLimits, ReplayDivergence, ReplayPackage,
+    ReplayPackageError, ReplayPackageEvent, ReplayPackageSpec, ReplayPayloadValue,
+    ReplayPriorityClass, ReplayResultStatus, ReplayStateRegion, ReplayTypedPayload,
+    RestoreApproval, SystemCommandIdentity, SystemError,
 };
 
 /// Deterministic algorithm identity bound by the Phase 2 replay executor.
@@ -248,6 +250,133 @@ impl EngineeringReplayExecutor {
         })
     }
 
+    /// Creates a non-empty, closed verification package from one aggregate
+    /// snapshot. The recorder reconstructs the snapshot in an isolated
+    /// simulator session, enters RUN when necessary, executes exactly one
+    /// deterministic scan, and binds the resulting scan boundary to every
+    /// independently calculated state region. No host or transport capability
+    /// is present in the package or in this recording path.
+    pub fn record_validation_package(
+        project: Project,
+        controller_object_id: ObjectId,
+        snapshot: &EngineeringSessionSnapshot,
+    ) -> Result<ReplayPackage, EngineeringReplayError> {
+        let mut recorder = Self::from_snapshot(project, controller_object_id, snapshot)?;
+        let artifact = recorder.artifact_hash;
+        let profile = recorder.profile_hash;
+        let (operator, scan_identity, scan_actor) = validation_identities();
+        let mut events = Vec::new();
+        recorder.enter_run_for_validation(operator, artifact, profile, &mut events)?;
+
+        let before = recorder.runtime()?.replay_events().len();
+        recorder.session.run_scan(scan_identity)?;
+        let scan_boundary_kind = recorder
+            .runtime()?
+            .replay_events()
+            .get(before..)
+            .and_then(|generated| {
+                generated.iter().find_map(|event| {
+                    matches!(
+                        event.kind,
+                        ReplayEventKind::ScanCompleted | ReplayEventKind::FatalFault
+                    )
+                    .then_some(event.kind)
+                })
+            })
+            .ok_or(EngineeringReplayError::MissingGeneratedEvent { event_sequence: 1 })?;
+        append_recorded_operation(
+            &recorder.session,
+            before,
+            scan_boundary_kind,
+            scan_actor,
+            artifact,
+            profile,
+            &mut events,
+        )?;
+
+        let scan_event = events
+            .iter()
+            .find(|event| event.kind == scan_boundary_kind)
+            .ok_or(EngineeringReplayError::MissingGeneratedEvent { event_sequence: 1 })?;
+        let causal_input_event_sequence = events
+            .iter()
+            .take_while(|event| event.event_sequence < scan_event.event_sequence)
+            .filter(|event| {
+                !matches!(
+                    event.kind,
+                    ReplayEventKind::ScanCompleted
+                        | ReplayEventKind::FatalFault
+                        | ReplayEventKind::ObservationBoundary
+                )
+            })
+            .last()
+            .ok_or(EngineeringReplayError::MissingBoundary {
+                event_sequence: scan_event.event_sequence,
+            })?
+            .event_sequence;
+        let runtime_boundary = recorder
+            .runtime()?
+            .boundary_hashes()
+            .iter()
+            .rev()
+            .find(|boundary| {
+                (scan_boundary_kind == ReplayEventKind::ScanCompleted && boundary.is_scan_end())
+                    || (scan_boundary_kind == ReplayEventKind::FatalFault
+                        && boundary.is_fatal_fault())
+            })
+            .ok_or(EngineeringReplayError::MissingBoundary {
+                event_sequence: scan_event.event_sequence,
+            })?
+            .clone();
+        let final_snapshot = recorder.session.capture_snapshot()?;
+        let boundary = ReplayBoundaryHash::from_runtime(
+            &runtime_boundary,
+            scan_event.event_sequence,
+            causal_input_event_sequence,
+            engineering_replay_state_regions(&final_snapshot),
+            &events,
+        )?;
+        let spec = ReplayPackageSpec::edu21(
+            snapshot,
+            artifact,
+            profile,
+            recorder.deterministic_seed,
+            ENGINEERING_REPLAY_ALGORITHM,
+            events,
+            vec![boundary],
+        )
+        .bind_event_order()?;
+        ReplayPackage::encode(spec).map_err(Into::into)
+    }
+
+    fn enter_run_for_validation(
+        &mut self,
+        operator: ReplayActorProvenance,
+        artifact: Hash32,
+        profile: Hash32,
+        events: &mut Vec<ReplayPackageEvent>,
+    ) -> Result<(), EngineeringReplayError> {
+        match self.session.read_model()?.cpu_state {
+            CpuState::Stop => {
+                let before = self.runtime()?.replay_events().len();
+                self.session.request_run()?;
+                append_recorded_operation(
+                    &self.session,
+                    before,
+                    ReplayEventKind::RequestRun,
+                    operator,
+                    artifact,
+                    profile,
+                    events,
+                )
+            }
+            CpuState::Run => Ok(()),
+            state => Err(EngineeringReplayError::System(format!(
+                "replay validation requires a captured RUN or STOP state, not {state:?}"
+            ))),
+        }
+    }
+
     /// Verifies one package on this freshly reconstructed executor. Ingress
     /// validation occurs before dispatch, allowing callers to prove rejected
     /// package shapes leave the reconstructed session untouched.
@@ -421,6 +550,96 @@ impl EngineeringReplayExecutor {
                     "reconstructed runtime controller is unavailable".to_owned(),
                 )
             })
+    }
+}
+
+const fn validation_identities() -> (
+    ReplayActorProvenance,
+    SystemCommandIdentity,
+    ReplayActorProvenance,
+) {
+    let operator = ReplayActorProvenance {
+        kind: ActorKind::Operator,
+        actor_id: 0x5045_532D_5245_504C_4159_2D41_5454_4553,
+        command_id: 0x5045_532D_5245_504C_4159_2D52_554E_0001,
+        idempotency_key: 0x5045_532D_5245_504C_4159_2D49_4445_4D01,
+    };
+    let scan_identity = SystemCommandIdentity {
+        command_id: 0x5045_532D_5245_504C_4159_2D53_4341_4E01,
+        idempotency_key: 0x5045_532D_5245_504C_4159_2D49_4445_4D02,
+        author_identity: operator.actor_id,
+    };
+    let scan_actor = ReplayActorProvenance {
+        command_id: scan_identity.command_id,
+        idempotency_key: scan_identity.idempotency_key,
+        ..operator
+    };
+    (operator, scan_identity, scan_actor)
+}
+
+fn append_recorded_operation(
+    session: &EngineeringSession,
+    before: usize,
+    expected_ingress: ReplayEventKind,
+    actor: ReplayActorProvenance,
+    artifact: Hash32,
+    profile: Hash32,
+    events: &mut Vec<ReplayPackageEvent>,
+) -> Result<(), EngineeringReplayError> {
+    let read = session.read_model()?;
+    let runtime = session
+        .universe()
+        .controller(read.runtime_controller_id)
+        .map(plc_commissioning::ControllerInstance::runtime)
+        .ok_or_else(|| {
+            EngineeringReplayError::System("recording runtime controller is unavailable".to_owned())
+        })?;
+    let generated = runtime.replay_events().get(before..).ok_or_else(|| {
+        EngineeringReplayError::System("recording event cursor moved backwards".to_owned())
+    })?;
+    if !generated.iter().any(|event| event.kind == expected_ingress) {
+        return Err(EngineeringReplayError::MissingGeneratedEvent {
+            event_sequence: generated.first().map_or(1, |event| event.event_sequence),
+        });
+    }
+    for event in generated {
+        let is_ingress = event.kind == expected_ingress;
+        let event_actor = if is_ingress {
+            actor
+        } else {
+            ReplayActorProvenance {
+                kind: ActorKind::System,
+                ..actor
+            }
+        };
+        let payload = ReplayTypedPayload::new(event.kind, BTreeMap::new())?;
+        let detail = ReplayTypedPayload::new(event.kind, BTreeMap::new())?;
+        let result = ReplayCommandResult::new(ReplayResultStatus::Accepted, "ACCEPTED", detail)?;
+        events.push(ReplayPackageEvent::from_runtime(
+            event,
+            artifact,
+            profile,
+            replay_priority(event.kind),
+            event_actor,
+            payload,
+            result,
+        ));
+    }
+    Ok(())
+}
+
+const fn replay_priority(kind: ReplayEventKind) -> ReplayPriorityClass {
+    match kind {
+        ReplayEventKind::RequestRun | ReplayEventKind::RequestStop => {
+            ReplayPriorityClass::ControllerLifecycle
+        }
+        ReplayEventKind::RawInputAccepted => ReplayPriorityClass::RawInput,
+        ReplayEventKind::ScanCompleted | ReplayEventKind::FatalFault => {
+            ReplayPriorityClass::ScheduledProgram
+        }
+        ReplayEventKind::HardwareBoundary => ReplayPriorityClass::OutputProcess,
+        ReplayEventKind::ObservationBoundary => ReplayPriorityClass::Publication,
+        _ => ReplayPriorityClass::ApprovedLoadSnapshot,
     }
 }
 

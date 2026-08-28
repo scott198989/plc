@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 
+import type { ReplayVerificationReceipt } from "./replay-types";
 import type {
   EngineeringRuntimeView,
   RuntimeForceView,
@@ -13,12 +14,16 @@ type RuntimeSurfaceProps = Readonly<{
   busy: boolean;
   onNavigate?: (objectId: string) => void;
   onOperation: (operation: RuntimeOperation) => Promise<void>;
+  onVerifyReplay: () => Promise<void>;
+  replayReceipt: ReplayVerificationReceipt | null;
   runtime: EngineeringRuntimeView;
 }>;
 
 export const RuntimeToolbar = ({
   busy,
   onOperation,
+  onVerifyReplay,
+  replayReceipt,
   runtime,
 }: RuntimeSurfaceProps): React.JSX.Element => {
   const session = runtime.session;
@@ -104,7 +109,24 @@ export const RuntimeToolbar = ({
       >
         Scan +1
       </button>
+      <button
+        disabled={disabled || !session.snapshotAvailable}
+        onClick={() => void onVerifyReplay()}
+        title="Export and execute a closed deterministic replay package from the captured aggregate snapshot"
+        type="button"
+      >
+        Verify replay
+      </button>
       <span className="runtime-toolbar__spacer" />
+      {replayReceipt !== null && (
+        <span
+          aria-label="Replay verified"
+          className="runtime-toolbar__receipt"
+          title={replayReceipt.contentFingerprint}
+        >
+          Replay verified · {replayReceipt.eventCount} events
+        </span>
+      )}
       <span className="runtime-toolbar__receipt" title={session?.runtimeReplayHash ?? undefined}>
         {session === null ? "Awaiting configuration" : `e${session.controllerEpoch} · s${session.scanSequence}`}
       </span>
@@ -116,6 +138,8 @@ export const RuntimeInspector = ({
   busy,
   onNavigate,
   onOperation,
+  onVerifyReplay,
+  replayReceipt,
   runtime,
 }: RuntimeSurfaceProps): React.JSX.Element => {
   const session = runtime.session;
@@ -130,7 +154,12 @@ export const RuntimeInspector = ({
 
   return (
     <div className="runtime-inspector">
-      <RuntimeSummary busy={busy} onOperation={onOperation} session={session} />
+      <RuntimeSummary
+        busy={busy}
+        onOperation={onOperation}
+        replayReceipt={replayReceipt}
+        session={session}
+      />
       {session.loadPreview !== null && (
         <section aria-label="Virtual Download preview" className="load-preview-card">
           <div>
@@ -249,10 +278,12 @@ export const RuntimeInspector = ({
 const RuntimeSummary = ({
   busy,
   onOperation,
+  replayReceipt,
   session,
 }: Readonly<{
   busy: boolean;
   onOperation: (operation: RuntimeOperation) => Promise<void>;
+  replayReceipt: ReplayVerificationReceipt | null;
   session: RuntimeSessionView;
 }>): React.JSX.Element => (
   <section className="runtime-summary">
@@ -281,6 +312,13 @@ const RuntimeSummary = ({
         type="button"
       >Restore snapshot</button>
     </div>
+    {replayReceipt !== null && (
+      <output aria-label="Replay verification receipt" className="runtime-summary__replay">
+        <strong>Deterministic replay verified</strong>
+        <span>{replayReceipt.eventCount} events · {replayReceipt.observedBoundaryCount} boundary</span>
+        <code>{shortHash(replayReceipt.contentFingerprint)}</code>
+      </output>
+    )}
   </section>
 );
 

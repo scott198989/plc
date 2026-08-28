@@ -34,13 +34,13 @@ const IDS = {
   prepareSaveAs: "70000000-0000-4000-8000-000000000001",
   saveAsDocument: "80000000-0000-4000-8000-000000000001",
   commitSaveAs: "90000000-0000-4000-8000-000000000001",
-  firstGrant: "a0000000-0000-4000-8000-000000000001",
+  firstGrant: "p2-native-v1:0000000000000001",
   open: "b0000000-0000-4000-8000-000000000001",
-  openGrant: "c0000000-0000-4000-8000-000000000001",
+  openGrant: "p2-native-v1:0000000000000002",
   prepareSave: "d0000000-0000-4000-8000-000000000001",
   commitSave: "e0000000-0000-4000-8000-000000000001",
   corruptOpen: "f0000000-0000-4000-8000-000000000001",
-  corruptGrant: "01000000-0000-4000-8000-000000000001",
+  corruptGrant: "p2-native-v1:0000000000000003",
   renameAfterCorruption: "02000000-0000-4000-8000-000000000001",
 } as const;
 
@@ -342,6 +342,21 @@ describe("real engineering worker and WASM kernel", () => {
     expect(preserved.outcome).toBe("committed");
     expect(preserved.snapshot.documentId).toBe(IDS.saveAsDocument);
     expect(preserved.snapshot.projectName).toBe("Preserved after rejection");
+  });
+
+  it("correlates parse failures and rejects legacy non-native file grants immediately", async () => {
+    const requestId = "03000000-0000-4000-8000-000000000001";
+    const response = await executeEngineeringRequest({
+      bytes: new Uint8Array([1]).buffer,
+      fileGrantId: "04000000-0000-4000-8000-000000000001",
+      kind: "engineering.project.open",
+      requestId,
+    });
+
+    expect(response.ok).toBe(false);
+    expect(response.inReplyTo).toBe(requestId);
+    expect(response.error?.code).toBe("INVALID_REQUEST");
+    expect(response.error?.message).toContain("opaque native broker grant");
   });
 });
 

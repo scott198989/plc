@@ -108,22 +108,46 @@ describe("runtime workbench presentation", () => {
     const toolbar = renderToStaticMarkup(createElement(RuntimeToolbar, {
       busy: false,
       onOperation,
+      onVerifyReplay: async () => undefined,
+      replayReceipt: {
+        contentFingerprint: "A".repeat(64),
+        divergence: null,
+        eventCount: 4,
+        expectedBoundaryCount: 1,
+        finalSnapshotHash: "B".repeat(64),
+        observedBoundaryCount: 1,
+        schemaVersion: 1,
+        verified: true,
+      },
       runtime: readyRuntime,
     }));
     const inspector = renderToStaticMarkup(createElement(RuntimeInspector, {
       busy: false,
       onOperation,
+      onVerifyReplay: async () => undefined,
+      replayReceipt: {
+        contentFingerprint: "A".repeat(64),
+        divergence: null,
+        eventCount: 4,
+        expectedBoundaryCount: 1,
+        finalSnapshotHash: "B".repeat(64),
+        observedBoundaryCount: 1,
+        schemaVersion: 1,
+        verified: true,
+      },
       runtime: readyRuntime,
     }));
 
     expect(toolbar).toContain("Virtual controller commands");
     expect(toolbar).toContain("Commit load");
     expect(toolbar).toContain("e12 · s41");
+    expect(toolbar).toContain("Replay verified · 4 events");
     expect(inspector).toContain('data-state="RUN"');
     expect(inspector).toContain('data-forced="true"');
     expect(inspector).toContain("FORCED");
     expect(inspector).toContain("Approval boundary");
     expect(inspector).toContain("Runtime diagnostics");
+    expect(inspector).toContain("Deterministic replay verified");
   });
 
   it("keeps runtime controls closed and explains an unavailable canonical controller", () => {
@@ -144,11 +168,15 @@ describe("runtime workbench presentation", () => {
     const toolbar = renderToStaticMarkup(createElement(RuntimeToolbar, {
       busy: false,
       onOperation,
+      onVerifyReplay: async () => undefined,
+      replayReceipt: null,
       runtime,
     }));
     const inspector = renderToStaticMarkup(createElement(RuntimeInspector, {
       busy: false,
       onOperation,
+      onVerifyReplay: async () => undefined,
+      replayReceipt: null,
       runtime,
     }));
 

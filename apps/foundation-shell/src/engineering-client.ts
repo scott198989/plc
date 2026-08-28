@@ -1,4 +1,5 @@
 import EngineeringWorker from "./foundation.worker?worker&inline";
+import type { ReplayPackageExport, ReplayVerificationReceipt } from "./replay-types";
 import type { RuntimeOperation } from "./runtime-types";
 import type {
   WorkbenchOperation,
@@ -33,6 +34,12 @@ type EngineeringRequest =
       operation: RuntimeOperation;
       requestId: string;
     }>
+  | Readonly<{ kind: "engineering.replay.export"; requestId: string }>
+  | Readonly<{
+      bytes: ArrayBuffer;
+      kind: "engineering.replay.verify";
+      requestId: string;
+    }>
   | Readonly<{
       kind: "engineering.persistence.prepare";
       mode: "save" | "save-as";
@@ -62,6 +69,8 @@ type PreparedSave = Readonly<{
 type ResponseValue =
   | Readonly<{ coreVersion: string; status: "HEALTHY" }>
   | PreparedSave
+  | ReplayPackageExport
+  | ReplayVerificationReceipt
   | WorkbenchOperationResult
   | WorkbenchSnapshot
   | null;
@@ -158,6 +167,28 @@ export class EngineeringClient {
         requestId: crypto.randomUUID(),
       },
       isWorkbenchSnapshot,
+    );
+  }
+
+  public async exportReplayPackage(): Promise<ReplayPackageExport> {
+    return this.request(
+      { kind: "engineering.replay.export", requestId: crypto.randomUUID() },
+      isReplayPackageExport,
+    );
+  }
+
+  public async verifyReplayPackage(
+    bytes: Uint8Array<ArrayBuffer>,
+  ): Promise<ReplayVerificationReceipt> {
+    const transferable = bytes.slice().buffer;
+    return this.request(
+      {
+        bytes: transferable,
+        kind: "engineering.replay.verify",
+        requestId: crypto.randomUUID(),
+      },
+      isReplayVerificationReceipt,
+      [transferable],
     );
   }
 
@@ -304,6 +335,30 @@ const isPreparedSave = (value: unknown): value is PreparedSave =>
   typeof value.packageHash === "string" &&
   typeof value.pendingSaveId === "string" &&
   typeof value.suggestedName === "string";
+
+const isReplayPackageExport = (value: unknown): value is ReplayPackageExport =>
+  isRecord(value) &&
+  value.bytes instanceof ArrayBuffer &&
+  typeof value.packageHash === "string" &&
+  /^[A-F0-9]{64}$/u.test(value.packageHash);
+
+const isReplayVerificationReceipt = (
+  value: unknown,
+): value is ReplayVerificationReceipt =>
+  isRecord(value) &&
+  value.divergence === null &&
+  value.schemaVersion === 1 &&
+  value.verified === true &&
+  typeof value.contentFingerprint === "string" &&
+  /^[A-Fa-f0-9]{64}$/u.test(value.contentFingerprint) &&
+  typeof value.finalSnapshotHash === "string" &&
+  /^[A-Fa-f0-9]{64}$/u.test(value.finalSnapshotHash) &&
+  Number.isSafeInteger(value.eventCount) &&
+  (value.eventCount as number) > 0 &&
+  Number.isSafeInteger(value.expectedBoundaryCount) &&
+  (value.expectedBoundaryCount as number) > 0 &&
+  Number.isSafeInteger(value.observedBoundaryCount) &&
+  value.observedBoundaryCount === value.expectedBoundaryCount;
 
 const isWorkbenchSnapshot = (value: unknown): value is WorkbenchSnapshot =>
   isRecord(value) &&

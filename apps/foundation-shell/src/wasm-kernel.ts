@@ -16,11 +16,13 @@ type KernelWasmExports = Readonly<{
   plc_session_abort_save: () => number;
   plc_session_commit_save: (verifiedBytes: number, digestLength: number) => number;
   plc_session_create: (length: number) => number;
+  plc_session_export_replay_baseline: () => number;
   plc_session_handle: (length: number) => number;
   plc_session_open: (length: number) => number;
   plc_session_prepare_save: (mode: number, length: number) => number;
   plc_session_system_query: () => number;
   plc_session_system_command: (length: number) => number;
+  plc_session_verify_replay_package: (length: number) => number;
 }>;
 
 export type WasmHealth = Readonly<{
@@ -97,6 +99,19 @@ export class WasmKernel {
     return this.callWithInput(
       request,
       (length) => this.#exports.plc_session_system_command(length),
+    );
+  }
+
+  public exportReplayBaseline(): Uint8Array<ArrayBuffer> {
+    return this.call(() => this.#exports.plc_session_export_replay_baseline());
+  }
+
+  public verifyReplayPackage(
+    packageBytes: Uint8Array<ArrayBuffer>,
+  ): Uint8Array<ArrayBuffer> {
+    return this.callWithInput(
+      packageBytes,
+      (length) => this.#exports.plc_session_verify_replay_package(length),
     );
   }
 
@@ -218,11 +233,13 @@ const readExports = (exports: WebAssembly.Exports): KernelWasmExports => {
     "plc_session_abort_save",
     "plc_session_commit_save",
     "plc_session_create",
+    "plc_session_export_replay_baseline",
     "plc_session_handle",
     "plc_session_open",
     "plc_session_prepare_save",
     "plc_session_system_query",
     "plc_session_system_command",
+    "plc_session_verify_replay_package",
   ] as const;
   if (!(exports.memory instanceof WebAssembly.Memory)) {
     throw new WasmKernelError("The engineering core memory export is missing.");
