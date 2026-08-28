@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 
 import type {
+  ProjectPayload,
+  ProjectStorageKind,
   WorkbenchObjectView,
   WorkbenchOperation,
   WorkbenchSnapshot,
@@ -51,6 +53,7 @@ export const EngineeringWorkbench = ({
   const [selectedId, setSelectedId] = useState(snapshot.projectRootId);
   const [openTabs, setOpenTabs] = useState<readonly string[]>([snapshot.projectRootId]);
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(true);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
 
   const selected = snapshot.objects[selectedId] ?? snapshot.objects[snapshot.projectRootId];
   const resolvedSelectedId = selected?.id ?? snapshot.projectRootId;
@@ -118,6 +121,24 @@ export const EngineeringWorkbench = ({
   );
   const tombstoneCount = Object.values(snapshot.objects).length - activeObjects.length;
   const blockingCount = snapshot.diagnostics.filter((diagnostic) => diagnostic.blocking).length;
+  const createOptions = selected === undefined ? [] : creationOptions(selected, snapshot);
+
+  const createObject = async (template: CreateObjectTemplate): Promise<void> => {
+    const objectId = crypto.randomUUID();
+    await onOperation({
+      displayName: nextObjectName(template.baseName, resolvedSelectedId, snapshot),
+      kind: "project.create-object",
+      objectId,
+      objectKind: template.objectKind,
+      parentId: resolvedSelectedId,
+      payloadSchema: template.payloadSchema,
+      presentationPayload: {},
+      semanticPayload: template.semanticPayload,
+    });
+    setCreateMenuOpen(false);
+    setSelectedId(objectId);
+    setOpenTabs((current) => [...current, objectId]);
+  };
 
   return (
     <div className="workbench-shell">
@@ -173,7 +194,41 @@ export const EngineeringWorkbench = ({
         <aside className="navigator-pane" aria-label="Project navigator">
           <div className="pane-heading">
             <span>Project</span>
-            <span className="object-count">{activeObjects.length}</span>
+            <div className="navigator-heading-actions">
+              <span className="object-count">{activeObjects.length}</span>
+              <div className="create-object-control">
+                <button
+                  aria-expanded={createMenuOpen}
+                  aria-haspopup="menu"
+                  aria-label="Add engineering object"
+                  className="navigator-add"
+                  disabled={busy || createOptions.length === 0}
+                  onClick={() => setCreateMenuOpen((open) => !open)}
+                  title={createOptions.length === 0 ? "No child objects are valid here" : "Add engineering object"}
+                  type="button"
+                >+</button>
+                {createMenuOpen && createOptions.length > 0 && (
+                  <div aria-label={`Add to ${selected?.displayName ?? "selection"}`} className="create-object-menu" role="menu">
+                    <div className="create-object-menu__heading">
+                      <span>New object</span>
+                      <small>{selected?.displayName}</small>
+                    </div>
+                    {createOptions.map((option) => (
+                      <button
+                        disabled={busy}
+                        key={`${option.objectKind}:${option.payloadSchema}:${option.baseName}`}
+                        onClick={() => void createObject(option)}
+                        role="menuitem"
+                        type="button"
+                      >
+                        <span className="create-object-menu__glyph" aria-hidden="true">{option.glyph}</span>
+                        <span><strong>{option.label}</strong><small>{option.description}</small></span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
           <div className="tree-scroll" role="tree" aria-label="Project objects">
             <ProjectTree
@@ -545,6 +600,246 @@ const PropertiesPane = ({
       </div>
     </aside>
   );
+};
+
+type CreateObjectTemplate = Readonly<{
+  baseName: string;
+  description: string;
+  glyph: string;
+  label: string;
+  objectKind: ProjectStorageKind;
+  payloadSchema: string;
+  semanticPayload: ProjectPayload;
+}>;
+
+const unsigned = (value: number): Readonly<{ $type: "u64"; value: string }> => ({
+  $type: "u64",
+  value: value.toString(10),
+});
+
+const creationOptions = (
+  parent: WorkbenchObjectView,
+  snapshot: WorkbenchSnapshot,
+): readonly CreateObjectTemplate[] => {
+  switch (parent.kind) {
+    case "ProjectRoot":
+    case "Folder":
+      return [
+        {
+          baseName: "Controller",
+          description: "EDU-21 virtual controller",
+          glyph: "C",
+          label: "Controller",
+          objectKind: "controller",
+          payloadSchema: "edu.controller/1",
+          semanticPayload: {
+            catalogId: "vctrl-c1",
+            profileId: "edu-21",
+            profileVersion: "1",
+          },
+        },
+        {
+          baseName: "Virtual network",
+          description: "Data-only training network",
+          glyph: "VN",
+          label: "Virtual network",
+          objectKind: "network",
+          payloadSchema: "edu.virtual-network/1",
+          semanticPayload: { configuredState: "enabled" },
+        },
+        {
+          baseName: "Engineering folder",
+          description: "Organizational project folder",
+          glyph: "▰",
+          label: "Folder",
+          objectKind: "folder",
+          payloadSchema: "edu.folder/1",
+          semanticPayload: {},
+        },
+      ];
+    case "Controller":
+      return [
+        {
+          baseName: "Local rack",
+          description: "Eight-slot controller rack",
+          glyph: "R",
+          label: "Rack",
+          objectKind: "rack",
+          payloadSchema: "edu.rack/1",
+          semanticPayload: { slotCount: unsigned(8) },
+        },
+        {
+          baseName: "PLC tags",
+          description: "Controller-wide symbol table",
+          glyph: "ST",
+          label: "Tag table",
+          objectKind: "symbol-table",
+          payloadSchema: "edu.symbol-table/1",
+          semanticPayload: {},
+        },
+        {
+          baseName: "Process data",
+          description: "Named user structure",
+          glyph: "UD",
+          label: "Named structure",
+          objectKind: "type-definition",
+          payloadSchema: "edu.named-type/1",
+          semanticPayload: { members: [] },
+        },
+        {
+          baseName: "Main cycle",
+          description: "Cyclic SCL organization block",
+          glyph: "OB",
+          label: "Organization block",
+          objectKind: "program-block",
+          payloadSchema: "edu.program-block/1",
+          semanticPayload: {
+            blockKind: "OB",
+            engineeringNumber: unsigned(1),
+            language: "SCL",
+            obRole: "CyclicMain",
+            sourceText: "",
+          },
+        },
+        {
+          baseName: "Function",
+          description: "Reusable SCL function",
+          glyph: "FC",
+          label: "Function",
+          objectKind: "program-block",
+          payloadSchema: "edu.program-block/1",
+          semanticPayload: {
+            blockKind: "FC",
+            engineeringNumber: unsigned(1),
+            language: "SCL",
+            sourceText: "",
+          },
+        },
+        {
+          baseName: "Function block",
+          description: "State-owning SCL block",
+          glyph: "FB",
+          label: "Function block",
+          objectKind: "program-block",
+          payloadSchema: "edu.program-block/1",
+          semanticPayload: {
+            blockKind: "FB",
+            engineeringNumber: unsigned(1),
+            language: "SCL",
+            sourceText: "",
+          },
+        },
+        {
+          baseName: "Global data",
+          description: "Controller global data block",
+          glyph: "DB",
+          label: "Global data block",
+          objectKind: "data-block",
+          payloadSchema: "edu.data-block/1",
+          semanticPayload: { dbKind: "GlobalDB", members: [] },
+        },
+        {
+          baseName: "Instance data",
+          description: "Function-block instance data",
+          glyph: "ID",
+          label: "Instance data block",
+          objectKind: "data-block",
+          payloadSchema: "edu.data-block/1",
+          semanticPayload: { dbKind: "InstanceDB", instanceOf: null },
+        },
+        {
+          baseName: "Watch table",
+          description: "Persistent monitoring targets",
+          glyph: "W",
+          label: "Watch table",
+          objectKind: "generic",
+          payloadSchema: "edu.watch-table/1",
+          semanticPayload: { rows: [] },
+        },
+        {
+          baseName: "Trace",
+          description: "Bounded virtual trace configuration",
+          glyph: "T",
+          label: "Trace configuration",
+          objectKind: "generic",
+          payloadSchema: "edu.trace-configuration/1",
+          semanticPayload: { channels: [], state: "idle" },
+        },
+      ];
+    case "Rack": {
+      const slot = parent.children.filter((id) => snapshot.objects[id]?.kind === "Module").length + 1;
+      return [
+        moduleTemplate("Digital input module", "VDI16", "vdi16", slot),
+        moduleTemplate("Digital output module", "VDO16", "vdo16", slot),
+        moduleTemplate("Analog input module", "VAI4", "vai4", slot),
+        moduleTemplate("Analog output module", "VAO4", "vao4", slot),
+      ];
+    }
+    case "SymbolTable":
+      return [
+        tagTemplate("Input tag", "I", "Input"),
+        tagTemplate("Output tag", "Q", "Output"),
+        tagTemplate("Memory tag", "M", "Memory"),
+      ];
+    default:
+      return [];
+  }
+};
+
+const moduleTemplate = (
+  label: string,
+  baseName: string,
+  catalogId: string,
+  slot: number,
+): CreateObjectTemplate => ({
+  baseName,
+  description: `EDU-21 ${catalogId.toUpperCase()} in slot ${slot}`,
+  glyph: catalogId.startsWith("vd") ? "D" : "A",
+  label,
+  objectKind: "module",
+  payloadSchema: "edu.module/1",
+  semanticPayload: {
+    addressIntent: "auto",
+    catalogId,
+    slot: unsigned(slot),
+  },
+});
+
+const tagTemplate = (label: string, area: "I" | "M" | "Q", baseName: string): CreateObjectTemplate => ({
+  baseName,
+  description: `${area}-area BOOL with automatic allocation`,
+  glyph: area,
+  label,
+  objectKind: "tag",
+  payloadSchema: "edu.tag/1",
+  semanticPayload: {
+    addressArea: area,
+    addressIntent: "auto",
+    dataType: "BOOL",
+    tagKind: area === "I" ? "Input" : area === "Q" ? "Output" : "Memory",
+  },
+});
+
+const nextObjectName = (
+  baseName: string,
+  parentId: string,
+  snapshot: WorkbenchSnapshot,
+): string => {
+  const siblingNames = new Set(
+    Object.values(snapshot.objects)
+      .filter((object) => object.lifecycle === "active" && object.parentId === parentId)
+      .map((object) => object.displayName.toLocaleLowerCase("en-US")),
+  );
+  if (!siblingNames.has(baseName.toLocaleLowerCase("en-US"))) {
+    return baseName;
+  }
+  for (let suffix = 2; suffix <= 9_999; suffix += 1) {
+    const candidate = `${baseName} ${suffix}`;
+    if (!siblingNames.has(candidate.toLocaleLowerCase("en-US"))) {
+      return candidate;
+    }
+  }
+  return `${baseName} ${crypto.randomUUID().slice(0, 8)}`;
 };
 
 const formatDirtyState = (state: WorkbenchSnapshot["dirtyState"]): string => {

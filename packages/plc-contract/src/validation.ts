@@ -1041,6 +1041,47 @@ const validateProjectCommand = (record: PlainRecord, path: string): void => {
       requireUuid(record.documentId, `${path}.documentId`);
       requireUuid(record.projectRootId, `${path}.projectRootId`);
       break;
+    case "project.create-object":
+      requireExactKeys(
+        record,
+        [
+          "commandKind",
+          "displayName",
+          "objectId",
+          "objectKind",
+          "parentId",
+          "payloadSchema",
+        ],
+        path,
+      );
+      requireString(
+        record.displayName,
+        `${path}.displayName`,
+        PLC_CONTRACT_LIMITS.projectNameCharacters,
+      );
+      requireUuid(record.objectId, `${path}.objectId`);
+      requireEnum(
+        record.objectKind,
+        [
+          "folder",
+          "controller",
+          "rack",
+          "module",
+          "network",
+          "symbol-table",
+          "tag",
+          "type-definition",
+          "program-block",
+          "data-block",
+          "build-record",
+          "snapshot-reference",
+          "generic",
+        ],
+        `${path}.objectKind`,
+      );
+      requireUuid(record.parentId, `${path}.parentId`);
+      requireString(record.payloadSchema, `${path}.payloadSchema`, 128);
+      break;
     case "project.rename-object":
       requireExactKeys(record, ["commandKind", "displayName", "objectId"], path);
       requireString(
@@ -1491,6 +1532,7 @@ const validateMonitoringCommand = (record: PlainRecord, path: string): void => {
 
 const DOMAIN_COMMAND_KINDS = [
   "project.create",
+  "project.create-object",
   "project.rename-object",
   "project.move-object",
   "project.delete-object",
@@ -1647,6 +1689,7 @@ const PROJECT_OBJECT_KINDS = [
   "Folder",
   "Controller",
   "Device",
+  "Rack",
   "Module",
   "VirtualNetwork",
   "VirtualInterface",

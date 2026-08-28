@@ -414,6 +414,27 @@ export type ProjectCommand =
       projectRootId: Uuid;
     }>
   | Readonly<{
+      commandKind: "project.create-object";
+      displayName: string;
+      objectId: Uuid;
+      objectKind:
+        | "folder"
+        | "controller"
+        | "rack"
+        | "module"
+        | "network"
+        | "symbol-table"
+        | "tag"
+        | "type-definition"
+        | "program-block"
+        | "data-block"
+        | "build-record"
+        | "snapshot-reference"
+        | "generic";
+      parentId: Uuid;
+      payloadSchema: string;
+    }>
+  | Readonly<{
       commandKind: "project.rename-object";
       displayName: string;
       objectId: Uuid;
@@ -681,6 +702,7 @@ export type ProjectObjectKind =
   | "Folder"
   | "Controller"
   | "Device"
+  | "Rack"
   | "Module"
   | "VirtualNetwork"
   | "VirtualInterface"

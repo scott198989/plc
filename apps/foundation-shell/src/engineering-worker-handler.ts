@@ -20,6 +20,9 @@ import { encodeCanonicalJson } from "./canonical-json";
 import { projectReceiptToWorkbench } from "./project-receipt-projection";
 import { WasmKernel, WasmKernelError } from "./wasm-kernel";
 import type {
+  ProjectPayload,
+  ProjectPayloadValue,
+  ProjectStorageKind,
   WorkbenchOperation,
   WorkbenchOperationResult,
   WorkbenchSnapshot,
@@ -34,6 +37,22 @@ const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const DECIMAL_UINT64_PATTERN = /^(?:0|[1-9][0-9]*)$/u;
 const HASH_PATTERN = /^[A-Fa-f0-9]{64}$/u;
+const SIGNED_DECIMAL_PATTERN = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/u;
+const PROJECT_STORAGE_KINDS = new Set<ProjectStorageKind>([
+  "folder",
+  "controller",
+  "rack",
+  "module",
+  "network",
+  "symbol-table",
+  "tag",
+  "type-definition",
+  "program-block",
+  "data-block",
+  "build-record",
+  "snapshot-reference",
+  "generic",
+]);
 
 type EngineeringRequest =
   | Readonly<{ kind: "engineering.initialize"; requestId: string }>
@@ -444,7 +463,7 @@ class EngineeringWorkerEngine {
     kernelRequest: Uint8Array<ArrayBuffer>;
   }>> {
     const objectById = new Map(query.project.objects.map((object) => [object.id, object]));
-    const expected = (ids: readonly string[]) => [...new Set(ids)].map((objectId) => {
+    const expected = (ids: readonly string[]) => [...new Set(ids)].sort(ordinalCompare).map((objectId) => {
       const object = objectById.get(objectId);
       if (object === undefined) {
         throw new EngineeringWorkerError("UNKNOWN_OBJECT", `Project object ${objectId} does not exist.`);
@@ -468,6 +487,34 @@ class EngineeringWorkerEngine {
     });
 
     switch (operation.kind) {
+      case "project.create-object": {
+        const revisions = expected([operation.parentId]);
+        return {
+          contractCommand: {
+            commandKind: "project.create-object",
+            displayName: operation.displayName,
+            objectId: operation.objectId,
+            objectKind: operation.objectKind,
+            parentId: operation.parentId,
+            payloadSchema: operation.payloadSchema,
+          },
+          expectedObjectRevisions: revisions,
+          historyToken: "",
+          kernelRequest: envelope(
+            {
+              displayName: operation.displayName,
+              id: operation.objectId,
+              kind: "create",
+              objectKind: operation.objectKind,
+              parentId: operation.parentId,
+              payloadSchema: operation.payloadSchema,
+              presentationPayload: operation.presentationPayload,
+              semanticPayload: operation.semanticPayload,
+            },
+            revisions,
+          ),
+        };
+      }
       case "project.rename-object": {
         const revisions = expected([operation.objectId]);
         return {
@@ -966,7 +1013,7 @@ const mapRawKind = (
     case "project": return "ProjectRoot";
     case "folder": return "Folder";
     case "controller": return "Controller";
-    case "rack": return "Module";
+    case "rack": return "Rack";
     case "module": return "Module";
     case "network": return "VirtualNetwork";
     case "symbol-table": return "SymbolTable";
@@ -983,6 +1030,14 @@ const mapRawKind = (
     }
     case "data-block":
       return object?.semanticPayload.dbKind === "InstanceDB" ? "InstanceDB" : "GlobalDB";
+    case "generic":
+      if (object?.payloadSchema === "edu.watch-table/1") {
+        return "WatchTable";
+      }
+      if (object?.payloadSchema === "edu.trace-configuration/1") {
+        return "TraceConfiguration";
+      }
+      break;
   }
   throw new EngineeringWorkerError(
     "UNSUPPORTED_PROJECT_KIND",
@@ -1089,6 +1144,45 @@ const parseWorkbenchOperation = (input: unknown): WorkbenchOperation => {
   const record = requireRecord(input, "workbench operation");
   const kind = requireString(record.kind, "workbench operation kind", 80);
   switch (kind) {
+    case "project.create-object": {
+      requireExactKeys(
+        record,
+        [
+          "displayName",
+          "kind",
+          "objectId",
+          "objectKind",
+          "parentId",
+          "payloadSchema",
+          "presentationPayload",
+          "semanticPayload",
+        ],
+        "create-object operation",
+      );
+      const objectKind = requireString(record.objectKind, "project object kind", 64);
+      if (!isProjectStorageKind(objectKind)) {
+        throw new EngineeringWorkerError("INVALID_REQUEST", "The project object kind is unsupported.");
+      }
+      const payloadBudget = { remaining: 8_192 };
+      return {
+        displayName: requireString(record.displayName, "object displayName", 256),
+        kind,
+        objectId: requireUuid(record.objectId, "object ID"),
+        objectKind,
+        parentId: requireUuid(record.parentId, "parent object ID"),
+        payloadSchema: requireString(record.payloadSchema, "payload schema", 128),
+        presentationPayload: parseProjectPayload(
+          record.presentationPayload,
+          "presentation payload",
+          payloadBudget,
+        ),
+        semanticPayload: parseProjectPayload(
+          record.semanticPayload,
+          "semantic payload",
+          payloadBudget,
+        ),
+      };
+    }
     case "project.rename-object":
       requireExactKeys(record, ["displayName", "kind", "objectId"], "rename operation");
       return {
@@ -1456,6 +1550,87 @@ const requireArray = (
     throw new EngineeringWorkerError("INVALID_REQUEST", `${label} is out of bounds.`);
   }
   return input;
+};
+
+const isProjectStorageKind = (value: string): value is ProjectStorageKind =>
+  PROJECT_STORAGE_KINDS.has(value as ProjectStorageKind);
+
+type PayloadBudget = { remaining: number };
+
+const parseProjectPayload = (
+  input: unknown,
+  label: string,
+  budget: PayloadBudget,
+  depth = 0,
+): ProjectPayload => {
+  if (depth > 16) {
+    throw new EngineeringWorkerError("INVALID_REQUEST", `${label} exceeds its nesting limit.`);
+  }
+  const record = requireRecord(input, label);
+  if (Object.keys(record).length > 2_048) {
+    throw new EngineeringWorkerError("INVALID_REQUEST", `${label} exceeds its field limit.`);
+  }
+  const parsed: Record<string, ProjectPayloadValue> = {};
+  for (const [key, value] of Object.entries(record)) {
+    if (key.length < 1 || key.length > 128 || key.includes("\0")) {
+      throw new EngineeringWorkerError("INVALID_REQUEST", `${label} contains an invalid field name.`);
+    }
+    parsed[key] = parseProjectPayloadValue(value, `${label}.${key}`, budget, depth + 1);
+  }
+  return parsed;
+};
+
+const parseProjectPayloadValue = (
+  input: unknown,
+  label: string,
+  budget: PayloadBudget,
+  depth: number,
+): ProjectPayloadValue => {
+  budget.remaining -= 1;
+  if (budget.remaining < 0 || depth > 16) {
+    throw new EngineeringWorkerError("INVALID_REQUEST", `${label} exceeds its complexity limit.`);
+  }
+  if (input === null || typeof input === "boolean") {
+    return input;
+  }
+  if (typeof input === "string") {
+    if (input.length > 1_048_576 || input.includes("\0")) {
+      throw new EngineeringWorkerError("INVALID_REQUEST", `${label} contains an invalid string.`);
+    }
+    return input;
+  }
+  if (Array.isArray(input)) {
+    if (input.length > 4_096) {
+      throw new EngineeringWorkerError("INVALID_REQUEST", `${label} exceeds its list limit.`);
+    }
+    return input.map((value, index) =>
+      parseProjectPayloadValue(value, `${label}[${index}]`, budget, depth + 1),
+    );
+  }
+  const tagged = requireRecord(input, label);
+  requireExactKeys(tagged, ["$type", "value"], label);
+  const type = requireString(tagged.$type, `${label}.$type`, 16);
+  if (type === "record") {
+    return {
+      $type: "record",
+      value: parseProjectPayload(tagged.value, `${label}.value`, budget, depth + 1),
+    };
+  }
+  if (type !== "i64" && type !== "u64") {
+    throw new EngineeringWorkerError("INVALID_REQUEST", `${label} has an unsupported value type.`);
+  }
+  const value = requireString(tagged.value, `${label}.value`, 24);
+  if (!SIGNED_DECIMAL_PATTERN.test(value)) {
+    throw new EngineeringWorkerError("INVALID_REQUEST", `${label} is not canonical decimal text.`);
+  }
+  const numeric = BigInt(value);
+  const inRange = type === "u64"
+    ? numeric >= 0n && numeric <= (1n << 64n) - 1n
+    : numeric >= -(1n << 63n) && numeric <= (1n << 63n) - 1n;
+  if (!inRange) {
+    throw new EngineeringWorkerError("INVALID_REQUEST", `${label} exceeds its numeric range.`);
+  }
+  return { $type: type, value };
 };
 
 const nullableUuid = (input: unknown, label: string): string | null =>

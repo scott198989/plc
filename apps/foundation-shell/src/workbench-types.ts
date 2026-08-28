@@ -3,6 +3,34 @@ import type { ProjectObjectKind } from "@govs/plc-contract";
 /** Hardware-only children join canonical project objects in the navigator projection. */
 export type WorkbenchObjectKind = ProjectObjectKind | "Rack" | "Channel";
 
+export type ProjectStorageKind =
+  | "folder"
+  | "controller"
+  | "rack"
+  | "module"
+  | "network"
+  | "symbol-table"
+  | "tag"
+  | "type-definition"
+  | "program-block"
+  | "data-block"
+  | "build-record"
+  | "snapshot-reference"
+  | "generic";
+
+export type ProjectPayloadValue =
+  | null
+  | boolean
+  | string
+  | Readonly<{ $type: "i64" | "u64"; value: string }>
+  | readonly ProjectPayloadValue[]
+  | Readonly<{
+      $type: "record";
+      value: Readonly<Record<string, ProjectPayloadValue>>;
+    }>;
+
+export type ProjectPayload = Readonly<Record<string, ProjectPayloadValue>>;
+
 export type WorkbenchObjectView = Readonly<{
   children: readonly string[];
   creationOrdinal: string;
@@ -47,6 +75,16 @@ export type WorkbenchSnapshot = Readonly<{
 }>;
 
 export type WorkbenchOperation =
+  | Readonly<{
+      displayName: string;
+      kind: "project.create-object";
+      objectId: string;
+      objectKind: ProjectStorageKind;
+      parentId: string;
+      payloadSchema: string;
+      presentationPayload: ProjectPayload;
+      semanticPayload: ProjectPayload;
+    }>
   | Readonly<{ kind: "project.rename-object"; displayName: string; objectId: string }>
   | Readonly<{ kind: "project.delete-object"; objectId: string }>
   | Readonly<{

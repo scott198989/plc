@@ -580,6 +580,7 @@ fn apply_command(
                 return Err(diagnostic);
             }
             let closure: BTreeSet<_> = preview.closure.into_iter().collect();
+            let root_display_names = planned_copy_root_names(project, roots, *destination_parent);
             let mut ordered: Vec<_> = closure.iter().copied().collect();
             ordered.sort_by_key(|id| project.objects[id].creation_ordinal);
             for source_id in ordered {
@@ -597,7 +598,10 @@ fn apply_command(
                     semantic_revision: 1,
                     creation_ordinal: project.next_creation_ordinal,
                     parent_id,
-                    display_name: source.display_name,
+                    display_name: root_display_names
+                        .get(&source_id)
+                        .cloned()
+                        .unwrap_or(source.display_name),
                     payload_schema: source.payload_schema,
                     payload: source.payload,
                     lifecycle: Lifecycle::Active,
@@ -858,26 +862,14 @@ fn copy_preview(
     }
     if let Some(destination) = destination {
         for root in roots {
-            if let Some(source) = project.objects.get(root) {
-                if !destination.kind.can_contain(source.kind) {
-                    diagnostics.push(diagnostic(
-                        "KRN_ILLEGAL_CONTAINMENT",
-                        "The destination object kind cannot contain the copied root kind.",
-                        vec![destination_parent, *root],
-                    ));
-                }
-                if project.objects.values().any(|candidate| {
-                    candidate.lifecycle == Lifecycle::Active
-                        && candidate.parent_id == Some(destination_parent)
-                        && candidate.kind == source.kind
-                        && candidate.display_name == source.display_name
-                }) {
-                    diagnostics.push(diagnostic(
-                        "KRN_COPY_NAME_CONFLICT",
-                        "A sibling with the same kind and display name already exists at the destination.",
-                        vec![destination_parent, *root],
-                    ));
-                }
+            if let Some(source) = project.objects.get(root)
+                && !destination.kind.can_contain(source.kind)
+            {
+                diagnostics.push(diagnostic(
+                    "KRN_ILLEGAL_CONTAINMENT",
+                    "The destination object kind cannot contain the copied root kind.",
+                    vec![destination_parent, *root],
+                ));
             }
         }
     }
@@ -945,6 +937,62 @@ fn copy_preview(
         can_commit: diagnostics.is_empty(),
         diagnostics,
     }
+}
+
+fn planned_copy_root_names(
+    project: &Project,
+    roots: &[ObjectId],
+    destination_parent: ObjectId,
+) -> BTreeMap<ObjectId, String> {
+    let mut occupied: BTreeSet<_> = project
+        .objects
+        .values()
+        .filter(|candidate| {
+            candidate.lifecycle == Lifecycle::Active
+                && candidate.parent_id == Some(destination_parent)
+        })
+        .map(|candidate| (candidate.kind, candidate.display_name.clone()))
+        .collect();
+    let mut names = BTreeMap::new();
+    for root in roots {
+        let Some(source) = project.objects.get(root) else {
+            continue;
+        };
+        let mut candidate = source.display_name.clone();
+        if occupied.contains(&(source.kind, candidate.clone())) {
+            let mut ordinal = 1_u32;
+            loop {
+                let suffix = if ordinal == 1 {
+                    " copy".to_owned()
+                } else {
+                    format!(" copy {ordinal}")
+                };
+                candidate = append_bounded_suffix(&source.display_name, &suffix);
+                if !occupied.contains(&(source.kind, candidate.clone())) {
+                    break;
+                }
+                ordinal = ordinal.saturating_add(1);
+            }
+        }
+        occupied.insert((source.kind, candidate.clone()));
+        names.insert(*root, candidate);
+    }
+    names
+}
+
+fn append_bounded_suffix(base: &str, suffix: &str) -> String {
+    let prefix_limit = 256_usize.saturating_sub(suffix.len());
+    let mut prefix = String::new();
+    for character in base.chars() {
+        if prefix.len() + character.len_utf8() > prefix_limit {
+            break;
+        }
+        prefix.push(character);
+    }
+    while prefix.ends_with(' ') {
+        prefix.pop();
+    }
+    format!("{prefix}{suffix}")
 }
 
 fn containment_closure(project: &Project, roots: &[ObjectId]) -> BTreeSet<ObjectId> {
@@ -1576,6 +1624,68 @@ mod tests {
         assert_eq!(engine.execute(&rename).outcome, CommandOutcome::Committed);
         assert_eq!(engine.project().semantic_fingerprint(), baseline);
         assert_eq!(engine.project().semantic_revision(), baseline_revision);
+    }
+
+    #[test]
+    fn same_parent_copy_assigns_deterministic_unique_display_names() {
+        let (project, root) = fixture();
+        let mut engine = Engine::new(project).expect("engine");
+        let source = ObjectId(id(60));
+        let create = envelope(
+            engine.project(),
+            DomainCommand::Create(NewObject {
+                id: source,
+                kind: ProjectObjectKind::Folder,
+                parent_id: root,
+                display_name: "Engineering folder".to_owned(),
+                payload_schema: "edu.folder/1".to_owned(),
+                payload: Payload::default(),
+            }),
+            60,
+        );
+        assert_eq!(engine.execute(&create).outcome, CommandOutcome::Committed);
+
+        for (ordinal, expected_name) in [
+            (61_u64, "Engineering folder copy"),
+            (62_u64, "Engineering folder copy 2"),
+        ] {
+            let copy = ObjectId(id(ordinal));
+            let command = DomainCommand::CopyClosure {
+                roots: vec![source],
+                id_map: BTreeMap::from([(source, copy)]),
+                destination_parent: root,
+            };
+            let expected_object_revisions = BTreeMap::from([
+                (
+                    root,
+                    engine.project().object(root).expect("root").object_revision,
+                ),
+                (
+                    source,
+                    engine
+                        .project()
+                        .object(source)
+                        .expect("source")
+                        .object_revision,
+                ),
+            ]);
+            let result = engine.execute(&CommandEnvelope {
+                command_id: id(ordinal + 100),
+                transaction_id: TransactionId(id(ordinal + 200)),
+                expected_document_revision: engine.project().document_revision(),
+                expected_object_revisions,
+                context: CommandContext {
+                    actor_id: "test".to_owned(),
+                    can_mutate: true,
+                },
+                command,
+            });
+            assert_eq!(result.outcome, CommandOutcome::Committed);
+            assert_eq!(
+                engine.project().object(copy).expect("copy").display_name,
+                expected_name
+            );
+        }
     }
 
     #[test]

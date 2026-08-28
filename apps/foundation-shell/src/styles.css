@@ -518,6 +518,94 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
   font-size: 9px;
 }
 
+.navigator-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.create-object-control { position: relative; }
+
+.navigator-add {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #8fa1a4;
+  display: grid;
+  place-items: center;
+  background: #ffffff;
+  color: var(--accent-deep);
+  cursor: pointer;
+  font-size: 18px;
+  font-weight: 500;
+  line-height: 1;
+}
+
+.navigator-add:hover:not(:disabled),
+.navigator-add[aria-expanded="true"] { border-color: var(--accent); background: #e3f0ef; }
+.navigator-add:disabled { cursor: not-allowed; color: #99a3a7; background: #edf0f0; }
+
+.create-object-menu {
+  position: absolute;
+  z-index: 30;
+  top: 30px;
+  right: 0;
+  width: min(284px, calc(100vw - 22px));
+  max-height: min(570px, calc(100vh - 150px));
+  overflow: auto;
+  border: 1px solid #869397;
+  background: #ffffff;
+  box-shadow: 0 14px 34px rgb(31 48 53 / 24%);
+  color: #253239;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.create-object-menu__heading {
+  min-height: 48px;
+  padding: 8px 11px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  border-bottom: 1px solid var(--line);
+  background: #f2f5f5;
+}
+
+.create-object-menu__heading span { font-size: 11px; font-weight: 780; }
+.create-object-menu__heading small { overflow: hidden; color: #66737a; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+
+.create-object-menu > button {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  padding: 6px 10px;
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  background: #ffffff;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.create-object-menu > button + button { border-top: 1px solid #edf0f0; }
+.create-object-menu > button:hover:not(:disabled) { background: #e7f1f0; }
+.create-object-menu > button > span:last-child { min-width: 0; display: flex; flex-direction: column; }
+.create-object-menu > button strong { font-size: 11px; font-weight: 720; }
+.create-object-menu > button small { overflow: hidden; color: #69767b; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+
+.create-object-menu__glyph {
+  width: 28px;
+  height: 28px;
+  border: 1px solid #8a999e;
+  display: grid;
+  place-items: center;
+  background: #f7f9f9;
+  color: #315352;
+  font-size: 9px;
+  font-weight: 800;
+}
+
 .tree-scroll { overflow: auto; padding: 8px 0 20px; }
 .tree-branch { min-width: max-content; }
 .tree-children { margin-left: 18px; }

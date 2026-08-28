@@ -9,6 +9,14 @@ const IDS = {
   create: "10000000-0000-4000-8000-000000000001",
   document: "20000000-0000-4000-8000-000000000001",
   root: "30000000-0000-4000-8000-000000000001",
+  createController: "31000000-0000-4000-8000-000000000001",
+  controller: "32000000-0000-4000-8000-000000000001",
+  createFolder: "33000000-0000-4000-8000-000000000001",
+  folder: "34000000-0000-4000-8000-000000000001",
+  copyFolder: "35000000-0000-4000-8000-000000000001",
+  deleteFolder: "36000000-0000-4000-8000-000000000001",
+  undoDelete: "37000000-0000-4000-8000-000000000001",
+  redoDelete: "38000000-0000-4000-8000-000000000001",
   rename: "40000000-0000-4000-8000-000000000001",
   undo: "50000000-0000-4000-8000-000000000001",
   redo: "60000000-0000-4000-8000-000000000001",
@@ -36,6 +44,82 @@ describe("real engineering worker and WASM kernel", () => {
     }));
     expect(snapshot(created).projectRootId).toBe(IDS.root);
     expect(snapshot(created).dirtyState).toBe("semantic-dirty");
+
+    const controllerCreated = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: {
+        displayName: "Controller",
+        kind: "project.create-object",
+        objectId: IDS.controller,
+        objectKind: "controller",
+        parentId: IDS.root,
+        payloadSchema: "edu.controller/1",
+        presentationPayload: {},
+        semanticPayload: {
+          catalogId: "vctrl-c1",
+          profileId: "edu-21",
+          profileVersion: "1",
+        },
+      },
+      requestId: IDS.createController,
+    }));
+    expect(controllerCreated.outcome).toBe("committed");
+    expect(controllerCreated.snapshot.objects[IDS.controller]?.kind).toBe("Controller");
+
+    const folderCreated = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: {
+        displayName: "Engineering folder",
+        kind: "project.create-object",
+        objectId: IDS.folder,
+        objectKind: "folder",
+        parentId: IDS.root,
+        payloadSchema: "edu.folder/1",
+        presentationPayload: {},
+        semanticPayload: {},
+      },
+      requestId: IDS.createFolder,
+    }));
+    expect(folderCreated.outcome).toBe("committed");
+
+    const copied = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: {
+        kind: "project.copy-objects",
+        sourceObjectIds: [IDS.folder],
+        targetParentId: IDS.root,
+      },
+      requestId: IDS.copyFolder,
+    }));
+    expect(copied.outcome).toBe("committed");
+    const copiedFolders = Object.values(copied.snapshot.objects).filter((object) => object.kind === "Folder");
+    expect(copiedFolders).toHaveLength(2);
+    expect(copiedFolders.map((object) => object.displayName).sort()).toEqual([
+      "Engineering folder",
+      "Engineering folder copy",
+    ]);
+
+    const deleted = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: { kind: "project.delete-object", objectId: IDS.folder },
+      requestId: IDS.deleteFolder,
+    }));
+    expect(deleted.outcome).toBe("committed");
+    expect(deleted.snapshot.objects[IDS.folder]?.lifecycle).toBe("tombstoned");
+
+    const deleteUndone = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: { kind: "project.undo" },
+      requestId: IDS.undoDelete,
+    }));
+    expect(deleteUndone.snapshot.objects[IDS.folder]?.lifecycle).toBe("active");
+
+    const deleteRedone = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: { kind: "project.redo" },
+      requestId: IDS.redoDelete,
+    }));
+    expect(deleteRedone.snapshot.objects[IDS.folder]?.lifecycle).toBe("tombstoned");
 
     const renamed = operationValue(await executeEngineeringRequest({
       kind: "engineering.project.command",
@@ -152,6 +236,11 @@ const snapshot = (value: unknown): Readonly<Record<string, unknown>> & {
   projectHash: string;
   projectName: string;
   projectRootId: string;
+  objects: Readonly<Record<string, Readonly<{
+    displayName: string;
+    kind: string;
+    lifecycle: string;
+  }>>>;
 } => {
   if (!isRecord(value) || typeof value.projectRootId !== "string") {
     throw new Error("Expected a workbench snapshot.");
