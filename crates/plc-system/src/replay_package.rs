@@ -21,8 +21,8 @@ use plc_types::{
 
 const MAGIC: &[u8; 8] = b"PESRPLY1";
 const CONTAINER_VERSION: u32 = 1;
-const SCHEMA_VERSION: u32 = 1;
-const CANONICALIZATION_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
+const CANONICALIZATION_VERSION: u32 = 2;
 const PACKAGE_KIND: &str = "plc-engineering-replay";
 const MEMBER_NAMES: [&str; 4] = [
     "manifest.json",
@@ -155,6 +155,8 @@ pub enum ReplayPackageError {
     NonCanonicalEventOrder,
     NonCanonicalBoundaryOrder,
     InvalidSegmentStart(usize),
+    InvalidSegmentPredecessor(usize),
+    InvalidTimelineBranch(usize),
     MissingBoundaryForEvent(u64),
     OrphanBoundary(u64),
     PayloadHashMismatch(usize),
@@ -210,6 +212,18 @@ impl fmt::Display for ReplayPackageError {
                 write!(
                     formatter,
                     "replay segment {index} lacks its causal first event"
+                )
+            }
+            Self::InvalidSegmentPredecessor(index) => {
+                write!(
+                    formatter,
+                    "replay segment {index} has an invalid predecessor"
+                )
+            }
+            Self::InvalidTimelineBranch(index) => {
+                write!(
+                    formatter,
+                    "replay segment {index} has an invalid timeline branch"
                 )
             }
             Self::MissingBoundaryForEvent(sequence) => {
@@ -376,6 +390,13 @@ impl ReplayCommandResult {
         validate_token(&value.code, "result.code")?;
         Ok(value)
     }
+
+    /// Canonical typed receipt/rejection hash recorded independently from the
+    /// runtime's native result hash.
+    #[must_use]
+    pub fn canonical_hash(&self) -> Hash32 {
+        Sha256::digest(&canonical_json(&result_json(self)))
+    }
 }
 
 /// Canonical PLC value encoded exactly as `{typeId,encoding,value}`.
@@ -487,6 +508,16 @@ impl ReplayTypedPayload {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReplayPackageEvent {
     pub segment: ReplaySegment,
+    /// Exact preceding segment for this controller when this record opens a
+    /// new segment. Same-segment records and the first segment represented by
+    /// a package use `None`.
+    pub segment_predecessor: Option<ReplaySegment>,
+    /// Last recorded event in `segment_predecessor`. This binds a segment
+    /// transition to one causal record instead of merely naming an epoch.
+    pub predecessor_event_sequence: Option<u64>,
+    /// True only for the required non-restored-controller branch record when
+    /// a universe timeline is replaced without changing controller epoch.
+    pub universe_timeline_branch: bool,
     pub artifact_hash: Hash32,
     pub profile_hash: Hash32,
     pub kind: ReplayEventKind,
@@ -515,6 +546,9 @@ impl ReplayPackageEvent {
     ) -> Self {
         Self {
             segment: event.segment,
+            segment_predecessor: None,
+            predecessor_event_sequence: None,
+            universe_timeline_branch: false,
             artifact_hash,
             profile_hash,
             kind: event.kind,
@@ -528,11 +562,30 @@ impl ReplayPackageEvent {
             runtime_result_hash: event.result_hash,
         }
     }
+
+    /// Links the first event of a later segment to the exact last event of
+    /// this controller's preceding segment. `universe_timeline_branch` is
+    /// reserved for a controller whose epoch did not change while the
+    /// universe epoch did.
+    #[must_use]
+    pub const fn linked_from(
+        mut self,
+        predecessor: ReplaySegment,
+        predecessor_event_sequence: u64,
+        universe_timeline_branch: bool,
+    ) -> Self {
+        self.segment_predecessor = Some(predecessor);
+        self.predecessor_event_sequence = Some(predecessor_event_sequence);
+        self.universe_timeline_branch = universe_timeline_branch;
+        self
+    }
 }
 
 /// Semantic state regions retained at every verified boundary.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ReplayStateRegion {
+    /// Aggregate runtime state hash emitted by the runtime boundary itself.
+    Runtime,
     Cpu,
     Memory,
     Io,
@@ -540,10 +593,12 @@ pub enum ReplayStateRegion {
     Diagnostics,
     Forces,
     Trace,
+    /// Hash of the exact canonical event JSONL prefix through this boundary.
+    EventOrder,
 }
 
 impl ReplayStateRegion {
-    const ALL: [Self; 7] = [
+    const DETAILED: [Self; 7] = [
         Self::Cpu,
         Self::Memory,
         Self::Io,
@@ -553,8 +608,21 @@ impl ReplayStateRegion {
         Self::Trace,
     ];
 
+    const ALL: [Self; 9] = [
+        Self::Runtime,
+        Self::Cpu,
+        Self::Memory,
+        Self::Io,
+        Self::TimersCountersEdges,
+        Self::Diagnostics,
+        Self::Forces,
+        Self::Trace,
+        Self::EventOrder,
+    ];
+
     const fn token(self) -> &'static str {
         match self {
+            Self::Runtime => "runtime",
             Self::Cpu => "cpu",
             Self::Memory => "memory",
             Self::Io => "io",
@@ -562,11 +630,13 @@ impl ReplayStateRegion {
             Self::Diagnostics => "diagnostics",
             Self::Forces => "forces",
             Self::Trace => "trace",
+            Self::EventOrder => "eventOrder",
         }
     }
 
     fn from_token(value: &str) -> Result<Self, ReplayPackageError> {
         match value {
+            "runtime" => Ok(Self::Runtime),
             "cpu" => Ok(Self::Cpu),
             "memory" => Ok(Self::Memory),
             "io" => Ok(Self::Io),
@@ -574,6 +644,7 @@ impl ReplayStateRegion {
             "diagnostics" => Ok(Self::Diagnostics),
             "forces" => Ok(Self::Forces),
             "trace" => Ok(Self::Trace),
+            "eventOrder" => Ok(Self::EventOrder),
             _ => Err(ReplayPackageError::InvalidToken("boundary.region")),
         }
     }
@@ -619,12 +690,16 @@ pub struct ReplayBoundaryHash {
 
 impl ReplayBoundaryHash {
     /// Adapts a runtime scan/fatal boundary while requiring independently
-    /// calculated complete state-region hashes and causal event identity.
+    /// calculated complete state-region hashes, the canonical event prefix,
+    /// and causal event identity. The caller supplies the seven independent
+    /// detailed regions; runtime aggregate and event-order regions are bound
+    /// here from their authoritative inputs.
     pub fn from_runtime(
         boundary: &BoundaryHash,
         event_sequence: u64,
         causal_input_event_sequence: u64,
-        region_hashes: BTreeMap<ReplayStateRegion, Hash32>,
+        mut region_hashes: BTreeMap<ReplayStateRegion, Hash32>,
+        events: &[ReplayPackageEvent],
     ) -> Result<Self, ReplayPackageError> {
         let kind = if boundary.is_scan_end() {
             ReplayBoundaryKind::ScanEnd
@@ -633,9 +708,9 @@ impl ReplayBoundaryHash {
         } else {
             return Err(ReplayPackageError::InvalidToken("runtime.boundary.kind"));
         };
-        validate_region_hashes(&region_hashes)?;
-        let semantic_state_hash = semantic_region_hash(&region_hashes);
-        Ok(Self {
+        validate_detailed_region_hashes(&region_hashes)?;
+        region_hashes.insert(ReplayStateRegion::Runtime, boundary.state_hash);
+        let mut value = Self {
             segment: boundary.segment,
             kind,
             event_sequence,
@@ -643,9 +718,30 @@ impl ReplayBoundaryHash {
             scan_sequence: boundary.scan_sequence,
             virtual_timestamp_ms: boundary.virtual_timestamp_ms,
             runtime_state_hash: boundary.state_hash,
-            semantic_state_hash,
+            semantic_state_hash: Hash32::ZERO,
             region_hashes,
-        })
+        };
+        value.bind_event_order(events)?;
+        Ok(value)
+    }
+
+    /// Binds the exact canonical event prefix through this boundary and
+    /// recomputes the aggregate semantic hash. This is intentionally explicit:
+    /// package encoding rejects caller-invented or stale event-order hashes.
+    pub fn bind_event_order(
+        &mut self,
+        events: &[ReplayPackageEvent],
+    ) -> Result<(), ReplayPackageError> {
+        validate_detailed_region_hashes(&self.region_hashes)?;
+        self.region_hashes
+            .insert(ReplayStateRegion::Runtime, self.runtime_state_hash);
+        self.region_hashes.insert(
+            ReplayStateRegion::EventOrder,
+            event_order_region_hash(events, self)?,
+        );
+        validate_region_hashes(&self.region_hashes)?;
+        self.semantic_state_hash = semantic_region_hash(&self.region_hashes);
+        Ok(())
     }
 }
 
@@ -685,6 +781,17 @@ impl ReplayPackageSpec {
             events,
             boundaries,
         }
+    }
+
+    /// Binds every boundary to the canonical event prefix in this spec. The
+    /// returned spec is ready for fail-closed encoding; a missing causal
+    /// boundary event is reported rather than repaired or guessed.
+    pub fn bind_event_order(mut self) -> Result<Self, ReplayPackageError> {
+        validate_event_order(&self.events)?;
+        for boundary in &mut self.boundaries {
+            boundary.bind_event_order(&self.events)?;
+        }
+        Ok(self)
     }
 }
 
@@ -773,7 +880,6 @@ impl ReplayPackage {
         &self,
         observed: &[ReplayBoundaryHash],
     ) -> Result<Option<ReplayDivergence>, ReplayPackageError> {
-        validate_boundary_order(observed)?;
         let count = self.boundaries.len().max(observed.len());
         for index in 0..count {
             let expected = self.boundaries.get(index);
@@ -781,27 +887,97 @@ impl ReplayPackage {
             if expected == actual {
                 continue;
             }
-            let causal = expected
-                .and_then(|boundary| event_for_boundary(&self.events, boundary))
-                .cloned();
-            let differing_regions = match (expected, actual) {
-                (Some(left), Some(right)) => ReplayStateRegion::ALL
+            return Ok(Some(self.divergence(index, expected, actual, None)));
+        }
+        Ok(None)
+    }
+
+    /// Drives a verification executor in canonical event order. The executor
+    /// returns a boundary only when the applied event reaches a scan-end or
+    /// fatal-fault boundary. Comparison happens immediately and execution
+    /// stops before the event following the first divergence is dispatched.
+    ///
+    /// Host pacing is deliberately outside this capability-free driver. A
+    /// caller proving host-speed equivalence must run this method under each
+    /// scheduling/pacing mode and compare the resulting package boundaries.
+    pub fn verify_with<F>(
+        &self,
+        mut execute: F,
+    ) -> Result<Option<ReplayDivergence>, ReplayPackageError>
+    where
+        F: FnMut(&ReplayPackageEvent) -> Result<Option<ReplayBoundaryHash>, ReplayPackageError>,
+    {
+        let mut boundary_index = 0;
+        for event in &self.events {
+            let observed = execute(event)?;
+            let expected = self.boundaries.get(boundary_index).filter(|boundary| {
+                boundary.segment == event.segment && boundary.event_sequence == event.event_sequence
+            });
+            match (expected, observed.as_ref()) {
+                (None, None) => {}
+                (Some(expected), Some(observed)) if expected == observed => {
+                    boundary_index += 1;
+                }
+                (Some(expected), actual) => {
+                    return Ok(Some(self.divergence(
+                        boundary_index,
+                        Some(expected),
+                        actual,
+                        None,
+                    )));
+                }
+                (None, Some(actual)) => {
+                    return Ok(Some(self.divergence(
+                        boundary_index,
+                        None,
+                        Some(actual),
+                        Some(event),
+                    )));
+                }
+            }
+        }
+        if boundary_index != self.boundaries.len() {
+            let expected = self.boundaries.get(boundary_index);
+            return Ok(Some(self.divergence(boundary_index, expected, None, None)));
+        }
+        Ok(None)
+    }
+
+    fn divergence(
+        &self,
+        boundary_index: usize,
+        expected: Option<&ReplayBoundaryHash>,
+        observed: Option<&ReplayBoundaryHash>,
+        causal_override: Option<&ReplayPackageEvent>,
+    ) -> ReplayDivergence {
+        let causal_event = causal_override
+            .or_else(|| expected.and_then(|boundary| event_for_boundary(&self.events, boundary)))
+            .cloned();
+        let differing_regions = match (expected, observed) {
+            (Some(left), Some(right)) => {
+                let mut regions = ReplayStateRegion::ALL
                     .into_iter()
                     .filter(|region| {
                         left.region_hashes.get(region) != right.region_hashes.get(region)
                     })
-                    .collect(),
-                _ => ReplayStateRegion::ALL.to_vec(),
-            };
-            return Ok(Some(ReplayDivergence {
-                boundary_index: index,
-                expected_state_hash: expected.map(|value| value.semantic_state_hash),
-                observed_state_hash: actual.map(|value| value.semantic_state_hash),
-                differing_regions,
-                causal_event: causal,
-            }));
+                    .collect::<Vec<_>>();
+                if regions.is_empty() && left != right {
+                    // Boundary identity/timing metadata diverged even though
+                    // every supplied state region matched. No narrower state
+                    // claim is truthful, so report all declared regions.
+                    regions.extend(ReplayStateRegion::ALL);
+                }
+                regions
+            }
+            _ => ReplayStateRegion::ALL.to_vec(),
+        };
+        ReplayDivergence {
+            boundary_index,
+            expected_state_hash: expected.map(|value| value.semantic_state_hash),
+            observed_state_hash: observed.map(|value| value.semantic_state_hash),
+            differing_regions,
+            causal_event,
         }
-        Ok(None)
     }
 }
 
@@ -955,7 +1131,9 @@ fn validate_spec(
     }
     for event in &spec.events {
         if event.segment.universe_id.0 == 0
+            || event.segment.universe_epoch == 0
             || event.segment.controller_id.0 == 0
+            || event.segment.controller_epoch == 0
             || event.event_sequence == 0
             || event.actor.actor_id == 0
             || event.actor.command_id == 0
@@ -972,6 +1150,11 @@ fn validate_spec(
         if event.payload.event_kind != event.kind || event.result.detail.event_kind != event.kind {
             return Err(ReplayPackageError::InvalidToken("event.payload.schema"));
         }
+        if matches!(event.kind, ReplayEventKind::CommandRejected)
+            != matches!(event.result.status, ReplayResultStatus::Rejected)
+        {
+            return Err(ReplayPackageError::InvalidToken("event.result.status"));
+        }
         validate_token(&event.result.code, "result.code")?;
     }
     if let Some(first) = spec.events.first()
@@ -984,65 +1167,154 @@ fn validate_spec(
     validate_boundary_coverage(&spec.events, &spec.boundaries)
 }
 
+#[derive(Clone, Copy)]
+struct ReplayControllerCursor {
+    segment: ReplaySegment,
+    artifact_hash: Hash32,
+    profile_hash: Hash32,
+    event_sequence: u64,
+    virtual_timestamp_ms: u64,
+}
+
 fn validate_event_order(events: &[ReplayPackageEvent]) -> Result<(), ReplayPackageError> {
     let mut previous_order: Option<(u64, u64)> = None;
     let mut universe_id = None;
-    let mut controllers: BTreeMap<
-        plc_runtime::VirtualControllerId,
-        (ReplaySegment, Hash32, Hash32),
-    > = BTreeMap::new();
+    let mut controllers: BTreeMap<plc_runtime::VirtualControllerId, ReplayControllerCursor> =
+        BTreeMap::new();
     for (index, event) in events.iter().enumerate() {
         if universe_id.is_some_and(|value| value != event.segment.universe_id) {
             return Err(ReplayPackageError::NonCanonicalEventOrder);
         }
         universe_id = Some(event.segment.universe_id);
         let order = (event.segment.universe_epoch, event.event_sequence);
-        if previous_order.is_some_and(|previous| previous >= order) {
-            return Err(ReplayPackageError::NonCanonicalEventOrder);
+        if let Some(previous) = previous_order {
+            if previous.0 == order.0 {
+                if previous.1.checked_add(1) != Some(order.1) {
+                    return Err(ReplayPackageError::NonCanonicalEventOrder);
+                }
+            } else if previous.0.checked_add(1) != Some(order.0) || order.1 != 1 {
+                return Err(ReplayPackageError::NonCanonicalEventOrder);
+            }
         }
         let key = event.segment.controller_id;
-        if let Some((previous, artifact_hash, profile_hash)) = controllers.get(&key).copied() {
-            let changed_segment = previous.universe_epoch != event.segment.universe_epoch
-                || previous.controller_epoch != event.segment.controller_epoch;
-            if changed_segment && !is_causal_segment_start(event.kind) {
-                return Err(ReplayPackageError::InvalidSegmentStart(index));
-            }
-            if !changed_segment
-                && (artifact_hash != event.artifact_hash || profile_hash != event.profile_hash)
-            {
-                return Err(ReplayPackageError::InvalidSegmentStart(index));
-            }
-            if changed_segment
-                && profile_hash != event.profile_hash
-                && !matches!(event.kind, ReplayEventKind::InstanceReplaced)
-            {
-                return Err(ReplayPackageError::InvalidSegmentStart(index));
-            }
-            if changed_segment
-                && artifact_hash != event.artifact_hash
-                && !matches!(
-                    event.kind,
-                    ReplayEventKind::ArtifactInstalled | ReplayEventKind::InstanceReplaced
-                )
-            {
-                return Err(ReplayPackageError::InvalidSegmentStart(index));
-            }
+        if let Some(previous) = controllers.get(&key).copied() {
+            validate_controller_transition(index, event, previous)?;
+        } else {
+            validate_initial_controller_event(index, event)?;
         }
         controllers.insert(
             key,
-            (event.segment, event.artifact_hash, event.profile_hash),
+            ReplayControllerCursor {
+                segment: event.segment,
+                artifact_hash: event.artifact_hash,
+                profile_hash: event.profile_hash,
+                event_sequence: event.event_sequence,
+                virtual_timestamp_ms: event.virtual_timestamp_ms,
+            },
         );
         previous_order = Some(order);
     }
     Ok(())
 }
 
+fn validate_controller_transition(
+    index: usize,
+    event: &ReplayPackageEvent,
+    previous: ReplayControllerCursor,
+) -> Result<(), ReplayPackageError> {
+    let changed_segment = previous.segment.universe_epoch != event.segment.universe_epoch
+        || previous.segment.controller_epoch != event.segment.controller_epoch;
+    if !changed_segment {
+        if event.segment_predecessor.is_some() || event.predecessor_event_sequence.is_some() {
+            return Err(ReplayPackageError::InvalidSegmentPredecessor(index));
+        }
+        if event.universe_timeline_branch {
+            return Err(ReplayPackageError::InvalidTimelineBranch(index));
+        }
+        if previous.artifact_hash != event.artifact_hash
+            || previous.profile_hash != event.profile_hash
+        {
+            return Err(ReplayPackageError::InvalidSegmentStart(index));
+        }
+        if previous.virtual_timestamp_ms > event.virtual_timestamp_ms {
+            return Err(ReplayPackageError::NonCanonicalEventOrder);
+        }
+        return Ok(());
+    }
+    if event.segment_predecessor != Some(previous.segment)
+        || event.predecessor_event_sequence != Some(previous.event_sequence)
+    {
+        return Err(ReplayPackageError::InvalidSegmentPredecessor(index));
+    }
+    validate_changed_segment(index, event, previous)
+}
+
+fn validate_changed_segment(
+    index: usize,
+    event: &ReplayPackageEvent,
+    previous: ReplayControllerCursor,
+) -> Result<(), ReplayPackageError> {
+    let universe_changed = previous.segment.universe_epoch != event.segment.universe_epoch;
+    let controller_changed = previous.segment.controller_epoch != event.segment.controller_epoch;
+    if universe_changed
+        && previous.segment.universe_epoch.checked_add(1) != Some(event.segment.universe_epoch)
+    {
+        return Err(ReplayPackageError::InvalidSegmentStart(index));
+    }
+    if controller_changed
+        && previous.segment.controller_epoch.checked_add(1) != Some(event.segment.controller_epoch)
+    {
+        return Err(ReplayPackageError::InvalidSegmentStart(index));
+    }
+    if universe_changed && !controller_changed {
+        if !is_timeline_branch(event, previous.segment) {
+            return Err(ReplayPackageError::InvalidTimelineBranch(index));
+        }
+    } else if event.universe_timeline_branch {
+        return Err(ReplayPackageError::InvalidTimelineBranch(index));
+    } else if !is_causal_segment_start(event.kind) {
+        return Err(ReplayPackageError::InvalidSegmentStart(index));
+    }
+    if previous.profile_hash != event.profile_hash
+        && !matches!(event.kind, ReplayEventKind::InstanceReplaced)
+    {
+        return Err(ReplayPackageError::InvalidSegmentStart(index));
+    }
+    if previous.artifact_hash != event.artifact_hash
+        && !matches!(
+            event.kind,
+            ReplayEventKind::ArtifactInstalled | ReplayEventKind::InstanceReplaced
+        )
+    {
+        return Err(ReplayPackageError::InvalidSegmentStart(index));
+    }
+    Ok(())
+}
+
+fn validate_initial_controller_event(
+    index: usize,
+    event: &ReplayPackageEvent,
+) -> Result<(), ReplayPackageError> {
+    match (event.segment_predecessor, event.predecessor_event_sequence) {
+        (None, None) if !event.universe_timeline_branch => Ok(()),
+        (Some(previous), Some(previous_sequence))
+            if previous_sequence > 0 && is_timeline_branch(event, previous) =>
+        {
+            Ok(())
+        }
+        (Some(_), Some(_)) => Err(ReplayPackageError::InvalidTimelineBranch(index)),
+        _ => Err(ReplayPackageError::InvalidSegmentPredecessor(index)),
+    }
+}
+
 fn validate_boundary_order(boundaries: &[ReplayBoundaryHash]) -> Result<(), ReplayPackageError> {
     let mut previous: Option<(u64, u64)> = None;
-    for boundary in boundaries {
+    for (index, boundary) in boundaries.iter().enumerate() {
         validate_region_hashes(&boundary.region_hashes)?;
         if boundary.segment.universe_id.0 == 0
+            || boundary.segment.universe_epoch == 0
             || boundary.segment.controller_id.0 == 0
+            || boundary.segment.controller_epoch == 0
             || boundary.event_sequence == 0
             || boundary.causal_input_event_sequence == 0
             || boundary.runtime_state_hash == Hash32::ZERO
@@ -1051,9 +1323,14 @@ fn validate_boundary_order(boundaries: &[ReplayBoundaryHash]) -> Result<(), Repl
                 .region_hashes
                 .values()
                 .any(|hash| *hash == Hash32::ZERO)
-            || semantic_region_hash(&boundary.region_hashes) != boundary.semantic_state_hash
         {
             return Err(ReplayPackageError::ZeroIdentity("boundary"));
+        }
+        if semantic_region_hash(&boundary.region_hashes) != boundary.semantic_state_hash
+            || boundary.region_hashes.get(&ReplayStateRegion::Runtime)
+                != Some(&boundary.runtime_state_hash)
+        {
+            return Err(ReplayPackageError::InvalidBoundary(index));
         }
         let order = (boundary.segment.universe_epoch, boundary.event_sequence);
         if previous.is_some_and(|value| value >= order) {
@@ -1079,7 +1356,7 @@ fn validate_boundary_coverage(
             expected.insert((event.segment, event.event_sequence), kind);
         }
     }
-    for boundary in boundaries {
+    for (boundary_index, boundary) in boundaries.iter().enumerate() {
         let key = (boundary.segment, boundary.event_sequence);
         let Some(kind) = expected.remove(&key) else {
             return Err(ReplayPackageError::OrphanBoundary(boundary.event_sequence));
@@ -1104,6 +1381,28 @@ fn validate_boundary_coverage(
                 boundary.causal_input_event_sequence,
             ));
         }
+        let later_ingress_exists = events.iter().any(|event| {
+            event.segment == boundary.segment
+                && event.event_sequence > boundary.causal_input_event_sequence
+                && event.event_sequence < boundary.event_sequence
+                && event.result.status == ReplayResultStatus::Accepted
+                && !matches!(
+                    event.kind,
+                    ReplayEventKind::ScanCompleted
+                        | ReplayEventKind::FatalFault
+                        | ReplayEventKind::ObservationBoundary
+                )
+        });
+        if later_ingress_exists {
+            return Err(ReplayPackageError::OrphanBoundary(
+                boundary.causal_input_event_sequence,
+            ));
+        }
+        if boundary.region_hashes.get(&ReplayStateRegion::EventOrder)
+            != Some(&event_order_region_hash(events, boundary)?)
+        {
+            return Err(ReplayPackageError::InvalidBoundary(boundary_index));
+        }
     }
     if let Some(((_, sequence), _)) = expected.into_iter().next() {
         return Err(ReplayPackageError::MissingBoundaryForEvent(sequence));
@@ -1124,6 +1423,25 @@ fn validate_region_hashes(
     Ok(())
 }
 
+fn validate_detailed_region_hashes(
+    regions: &BTreeMap<ReplayStateRegion, Hash32>,
+) -> Result<(), ReplayPackageError> {
+    if ReplayStateRegion::DETAILED
+        .iter()
+        .any(|region| !regions.contains_key(region))
+        || regions.keys().any(|region| {
+            !ReplayStateRegion::DETAILED.contains(region)
+                && !matches!(
+                    region,
+                    ReplayStateRegion::Runtime | ReplayStateRegion::EventOrder
+                )
+        })
+    {
+        return Err(ReplayPackageError::InvalidToken("boundary.regionHashes"));
+    }
+    Ok(())
+}
+
 fn is_causal_segment_start(kind: ReplayEventKind) -> bool {
     matches!(
         kind,
@@ -1136,6 +1454,19 @@ fn is_causal_segment_start(kind: ReplayEventKind) -> bool {
     )
 }
 
+fn is_timeline_branch(event: &ReplayPackageEvent, predecessor: ReplaySegment) -> bool {
+    predecessor.universe_epoch > 0
+        && predecessor.controller_epoch > 0
+        && event.universe_timeline_branch
+        && matches!(event.kind, ReplayEventKind::ObservationBoundary)
+        && event.priority == ReplayPriorityClass::ControllerLifecycle
+        && event.actor.kind == ActorKind::System
+        && predecessor.universe_id == event.segment.universe_id
+        && predecessor.controller_id == event.segment.controller_id
+        && predecessor.universe_epoch.checked_add(1) == Some(event.segment.universe_epoch)
+        && predecessor.controller_epoch == event.segment.controller_epoch
+}
+
 fn event_for_boundary<'a>(
     events: &'a [ReplayPackageEvent],
     boundary: &ReplayBoundaryHash,
@@ -1144,6 +1475,35 @@ fn event_for_boundary<'a>(
         event.segment == boundary.segment
             && event.event_sequence == boundary.causal_input_event_sequence
     })
+}
+
+fn event_order_region_hash(
+    events: &[ReplayPackageEvent],
+    boundary: &ReplayBoundaryHash,
+) -> Result<Hash32, ReplayPackageError> {
+    let boundary_order = (boundary.segment.universe_epoch, boundary.event_sequence);
+    let mut bytes = b"PES-REPLAY-EVENT-ORDER-1\0".to_vec();
+    let mut found = false;
+    for event in events {
+        let order = (event.segment.universe_epoch, event.event_sequence);
+        if order > boundary_order {
+            break;
+        }
+        let json = canonical_json(&event_json(event));
+        bytes.extend_from_slice(
+            &u64::try_from(json.len())
+                .map_err(|_| ReplayPackageError::IntegerOverflow)?
+                .to_be_bytes(),
+        );
+        bytes.extend_from_slice(&json);
+        if event.segment == boundary.segment && event.event_sequence == boundary.event_sequence {
+            found = true;
+        }
+    }
+    if !found {
+        return Err(ReplayPackageError::OrphanBoundary(boundary.event_sequence));
+    }
+    Ok(Sha256::digest(&bytes))
 }
 
 fn validate_token(value: &str, field: &'static str) -> Result<(), ReplayPackageError> {
@@ -2224,6 +2584,13 @@ fn validate_payload(
             ReplayPayloadValue::Text(v) if v.len() > limits.max_json_string_bytes => {
                 Err(ReplayPackageError::LimitExceeded("payload text"))
             }
+            ReplayPayloadValue::Identity(0) => {
+                Err(ReplayPackageError::ZeroIdentity("payload.identity"))
+            }
+            ReplayPayloadValue::Hash(hash) if *hash == Hash32::ZERO => {
+                Err(ReplayPackageError::ZeroIdentity("payload.hash"))
+            }
+            ReplayPayloadValue::Plc(value) => validate_plc_wire(value),
             ReplayPayloadValue::Array(v) => {
                 v.iter().try_for_each(|x| walk(x, depth + 1, count, limits))
             }
@@ -2263,6 +2630,24 @@ fn actor_json(actor: ReplayActorProvenance) -> JsonValue {
         ("kind".into(), JsonValue::from(actor.kind.token())),
     ])
 }
+fn segment_predecessor_json(event: &ReplayPackageEvent) -> JsonValue {
+    match (event.segment_predecessor, event.predecessor_event_sequence) {
+        (Some(segment), Some(event_sequence)) => JsonValue::object([
+            (
+                "controllerEpoch".into(),
+                decimal_json(segment.controller_epoch),
+            ),
+            (
+                "controllerId".into(),
+                identity_json(segment.controller_id.0),
+            ),
+            ("eventSequence".into(), decimal_json(event_sequence)),
+            ("universeEpoch".into(), decimal_json(segment.universe_epoch)),
+            ("universeId".into(), identity_json(segment.universe_id.0)),
+        ]),
+        _ => JsonValue::Null,
+    }
+}
 fn event_json(event: &ReplayPackageEvent) -> JsonValue {
     let payload = payload_json(&event.payload);
     let result = result_json(&event.result);
@@ -2285,14 +2670,14 @@ fn event_json(event: &ReplayPackageEvent) -> JsonValue {
         ("payload".into(), payload.clone()),
         (
             "payloadHash".into(),
-            hash_json(Sha256::digest(&canonical_json(&payload))),
+            hash_json(event.payload.canonical_hash()),
         ),
         ("priority".into(), JsonValue::from(event.priority.token())),
         ("profileHash".into(), hash_json(event.profile_hash)),
         ("result".into(), result.clone()),
         (
             "resultHash".into(),
-            hash_json(Sha256::digest(&canonical_json(&result))),
+            hash_json(event.result.canonical_hash()),
         ),
         (
             "runtimePayloadHash".into(),
@@ -2301,6 +2686,11 @@ fn event_json(event: &ReplayPackageEvent) -> JsonValue {
         (
             "runtimeResultHash".into(),
             hash_json(event.runtime_result_hash),
+        ),
+        ("segmentPredecessor".into(), segment_predecessor_json(event)),
+        (
+            "timelineBranch".into(),
+            JsonValue::Bool(event.universe_timeline_branch),
         ),
         (
             "universeEpoch".into(),
@@ -2588,6 +2978,36 @@ fn decode_result(value: &JsonValue) -> Result<ReplayCommandResult, ReplayPackage
         decode_payload(required(o, "detail")?)?,
     )
 }
+fn decode_segment_predecessor(
+    value: &JsonValue,
+) -> Result<(Option<ReplaySegment>, Option<u64>), ReplayPackageError> {
+    if matches!(value, JsonValue::Null) {
+        return Ok((None, None));
+    }
+    let object = value.as_object()?;
+    only_fields(
+        object,
+        &[
+            "controllerEpoch",
+            "controllerId",
+            "eventSequence",
+            "universeEpoch",
+            "universeId",
+        ],
+    )?;
+    Ok((
+        Some(ReplaySegment {
+            universe_id: plc_runtime::UniverseId(parse_identity(required(object, "universeId")?)?),
+            universe_epoch: required(object, "universeEpoch")?.as_u64()?,
+            controller_id: plc_runtime::VirtualControllerId(parse_identity(required(
+                object,
+                "controllerId",
+            )?)?),
+            controller_epoch: required(object, "controllerEpoch")?.as_u64()?,
+        }),
+        Some(required(object, "eventSequence")?.as_u64()?),
+    ))
+}
 fn decode_event(value: &JsonValue) -> Result<ReplayPackageEvent, ReplayPackageError> {
     let o = value.as_object()?;
     only_fields(
@@ -2607,6 +3027,8 @@ fn decode_event(value: &JsonValue) -> Result<ReplayPackageEvent, ReplayPackageEr
             "resultHash",
             "runtimePayloadHash",
             "runtimeResultHash",
+            "segmentPredecessor",
+            "timelineBranch",
             "universeEpoch",
             "universeId",
             "virtualTimestampMs",
@@ -2615,14 +3037,12 @@ fn decode_event(value: &JsonValue) -> Result<ReplayPackageEvent, ReplayPackageEr
     let payload = decode_payload(required(o, "payload")?)?;
     let result = decode_result(required(o, "result")?)?;
     let actor = decode_actor(required(o, "actor")?)?;
-    if parse_hash(required(o, "payloadHash")?)?
-        != Sha256::digest(&canonical_json(&payload_json(&payload)))
-    {
+    let (segment_predecessor, predecessor_event_sequence) =
+        decode_segment_predecessor(required(o, "segmentPredecessor")?)?;
+    if parse_hash(required(o, "payloadHash")?)? != payload.canonical_hash() {
         return Err(ReplayPackageError::PayloadHashMismatch(0));
     }
-    if parse_hash(required(o, "resultHash")?)?
-        != Sha256::digest(&canonical_json(&result_json(&result)))
-    {
+    if parse_hash(required(o, "resultHash")?)? != result.canonical_hash() {
         return Err(ReplayPackageError::ResultHashMismatch(0));
     }
     Ok(ReplayPackageEvent {
@@ -2635,6 +3055,9 @@ fn decode_event(value: &JsonValue) -> Result<ReplayPackageEvent, ReplayPackageEr
             )?)?),
             controller_epoch: required(o, "controllerEpoch")?.as_u64()?,
         },
+        segment_predecessor,
+        predecessor_event_sequence,
+        universe_timeline_branch: required(o, "timelineBranch")?.as_bool()?,
         artifact_hash: parse_hash(required(o, "artifactHash")?)?,
         profile_hash: parse_hash(required(o, "profileHash")?)?,
         kind: parse_event_kind(required(o, "eventKind")?.as_str()?)?,
@@ -2727,6 +3150,9 @@ mod tests {
         .unwrap();
         let input_event = ReplayPackageEvent {
             segment,
+            segment_predecessor: None,
+            predecessor_event_sequence: None,
+            universe_timeline_branch: false,
             artifact_hash: hash(2),
             profile_hash: hash(3),
             kind: ReplayEventKind::RawInputAccepted,
@@ -2761,6 +3187,9 @@ mod tests {
         .unwrap();
         let event = ReplayPackageEvent {
             segment,
+            segment_predecessor: None,
+            predecessor_event_sequence: None,
+            universe_timeline_branch: false,
             artifact_hash: hash(2),
             profile_hash: hash(3),
             kind: ReplayEventKind::ScanCompleted,
@@ -2783,12 +3212,13 @@ mod tests {
             runtime_payload_hash: hash(6),
             runtime_result_hash: hash(7),
         };
-        let regions = ReplayStateRegion::ALL
+        let regions = ReplayStateRegion::DETAILED
             .into_iter()
             .enumerate()
             .map(|(index, region)| (region, hash(u8::try_from(index + 10).unwrap())))
             .collect::<BTreeMap<_, _>>();
-        let boundary = ReplayBoundaryHash {
+        let events = vec![input_event, event];
+        let mut boundary = ReplayBoundaryHash {
             segment,
             kind: ReplayBoundaryKind::ScanEnd,
             event_sequence: 7,
@@ -2796,9 +3226,10 @@ mod tests {
             scan_sequence: 1,
             virtual_timestamp_ms: 10,
             runtime_state_hash: hash(8),
-            semantic_state_hash: semantic_region_hash(&regions),
+            semantic_state_hash: Hash32::ZERO,
             region_hashes: regions,
         };
+        boundary.bind_event_order(&events).unwrap();
         ReplayPackage::encode(ReplayPackageSpec {
             initial_snapshot_hash: hash(1),
             artifact_hash: hash(2),
@@ -2807,7 +3238,7 @@ mod tests {
             deterministic_algorithm: "XOSHIRO256SS-1".into(),
             runtime_version: RUNTIME_SEMANTICS_VERSION.into(),
             scheduler_version: SCHEDULER_VERSION.into(),
-            events: vec![input_event, event],
+            events,
             boundaries: vec![boundary],
         })
         .unwrap()
@@ -2996,6 +3427,21 @@ mod tests {
         assert_eq!(
             ReplayPackage::encode(bad_cause),
             Err(ReplayPackageError::OrphanBoundary(7))
+        );
+    }
+
+    #[test]
+    fn runtime_aggregate_region_is_bound_to_the_runtime_boundary_hash() {
+        let package = package();
+        let mut spec = spec_from(&package);
+        spec.boundaries[0]
+            .region_hashes
+            .insert(ReplayStateRegion::Runtime, hash(99));
+        spec.boundaries[0].semantic_state_hash =
+            semantic_region_hash(&spec.boundaries[0].region_hashes);
+        assert_eq!(
+            ReplayPackage::encode(spec),
+            Err(ReplayPackageError::InvalidBoundary(0))
         );
     }
 
