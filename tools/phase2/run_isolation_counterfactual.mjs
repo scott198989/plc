@@ -12,12 +12,16 @@ import {
   DEFAULT_FUZZ_CASES,
   EVIDENCE_SCHEMA_VERSION,
   EXPECTED_DIRECTIVE_SHA256,
+  ISOLATION_APPROVAL_DECISION_ID,
+  ISOLATION_APPROVAL_PATH,
   ISOLATION_VERIFICATION_IDS,
+  SUPPORTED_WINDOWS_CONFIGURATION_IDS,
   analyzeCapabilityEvents,
   analyzeHostNetworkAdapters,
   analyzeNetLogTargets,
   analyzeProcessEndpoints,
   assessEvidenceCompleteness,
+  assessIsolationClosureEvidence,
   deriveProcessTree,
   parseChromiumNetLog,
   parseGitStatusPorcelainZ,
@@ -60,12 +64,26 @@ const processLogPath = path.join(outputDirectory, "windows-process-network.json"
 const hostAdapterLogPath = path.join(outputDirectory, "windows-network-adapters.json");
 const serverLogPath = path.join(outputDirectory, "artifact-server.json");
 const manifestPath = path.join(outputDirectory, "evidence-manifest.json");
+const closureEvidenceInputPath = path.join(outputDirectory, "closure-evidence-input.json");
 
 const startedAt = new Date().toISOString();
 const candidate = await captureCandidateBinding(projectRoot, candidateRef, entryGatePath, [
+  ISOLATION_APPROVAL_PATH,
   "tools/phase2/run_isolation_counterfactual.mjs",
   "tools/phase2/isolation-counterfactual-lib.mjs",
+  "tools/phase2/isolation-counterfactual-lib.d.mts",
+  "tools/phase2/isolation-fuzz-corpus.tsv",
+  "tools/phase2/transform_isolation_closure.mjs",
+  "tools/phase2/isolation-closure-evidence.schema.json",
+  "tools/phase2/ISOLATION_COUNTERFACTUAL.md",
+  "tools/phase2/LIVE_LAN_TOPOLOGY_PROTOCOL.md",
   "tests/phase2/isolation-counterfactual.unit.mjs",
+  "tests/support/isolation_fuzz.rs",
+  "apps/foundation-shell/test/isolation-boundary-fuzz.test.ts",
+  "crates/plc-compiler/tests/isolation_boundary_fuzz.rs",
+  "crates/plc-core/tests/isolation_boundary_fuzz.rs",
+  "crates/plc-observability/tests/isolation_boundary_fuzz.rs",
+  "crates/windows-project-broker/tests/isolation_boundary_fuzz.rs",
   "tools/phase2/source_policy.py",
   "requirements/phase2-requirements.json",
   "requirements/phase2-verification-catalog.json",
@@ -83,6 +101,8 @@ const artifactHtml = artifactBytes.toString("utf8");
 const packageStaticScan = scanPackagedHtml(artifactHtml);
 const directiveSha256 = sha256(directiveBytes);
 const browserPath = await findBrowser();
+const browserExecutableSha256 = sha256(await readFile(browserPath));
+const browserRuntimeProduct = normalizedChromiumRuntimeProduct(browserPath);
 
 const report = {
   assertions: {
@@ -105,7 +125,9 @@ const report = {
     verificationIds: ISOLATION_VERIFICATION_IDS,
   },
   browser: {
-    browserPath,
+    browserExecutableSha256,
+    browserRuntimeProduct,
+    browserRuntimeVersion: null,
     capabilityAnalysis: null,
     capabilityEvents: [],
     cdpEvents: [],
@@ -115,6 +137,12 @@ const report = {
     webSockets: [],
     workerCapabilityEvents: [],
     workers: [],
+  },
+  boundaryFuzzCoverage: {
+    boundaries: [],
+    complete: false,
+    result: "UNAVAILABLE",
+    schemaVersion: "1.0",
   },
   candidate,
   chromiumNetLog: {
@@ -126,24 +154,32 @@ const report = {
   completedAt: null,
   configuration: "windows-chromium-browser-capabilities-disabled-host-network-state-observed",
   configurationCoverage: {
-    approvalDecisionId: null,
-    approvalSha256: null,
-    approvalStatus: "UNRESOLVED",
-    currentConfigurationId: `win32-${arch()}-chromium-headless-browser-capabilities-disabled`,
+    approvalDecisionId: ISOLATION_APPROVAL_DECISION_ID,
+    approvalSha256: candidate.isolationApprovalSha256,
+    approvalStatus: candidate.isolationApprovalSha256 === null ? "UNRESOLVED" : "APPROVED",
+    currentConfigurationId: SUPPORTED_WINDOWS_CONFIGURATION_IDS[1],
     evidenceBindings: [],
-    expectedConfigurationIds: [],
-    status: "BLOCKED_SUPPORTED_SET_UNRESOLVED",
+    expectedConfigurationIds: [...SUPPORTED_WINDOWS_CONFIGURATION_IDS],
+    status: candidate.isolationApprovalSha256 === null
+      ? "BLOCKED_APPROVAL_BINDING_MISSING"
+      : "PARTIAL_RUNTIME_EVIDENCE_MISSING",
   },
+  closureEvidenceInput: null,
   evidenceKind: "PHASE2_PACKAGED_COUNTERFACTUAL_ISOLATION",
   harness: {
     harnessSha256: sha256(harnessBytes),
+    invocation: {
+      argv: process.argv.slice(1),
+      executable: process.execPath,
+      workingDirectory: process.cwd(),
+    },
     librarySha256: sha256(libraryBytes),
     samplingIntervalMilliseconds: 350,
   },
   limitations: [
     "This run covers one admitted Chromium executable on one Windows host; it does not claim Linux, macOS, another browser engine, or adapters-on coverage.",
     "Windows Get-NetTCPConnection/Get-NetUDPEndpoint sampling is periodic and can miss very short-lived OS endpoints; Chromium NetLog and browser/CDP instrumentation provide complementary continuous browser-stack evidence.",
-    "The web File System Access API does not expose a backing-volume, provider, redirect, remote, or removable-media attestation. This harness can prove picker adapters are absent in the adapters-off workflow, but cannot elevate browser handle metadata into a fixed-native-local-backing proof.",
+    "This packaged adapters-off harness does not exercise the separately versioned native project-file broker. Fixed-local-backing credit must come from an exact-candidate native-broker run and attestation.",
     "Dynamic import has no replaceable JavaScript hook. It is covered by packaged static scanning, CSP connect-src none, Playwright routing, CDP request capture, and Chromium NetLog rather than by a direct import() wrapper.",
     "Current live-LAN topology is not mutated. Browser-offline execution and zero attributable access are partial evidence only; controlled live-LAN discovery invariance still requires a separate approved lab/CI matrix.",
   ],
@@ -151,6 +187,18 @@ const report = {
     analysis: null,
     errors: [],
     snapshots: [],
+  },
+  fixedNativeBackingAttestation: {
+    complete: false,
+    operations: [],
+    result: "UNAVAILABLE",
+    schemaVersion: "1.0",
+  },
+  liveLanTopologyVariation: {
+    complete: false,
+    result: "UNAVAILABLE",
+    scenarios: [],
+    schemaVersion: "1.0",
   },
   osNetwork: {
     analysis: null,
@@ -182,7 +230,7 @@ const report = {
     },
     {
       clause: "fixed native local non-provider non-removable backing before selected-byte I/O",
-      reason: "The browser File System Access handle exposes kind and name but no trustworthy backing-volume attestation.",
+      reason: "The current packaged adapters-off run does not exercise the approved versioned native project-file broker.",
       verificationId: "VER-ISO-0004",
     },
     {
@@ -192,10 +240,16 @@ const report = {
     },
     {
       clause: "every supported platform and configuration has complete exact-candidate evidence",
-      reason: "OQ-0001 production packaging and supported-configuration approval remains unresolved.",
+      reason: "The approved Windows-first configuration set still requires complete exact-candidate PASS evidence for both rows.",
       verificationId: "VER-ISO-0005",
     },
   ],
+  vendorDeployableExportRejection: {
+    complete: false,
+    result: "UNAVAILABLE",
+    schemaVersion: "1.0",
+    surfaces: [],
+  },
   workflow: {
     completed: false,
     commands: [],
@@ -203,6 +257,38 @@ const report = {
     observations: {},
   },
 };
+
+if (options.closureEvidence !== undefined) {
+  const closurePath = path.resolve(projectRoot, options.closureEvidence);
+  const closureBytes = await readFile(closurePath);
+  const closure = parseClosureEvidence(closureBytes, candidate);
+  await writeFile(closureEvidenceInputPath, closureBytes, { flag: "w" });
+  report.closureEvidenceInput = {
+    bytes: closureBytes.byteLength,
+    copiedPath: path.basename(closureEvidenceInputPath),
+    sourcePath: path.relative(projectRoot, closurePath).replaceAll("\\", "/"),
+    sha256: sha256(closureBytes),
+  };
+  report.boundaryFuzzCoverage = closure.boundaryFuzzCoverage;
+  report.configurationCoverage = closure.configurationCoverage;
+  report.fixedNativeBackingAttestation = closure.fixedNativeBackingAttestation;
+  report.liveLanTopologyVariation = closure.liveLanTopologyVariation;
+  report.vendorDeployableExportRejection = closure.vendorDeployableExportRejection;
+
+  const closureAssessment = assessIsolationClosureEvidence(closure, candidate);
+  const closureAssessments = closureAssessment.assessments;
+  report.assertions.fixedNativeLocalBackingProven = closureAssessments.backing.complete;
+  report.assertions.liveLanDiscoveryInvarianceProven = closureAssessments.topology.complete;
+  report.assertions.vendorDeployableExportRejectionProven = closureAssessments.export.complete;
+  report.closureEvidenceInput.assessments = closureAssessments;
+  report.closureEvidenceInput.complete = closureAssessment.complete;
+  report.closureEvidenceInput.failures = closureAssessment.failures;
+  report.unresolvedProofs = report.unresolvedProofs.filter(({ clause }) =>
+    !(clause === "controlled live-LAN discovery invariance" && closureAssessments.topology.complete) &&
+    !(clause.startsWith("fixed native local") && closureAssessments.backing.complete) &&
+    !(clause.startsWith("every export rejects") && closureAssessments.export.complete) &&
+    !(clause.startsWith("every supported platform") && closureAssessments.configuration.complete));
+}
 
 const serverRequests = [];
 let artifactServer;
@@ -253,6 +339,7 @@ try {
 
   processSampler = startWindowsProcessEndpointSampler(browserProcess.pid, 350);
   browser = await chromium.connect(browserServer.wsEndpoint());
+  report.browser.browserRuntimeVersion = browser.version();
   context = await browser.newContext({
     javaScriptEnabled: true,
     locale: "en-US",
@@ -467,6 +554,7 @@ try {
     processLogPath,
     serverLogPath,
     ...(await fileExists(netLogPath) ? [netLogPath] : []),
+    ...(await fileExists(closureEvidenceInputPath) ? [closureEvidenceInputPath] : []),
   ], report);
 }
 
@@ -493,6 +581,7 @@ function parseArguments(arguments_) {
     const key = {
       "--artifact": "artifact",
       "--candidate-ref": "candidateRef",
+      "--closure-evidence": "closureEvidence",
       "--output": "output",
       "--root": "root",
     }[argument];
@@ -503,6 +592,42 @@ function parseArguments(arguments_) {
     index += 1;
   }
   return parsed;
+}
+
+function parseClosureEvidence(bytes, candidate_) {
+  let value;
+  try {
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch (error) {
+    throw new Error(`Closure evidence is not strict UTF-8 JSON: ${serializeError(error).message}`);
+  }
+  if (
+    value === null ||
+    typeof value !== "object" ||
+    Array.isArray(value) ||
+    value.schemaVersion !== "1.0" ||
+    value.evidenceKind !== "PHASE2_ISOLATION_CLOSURE_INPUT" ||
+    value.candidateCommit !== candidate_.commit ||
+    value.candidateTree !== candidate_.tree
+  ) {
+    throw new Error("Closure evidence is not bound to this exact candidate under schema 1.0.");
+  }
+  for (const field of [
+    "boundaryFuzzCoverage",
+    "configurationCoverage",
+    "fixedNativeBackingAttestation",
+    "liveLanTopologyVariation",
+    "vendorDeployableExportRejection",
+  ]) {
+    if (value[field] === null || typeof value[field] !== "object" || Array.isArray(value[field])) {
+      throw new Error(`Closure evidence is missing ${field}.`);
+    }
+  }
+  const assessment = assessIsolationClosureEvidence(value, candidate_);
+  if (assessment.failures.some((failure) => failure.startsWith("Closure evidence"))) {
+    throw new Error(assessment.failures.join("; "));
+  }
+  return value;
 }
 
 async function captureCandidateBinding(root, reference, p2EntryGatePath, harnessFiles) {
@@ -533,11 +658,14 @@ async function captureCandidateBinding(root, reference, p2EntryGatePath, harness
     head === commit &&
     workspaceChanges.length === 0 &&
     inputBlobBindings.every((binding) => binding.matchesCandidate);
+  const approvalBinding = inputBlobBindings.find(({ path: inputPath }) => inputPath === ISOLATION_APPROVAL_PATH);
   return {
     commit,
     exact,
     head,
     inputBlobBindings,
+    isolationApprovalDecisionId: ISOLATION_APPROVAL_DECISION_ID,
+    isolationApprovalSha256: approvalBinding?.candidateSha256 ?? null,
     ref: reference,
     tree,
     workspaceChanges,
@@ -1125,6 +1253,17 @@ async function findBrowser() {
     }
   }
   throw new Error("No admitted system Chromium browser was found.");
+}
+
+function normalizedChromiumRuntimeProduct(executablePath) {
+  const executable = path.basename(executablePath).toLocaleLowerCase("en-US");
+  if (executable === "chrome.exe") {
+    return "google-chrome";
+  }
+  if (executable === "msedge.exe") {
+    return "microsoft-edge";
+  }
+  throw new Error("The admitted Chromium executable has no normalized product identity.");
 }
 
 async function writeJson(filePath, value) {

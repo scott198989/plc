@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://govs.example.invalid/schemas/phase2-isolation-closure-evidence-1.json",
+  "title": "Phase 2 exact-candidate isolation closure input",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "evidenceKind",
+    "candidateCommit",
+    "candidateTree",
+    "boundaryFuzzCoverage",
+    "configurationCoverage",
+    "fixedNativeBackingAttestation",
+    "liveLanTopologyVariation",
+    "vendorDeployableExportRejection"
+  ],
+  "properties": {
+    "schemaVersion": { "const": "1.0" },
+    "evidenceKind": { "const": "PHASE2_ISOLATION_CLOSURE_INPUT" },
+    "candidateCommit": { "$ref": "#/$defs/commit" },
+    "candidateTree": { "$ref": "#/$defs/commit" },
+    "boundaryFuzzCoverage": { "$ref": "#/$defs/boundaryFuzzCoverage" },
+    "configurationCoverage": { "$ref": "#/$defs/configurationCoverage" },
+    "fixedNativeBackingAttestation": { "$ref": "#/$defs/fixedNativeBackingAttestation" },
+    "liveLanTopologyVariation": { "$ref": "#/$defs/liveLanTopologyVariation" },
+    "vendorDeployableExportRejection": { "$ref": "#/$defs/vendorDeployableExportRejection" }
+  },
+  "$defs": {
+    "commit": { "type": "string", "pattern": "^[0-9a-f]{40}$" },
+    "sha256": { "type": "string", "pattern": "^[A-F0-9]{64}$" },
+    "passEnvelope": {
+      "type": "object",
+      "required": ["schemaVersion", "complete", "result"],
+      "properties": {
+        "schemaVersion": { "const": "1.0" },
+        "complete": { "const": true },
+        "result": { "const": "PASS" }
+      }
+    },
+    "configurationBinding": {
+      "type": "object",
+      "additionalProperties": false,
+      "oneOf": [
+        {
+          "properties": {
+            "configurationId": { "const": "windows-x64-chromium-native-broker-adapters-on" },
+            "fileAccessPosture": { "const": "native-broker" },
+            "hostNetworkPosture": { "const": "adapters-on-controlled-lan" }
+          }
+        },
+        {
+          "properties": {
+            "configurationId": { "const": "windows-x64-chromium-packaged-adapters-off" },
+            "fileAccessPosture": { "const": "packaged-browser-disabled" },
+            "hostNetworkPosture": { "const": "adapters-off" }
+          }
+        }
+      ],
+      "required": [
+        "configurationId", "platform", "architecture", "browserFamily",
+        "browserRuntimeProduct", "browserRuntimeVersion", "browserExecutableSha256",
+        "fileAccessPosture", "hostNetworkPosture", "candidateCommit", "candidateTree",
+        "completeLogs", "matchesCandidate", "productionPathExercised",
+        "zeroExternalAttempts", "result", "evidenceManifestSha256"
+      ],
+      "properties": {
+        "configurationId": {
+          "enum": [
+            "windows-x64-chromium-native-broker-adapters-on",
+            "windows-x64-chromium-packaged-adapters-off"
+          ]
+        },
+        "platform": { "const": "windows" },
+        "architecture": { "const": "x64" },
+        "browserFamily": { "const": "chromium" },
+        "browserRuntimeProduct": {
+          "enum": ["google-chrome", "microsoft-edge", "microsoft-edge-webview2"]
+        },
+        "browserRuntimeVersion": {
+          "type": "string", "minLength": 1, "maxLength": 128,
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._+ -]*$"
+        },
+        "browserExecutableSha256": { "$ref": "#/$defs/sha256" },
+        "fileAccessPosture": { "enum": ["native-broker", "packaged-browser-disabled"] },
+        "hostNetworkPosture": { "enum": ["adapters-on-controlled-lan", "adapters-off"] },
+        "candidateCommit": { "$ref": "#/$defs/commit" },
+        "candidateTree": { "$ref": "#/$defs/commit" },
+        "completeLogs": { "const": true },
+        "matchesCandidate": { "const": true },
+        "productionPathExercised": { "const": true },
+        "zeroExternalAttempts": { "const": true },
+        "result": { "const": "PASS" },
+        "evidenceManifestSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "configurationCoverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "approvalDecisionId", "approvalSha256", "approvalStatus", "expectedConfigurationIds",
+        "evidenceBindings", "status"
+      ],
+      "properties": {
+        "approvalDecisionId": { "const": "P2-DEC-ISO-NATIVE-001" },
+        "approvalSha256": { "$ref": "#/$defs/sha256" },
+        "approvalStatus": { "const": "APPROVED" },
+        "expectedConfigurationIds": {
+          "type": "array", "minItems": 2, "maxItems": 2, "uniqueItems": true,
+          "items": { "enum": ["windows-x64-chromium-native-broker-adapters-on", "windows-x64-chromium-packaged-adapters-off"] },
+          "allOf": [
+            { "contains": { "const": "windows-x64-chromium-native-broker-adapters-on" }, "minContains": 1, "maxContains": 1 },
+            { "contains": { "const": "windows-x64-chromium-packaged-adapters-off" }, "minContains": 1, "maxContains": 1 }
+          ]
+        },
+        "evidenceBindings": {
+          "type": "array", "minItems": 2, "maxItems": 2,
+          "items": { "$ref": "#/$defs/configurationBinding" },
+          "allOf": [
+            { "contains": { "properties": { "configurationId": { "const": "windows-x64-chromium-native-broker-adapters-on" } }, "required": ["configurationId"] }, "minContains": 1, "maxContains": 1 },
+            { "contains": { "properties": { "configurationId": { "const": "windows-x64-chromium-packaged-adapters-off" } }, "required": ["configurationId"] }, "minContains": 1, "maxContains": 1 }
+          ]
+        },
+        "status": { "const": "COMPLETE" }
+      }
+    },
+    "boundaryRow": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "boundaryId", "caseCount", "caseIdsSha256", "corpusSha256", "externalAttemptCount",
+        "productionPathExercised", "result", "sideEffectsObserved"
+      ],
+      "properties": {
+        "boundaryId": {
+          "enum": [
+            "file-metadata-open", "file-metadata-create", "file-metadata-replace",
+            "project-display-name", "saved-project-decode", "scl-source-text",
+            "semantic-navigation", "trace-export-canonical-json", "trace-export-csv",
+            "virtual-download-target"
+          ]
+        },
+        "caseCount": { "const": 27 },
+        "caseIdsSha256": { "const": "D7FDF0D3ED6E8BF03772F83F44E7F51E432BE67DE0BD20B247FFE076DFD329F8" },
+        "corpusSha256": { "const": "C61573EF4B2B686E4DC8E326505B65BFFFC4FFE247D8BE2855612F0D6D3D0F66" },
+        "externalAttemptCount": { "const": 0 },
+        "productionPathExercised": { "const": true },
+        "result": { "const": "PASS" },
+        "sideEffectsObserved": { "const": false }
+      }
+    },
+    "boundaryFuzzCoverage": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/passEnvelope" },
+        {
+          "type": "object",
+          "required": ["caseCount", "caseIdsSha256", "corpusSha256", "boundaries"],
+          "properties": {
+            "caseCount": { "const": 27 },
+            "caseIdsSha256": { "const": "D7FDF0D3ED6E8BF03772F83F44E7F51E432BE67DE0BD20B247FFE076DFD329F8" },
+            "corpusSha256": { "const": "C61573EF4B2B686E4DC8E326505B65BFFFC4FFE247D8BE2855612F0D6D3D0F66" },
+            "boundaries": {
+              "type": "array", "minItems": 10, "maxItems": 10,
+              "items": { "$ref": "#/$defs/boundaryRow" },
+              "allOf": [
+                { "contains": { "properties": { "boundaryId": { "const": "file-metadata-open" } }, "required": ["boundaryId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "boundaryId": { "const": "file-metadata-create" } }, "required": ["boundaryId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "boundaryId": { "const": "file-metadata-replace" } }, "required": ["boundaryId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "boundaryId": { "const": "project-display-name" } }, "required": ["boundaryId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "boundaryId": { "const": "saved-project-decode" } }, "required": ["boundaryId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "boundaryId": { "const": "scl-source-text" } }, "required": ["boundaryId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "boundaryId": { "const": "semantic-navigation" } }, "required": ["boundaryId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "boundaryId": { "const": "trace-export-canonical-json" } }, "required": ["boundaryId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "boundaryId": { "const": "trace-export-csv" } }, "required": ["boundaryId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "boundaryId": { "const": "virtual-download-target" } }, "required": ["boundaryId"] }, "minContains": 1, "maxContains": 1 }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "nativeOperation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "operationId", "attestationVersion", "fixedLocalBacking", "providerBacked", "remote",
+        "removable", "special", "redirected", "unsafeTarget", "metadataOnlyBeforeAcceptance",
+        "selectedByteIoBeforeAcceptance", "unapprovedHelperEffectObserved", "productionPathExercised", "result"
+      ],
+      "properties": {
+        "operationId": { "enum": ["open", "create", "replace"] },
+        "attestationVersion": { "const": 1 },
+        "fixedLocalBacking": { "const": true },
+        "providerBacked": { "const": false },
+        "remote": { "const": false },
+        "removable": { "const": false },
+        "special": { "const": false },
+        "redirected": { "const": false },
+        "unsafeTarget": { "const": false },
+        "metadataOnlyBeforeAcceptance": { "const": true },
+        "selectedByteIoBeforeAcceptance": { "const": false },
+        "unapprovedHelperEffectObserved": { "const": false },
+        "productionPathExercised": { "const": true },
+        "result": { "const": "PASS" }
+      }
+    },
+    "fixedNativeBackingAttestation": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/passEnvelope" },
+        {
+          "type": "object",
+          "required": ["decisionId", "candidateCommit", "candidateTree", "platform", "architecture", "evidenceManifestSha256", "operations"],
+          "properties": {
+            "decisionId": { "const": "P2-DEC-ISO-NATIVE-001" },
+            "candidateCommit": { "$ref": "#/$defs/commit" },
+            "candidateTree": { "$ref": "#/$defs/commit" },
+            "platform": { "const": "windows" },
+            "architecture": { "const": "x64" },
+            "evidenceManifestSha256": { "$ref": "#/$defs/sha256" },
+            "operations": {
+              "type": "array", "minItems": 3, "maxItems": 3,
+              "items": { "$ref": "#/$defs/nativeOperation" },
+              "allOf": [
+                { "contains": { "properties": { "operationId": { "const": "open" } }, "required": ["operationId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "operationId": { "const": "create" } }, "required": ["operationId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "operationId": { "const": "replace" } }, "required": ["operationId"] }, "minContains": 1, "maxContains": 1 }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "lanScenario": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scenarioId", "topologyFingerprint", "preTopologyFingerprint", "postTopologyFingerprint",
+        "controlledInputSha256", "deterministicOutputSha256",
+        "candidateCommit", "candidateTree", "configurationId", "platform", "architecture",
+        "topologySource", "topologyMutationControl", "completeLogs", "externalAttemptCount",
+        "productionPathExercised", "result", "evidenceManifestSha256"
+      ],
+      "properties": {
+        "scenarioId": { "type": "string", "minLength": 1 },
+        "topologyFingerprint": { "$ref": "#/$defs/sha256" },
+        "preTopologyFingerprint": { "$ref": "#/$defs/sha256" },
+        "postTopologyFingerprint": { "$ref": "#/$defs/sha256" },
+        "controlledInputSha256": { "$ref": "#/$defs/sha256" },
+        "deterministicOutputSha256": { "$ref": "#/$defs/sha256" },
+        "candidateCommit": { "$ref": "#/$defs/commit" },
+        "candidateTree": { "$ref": "#/$defs/commit" },
+        "configurationId": { "const": "windows-x64-chromium-native-broker-adapters-on" },
+        "platform": { "const": "windows" },
+        "architecture": { "const": "x64" },
+        "topologySource": { "const": "WINDOWS_LIVE_ADAPTER_SNAPSHOT" },
+        "topologyMutationControl": { "const": "EXTERNAL_LAB_OR_OPERATOR_CONTROLLED" },
+        "completeLogs": { "const": true },
+        "externalAttemptCount": { "const": 0 },
+        "productionPathExercised": { "const": true },
+        "result": { "const": "PASS" },
+        "evidenceManifestSha256": { "$ref": "#/$defs/sha256" }
+      }
+    },
+    "liveLanTopologyVariation": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/passEnvelope" },
+        {
+          "type": "object",
+          "required": ["applicationNetworkCapabilityPresent", "discoveryApiSurfacePresent", "scenarios"],
+          "properties": {
+            "applicationNetworkCapabilityPresent": { "const": false },
+            "discoveryApiSurfacePresent": { "const": false },
+            "scenarios": { "type": "array", "minItems": 2, "items": { "$ref": "#/$defs/lanScenario" } }
+          }
+        }
+      ]
+    },
+    "exportSurface": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "surfaceId", "closedFormatSet", "deployableArtifactAttemptsRejected",
+        "vendorArtifactAttemptsRejected", "productionPathExercised", "sideEffectsObserved", "result"
+      ],
+      "properties": {
+        "surfaceId": { "enum": ["project-native-save", "replay-verification-package", "trace-canonical-json", "trace-csv"] },
+        "closedFormatSet": { "const": true },
+        "deployableArtifactAttemptsRejected": { "const": true },
+        "vendorArtifactAttemptsRejected": { "const": true },
+        "productionPathExercised": { "const": true },
+        "sideEffectsObserved": { "const": false },
+        "result": { "const": "PASS" }
+      }
+    },
+    "vendorDeployableExportRejection": {
+      "unevaluatedProperties": false,
+      "allOf": [
+        { "$ref": "#/$defs/passEnvelope" },
+        {
+          "type": "object",
+          "required": ["surfaces"],
+          "properties": {
+            "surfaces": {
+              "type": "array", "minItems": 4, "maxItems": 4,
+              "items": { "$ref": "#/$defs/exportSurface" },
+              "allOf": [
+                { "contains": { "properties": { "surfaceId": { "const": "project-native-save" } }, "required": ["surfaceId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "surfaceId": { "const": "replay-verification-package" } }, "required": ["surfaceId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "surfaceId": { "const": "trace-canonical-json" } }, "required": ["surfaceId"] }, "minContains": 1, "maxContains": 1 },
+                { "contains": { "properties": { "surfaceId": { "const": "trace-csv" } }, "required": ["surfaceId"] }, "minContains": 1, "maxContains": 1 }
+              ]
+            }
+          }
+        }
+      ]
+    }
+  }
+}

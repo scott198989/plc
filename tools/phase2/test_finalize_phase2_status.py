@@ -13,6 +13,8 @@ class FinalizePhase2StatusTests(unittest.TestCase):
         return {
             "candidateCommit": "1" * 40,
             "candidateTree": "2" * 40,
+            "isolationApprovalDecisionId": "P2-DEC-ISO-NATIVE-001",
+            "isolationApprovalSha256": "9" * 64,
             "productionSourceSha256": "A" * 64,
             "testSourceSha256": "B" * 64,
             "requirementsSourceSha256": "C" * 64,

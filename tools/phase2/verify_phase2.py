@@ -61,6 +61,8 @@ ISOLATION_AREAS = {"ACC", "CI", "COM", "ISO", "NET", "PRJ", "PST", "SEC"}
 REQUIRED_BINDING_FIELDS = (
     "candidateCommit",
     "candidateTree",
+    "isolationApprovalDecisionId",
+    "isolationApprovalSha256",
     "productionSourceSha256",
     "testSourceSha256",
     "requirementsSourceSha256",
@@ -70,6 +72,87 @@ REQUIRED_BINDING_FIELDS = (
 )
 HEX_40 = re.compile(r"^[0-9a-f]{40}$")
 HEX_64 = re.compile(r"^[0-9A-F]{64}$")
+ISOLATION_EVIDENCE_SCHEMA_VERSION = "2.0"
+ISOLATION_APPROVAL_DECISION_ID = "P2-DEC-ISO-NATIVE-001"
+ISOLATION_APPROVAL_PATH = "ADR/0005-phase-2-native-isolation-shell.md"
+SUPPORTED_ISOLATION_CONFIGURATIONS = {
+    "windows-x64-chromium-native-broker-adapters-on": (
+        "native-broker",
+        "adapters-on-controlled-lan",
+        {"microsoft-edge-webview2"},
+    ),
+    "windows-x64-chromium-packaged-adapters-off": (
+        "packaged-browser-disabled",
+        "adapters-off",
+        {"google-chrome", "microsoft-edge"},
+    ),
+}
+SUPPORTED_CHROMIUM_RUNTIME_PRODUCTS = {
+    "google-chrome",
+    "microsoft-edge",
+    "microsoft-edge-webview2",
+}
+REQUIRED_ISOLATION_BOUNDARIES = {
+    "file-metadata-open",
+    "file-metadata-create",
+    "file-metadata-replace",
+    "project-display-name",
+    "saved-project-decode",
+    "scl-source-text",
+    "semantic-navigation",
+    "trace-export-canonical-json",
+    "trace-export-csv",
+    "virtual-download-target",
+}
+REQUIRED_EXPORT_SURFACES = {
+    "project-native-save",
+    "replay-verification-package",
+    "trace-canonical-json",
+    "trace-csv",
+}
+REQUIRED_NATIVE_BROKER_OPERATIONS = {"open", "create", "replace"}
+ISOLATION_FUZZ_CASE_COUNT = 27
+ISOLATION_FUZZ_CORPUS_SHA256 = "C61573EF4B2B686E4DC8E326505B65BFFFC4FFE247D8BE2855612F0D6D3D0F66"
+ISOLATION_FUZZ_CASE_IDS_SHA256 = "D7FDF0D3ED6E8BF03772F83F44E7F51E432BE67DE0BD20B247FFE076DFD329F8"
+PASS_ENVELOPE_FIELDS = {"complete", "result", "schemaVersion"}
+BOUNDARY_COVERAGE_FIELDS = PASS_ENVELOPE_FIELDS | {
+    "boundaries", "caseCount", "caseIdsSha256", "corpusSha256"
+}
+BOUNDARY_ROW_FIELDS = {
+    "boundaryId", "caseCount", "caseIdsSha256", "corpusSha256", "externalAttemptCount",
+    "productionPathExercised", "result", "sideEffectsObserved",
+}
+CONFIGURATION_BINDING_FIELDS = {
+    "architecture", "browserExecutableSha256", "browserFamily", "browserRuntimeProduct",
+    "browserRuntimeVersion", "candidateCommit", "candidateTree", "completeLogs", "configurationId",
+    "evidenceManifestSha256", "fileAccessPosture", "hostNetworkPosture", "matchesCandidate",
+    "platform", "productionPathExercised", "result", "zeroExternalAttempts",
+}
+NATIVE_BACKING_FIELDS = PASS_ENVELOPE_FIELDS | {
+    "architecture", "candidateCommit", "candidateTree", "decisionId", "evidenceManifestSha256",
+    "operations", "platform",
+}
+NATIVE_OPERATION_FIELDS = {
+    "attestationVersion", "fixedLocalBacking", "metadataOnlyBeforeAcceptance", "operationId",
+    "productionPathExercised", "providerBacked", "redirected", "remote", "removable", "result",
+    "selectedByteIoBeforeAcceptance", "special", "unapprovedHelperEffectObserved", "unsafeTarget",
+}
+TOPOLOGY_VARIATION_FIELDS = PASS_ENVELOPE_FIELDS | {
+    "applicationNetworkCapabilityPresent", "discoveryApiSurfacePresent", "scenarios",
+}
+LAN_SCENARIO_FIELDS = {
+    "architecture", "candidateCommit", "candidateTree", "completeLogs", "configurationId",
+    "controlledInputSha256", "deterministicOutputSha256", "evidenceManifestSha256",
+    "externalAttemptCount", "platform", "postTopologyFingerprint", "preTopologyFingerprint",
+    "productionPathExercised", "result", "scenarioId", "topologyFingerprint",
+    "topologyMutationControl", "topologySource",
+}
+EXPORT_REJECTION_FIELDS = PASS_ENVELOPE_FIELDS | {"surfaces"}
+EXPORT_SURFACE_FIELDS = {
+    "closedFormatSet", "deployableArtifactAttemptsRejected", "productionPathExercised", "result",
+    "sideEffectsObserved", "surfaceId", "vendorArtifactAttemptsRejected",
+}
+ISOLATION_APPROVAL_FIELDS = {"decisionId", "sha256"}
 
 
 class GateToolError(RuntimeError):
@@ -263,7 +346,13 @@ def candidate_binding(
     candidate_fixed = git_blob_sources(
         root,
         commit,
-        ["Cargo.toml", requirement_registry_path, verification_catalog_path, directive_path],
+        [
+            "Cargo.toml",
+            ISOLATION_APPROVAL_PATH,
+            requirement_registry_path,
+            verification_catalog_path,
+            directive_path,
+        ],
     )
     try:
         cargo_toml = candidate_fixed["Cargo.toml"].decode("utf-8")
@@ -293,6 +382,8 @@ def candidate_binding(
     binding = {
         "candidateCommit": commit,
         "candidateTree": tree,
+        "isolationApprovalDecisionId": ISOLATION_APPROVAL_DECISION_ID,
+        "isolationApprovalSha256": sha256_bytes(candidate_fixed[ISOLATION_APPROVAL_PATH]),
         "productionSourceSha256": manifest_digest(entries, production),
         "testSourceSha256": manifest_digest(entries, test_paths),
         "requirementsSourceSha256": manifest_digest(entries, requirement_paths),
@@ -450,6 +541,258 @@ def _safe_artifact_path(base: Path, value: Any) -> Path | None:
     return candidate
 
 
+def _string_id_set(records: Any, field: str) -> tuple[set[str], bool]:
+    if not isinstance(records, list):
+        return set(), False
+    values: list[str] = []
+    for record in records:
+        if not isinstance(record, dict) or not isinstance(record.get(field), str):
+            return set(), False
+        values.append(record[field])
+    return set(values), len(values) == len(set(values))
+
+
+def _is_sha256(value: Any) -> bool:
+    return isinstance(value, str) and HEX_64.fullmatch(value) is not None
+
+
+def _has_exact_fields(value: Any, expected: set[str]) -> bool:
+    return isinstance(value, dict) and set(value) == expected
+
+
+def _is_bounded_runtime_version(value: Any) -> bool:
+    return (
+        isinstance(value, str)
+        and 1 <= len(value) <= 128
+        and re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._+ -]*", value) is not None
+    )
+
+
+def validate_isolation_evidence_fields(
+    record: Mapping[str, Any], binding: Mapping[str, Any], subject: str
+) -> list[Failure]:
+    failures: list[Failure] = []
+    if record.get("isolationSchemaVersion") != ISOLATION_EVIDENCE_SCHEMA_VERSION:
+        failures.append(Failure("P2-EVID-0025", subject, "isolationSchemaVersion must be 2.0"))
+
+    approval = record.get("isolationApproval")
+    if (
+        not _has_exact_fields(approval, ISOLATION_APPROVAL_FIELDS)
+        or approval.get("decisionId") != ISOLATION_APPROVAL_DECISION_ID
+        or approval.get("decisionId") != binding.get("isolationApprovalDecisionId")
+        or approval.get("sha256") != binding.get("isolationApprovalSha256")
+        or not _is_sha256(approval.get("sha256"))
+    ):
+        failures.append(
+            Failure(
+                "P2-EVID-0036",
+                subject,
+                "isolation approval does not match the exact candidate ADR blob",
+            )
+        )
+
+    platforms = record.get("platformConfigurations")
+    platform_ids, platforms_unique = _string_id_set(platforms, "configurationId")
+    if not platforms_unique or platform_ids != set(SUPPORTED_ISOLATION_CONFIGURATIONS):
+        failures.append(
+            Failure(
+                "P2-EVID-0026",
+                subject,
+                "isolation configurations do not exactly match the approved Windows-first set",
+            )
+        )
+    if isinstance(platforms, list):
+        for ordinal, platform_record in enumerate(platforms):
+            platform_subject = f"{subject}.platformConfigurations[{ordinal}]"
+            if not isinstance(platform_record, dict):
+                failures.append(Failure("P2-EVID-0027", platform_subject, "configuration is not an object"))
+                continue
+            configuration_id = str(platform_record.get("configurationId", ""))
+            posture = SUPPORTED_ISOLATION_CONFIGURATIONS.get(configuration_id)
+            if (
+                not _has_exact_fields(platform_record, CONFIGURATION_BINDING_FIELDS)
+                or posture is None
+                or platform_record.get("platform") != "windows"
+                or platform_record.get("architecture") != "x64"
+                or platform_record.get("browserFamily") != "chromium"
+                or platform_record.get("browserRuntimeProduct") not in SUPPORTED_CHROMIUM_RUNTIME_PRODUCTS
+                or platform_record.get("browserRuntimeProduct") not in posture[2]
+                or not _is_bounded_runtime_version(platform_record.get("browserRuntimeVersion"))
+                or not _is_sha256(platform_record.get("browserExecutableSha256"))
+                or platform_record.get("fileAccessPosture") != posture[0]
+                or platform_record.get("hostNetworkPosture") != posture[1]
+                or platform_record.get("candidateCommit") != binding.get("candidateCommit")
+                or platform_record.get("candidateTree") != binding.get("candidateTree")
+                or platform_record.get("completeLogs") is not True
+                or platform_record.get("matchesCandidate") is not True
+                or platform_record.get("productionPathExercised") is not True
+                or platform_record.get("zeroExternalAttempts") is not True
+                or platform_record.get("result") != "PASS"
+                or not _is_sha256(platform_record.get("evidenceManifestSha256"))
+            ):
+                failures.append(
+                    Failure("P2-EVID-0027", platform_subject, "configuration lacks exact-candidate complete PASS proof")
+                )
+
+    boundary = record.get("boundaryFuzzCoverage")
+    if not isinstance(boundary, dict):
+        failures.append(Failure("P2-EVID-0028", subject, "boundary fuzz coverage is missing"))
+    else:
+        boundary_ids, boundaries_unique = _string_id_set(boundary.get("boundaries"), "boundaryId")
+        if (
+            not _has_exact_fields(boundary, BOUNDARY_COVERAGE_FIELDS)
+            or boundary.get("schemaVersion") != "1.0"
+            or boundary.get("complete") is not True
+            or boundary.get("result") != "PASS"
+            or boundary.get("caseCount") != ISOLATION_FUZZ_CASE_COUNT
+            or boundary.get("corpusSha256") != ISOLATION_FUZZ_CORPUS_SHA256
+            or boundary.get("caseIdsSha256") != ISOLATION_FUZZ_CASE_IDS_SHA256
+            or not boundaries_unique
+            or boundary_ids != REQUIRED_ISOLATION_BOUNDARIES
+        ):
+            failures.append(Failure("P2-EVID-0028", subject, "boundary fuzz coverage is incomplete"))
+        if isinstance(boundary.get("boundaries"), list):
+            for item in boundary["boundaries"]:
+                if (
+                    not _has_exact_fields(item, BOUNDARY_ROW_FIELDS)
+                    or item.get("caseCount") != boundary.get("caseCount")
+                    or item.get("corpusSha256") != boundary.get("corpusSha256")
+                    or item.get("caseIdsSha256") != boundary.get("caseIdsSha256")
+                    or item.get("externalAttemptCount") != 0
+                    or item.get("productionPathExercised") is not True
+                    or item.get("sideEffectsObserved") is not False
+                    or item.get("result") != "PASS"
+                ):
+                    failures.append(Failure("P2-EVID-0029", subject, "one or more boundary corpus rows are non-credit"))
+                    break
+
+    topology = record.get("liveLanTopologyVariation")
+    scenarios = topology.get("scenarios") if isinstance(topology, dict) else None
+    scenario_ids, scenarios_unique = _string_id_set(scenarios, "scenarioId")
+    topology_hashes = {
+        str(scenario.get("topologyFingerprint", ""))
+        for scenario in scenarios
+        if isinstance(scenario, dict)
+    } if isinstance(scenarios, list) else set()
+    input_hashes = {
+        str(scenario.get("controlledInputSha256", ""))
+        for scenario in scenarios
+        if isinstance(scenario, dict)
+    } if isinstance(scenarios, list) else set()
+    output_hashes = {
+        str(scenario.get("deterministicOutputSha256", ""))
+        for scenario in scenarios
+        if isinstance(scenario, dict)
+    } if isinstance(scenarios, list) else set()
+    if (
+        not _has_exact_fields(topology, TOPOLOGY_VARIATION_FIELDS)
+        or topology.get("schemaVersion") != "1.0"
+        or topology.get("complete") is not True
+        or topology.get("result") != "PASS"
+        or topology.get("applicationNetworkCapabilityPresent") is not False
+        or topology.get("discoveryApiSurfacePresent") is not False
+        or not isinstance(scenarios, list)
+        or len(scenarios) < 2
+        or not scenarios_unique
+        or len(scenario_ids) < 2
+        or any(not scenario_id for scenario_id in scenario_ids)
+        or len(topology_hashes) < 2
+        or len(input_hashes) != 1
+        or len(output_hashes) != 1
+        or any(not _is_sha256(value) for value in topology_hashes | input_hashes | output_hashes)
+    ):
+        failures.append(Failure("P2-EVID-0030", subject, "controlled live-LAN invariance proof is incomplete"))
+    if isinstance(scenarios, list):
+        for scenario in scenarios:
+            if (
+                not _has_exact_fields(scenario, LAN_SCENARIO_FIELDS)
+                or scenario.get("candidateCommit") != binding.get("candidateCommit")
+                or scenario.get("candidateTree") != binding.get("candidateTree")
+                or scenario.get("configurationId") != "windows-x64-chromium-native-broker-adapters-on"
+                or scenario.get("platform") != "windows"
+                or scenario.get("architecture") != "x64"
+                or scenario.get("topologySource") != "WINDOWS_LIVE_ADAPTER_SNAPSHOT"
+                or scenario.get("topologyMutationControl") != "EXTERNAL_LAB_OR_OPERATOR_CONTROLLED"
+                or scenario.get("completeLogs") is not True
+                or scenario.get("externalAttemptCount") != 0
+                or scenario.get("productionPathExercised") is not True
+                or scenario.get("result") != "PASS"
+                or scenario.get("preTopologyFingerprint") != scenario.get("topologyFingerprint")
+                or scenario.get("postTopologyFingerprint") != scenario.get("topologyFingerprint")
+                or not _is_sha256(scenario.get("evidenceManifestSha256"))
+                or not _is_sha256(scenario.get("preTopologyFingerprint"))
+                or not _is_sha256(scenario.get("postTopologyFingerprint"))
+            ):
+                failures.append(Failure("P2-EVID-0031", subject, "a live-LAN scenario is stale or incomplete"))
+                break
+
+    backing = record.get("fixedNativeBackingAttestation")
+    operations = backing.get("operations") if isinstance(backing, dict) else None
+    operation_ids, operations_unique = _string_id_set(operations, "operationId")
+    if (
+        not _has_exact_fields(backing, NATIVE_BACKING_FIELDS)
+        or backing.get("schemaVersion") != "1.0"
+        or backing.get("complete") is not True
+        or backing.get("result") != "PASS"
+        or backing.get("decisionId") != ISOLATION_APPROVAL_DECISION_ID
+        or backing.get("candidateCommit") != binding.get("candidateCommit")
+        or backing.get("candidateTree") != binding.get("candidateTree")
+        or backing.get("platform") != "windows"
+        or backing.get("architecture") != "x64"
+        or not _is_sha256(backing.get("evidenceManifestSha256"))
+        or not operations_unique
+        or operation_ids != REQUIRED_NATIVE_BROKER_OPERATIONS
+    ):
+        failures.append(Failure("P2-EVID-0032", subject, "fixed-native-backing attestation is incomplete"))
+    if isinstance(operations, list):
+        for operation in operations:
+            if (
+                not _has_exact_fields(operation, NATIVE_OPERATION_FIELDS)
+                or operation.get("attestationVersion") != 1
+                or operation.get("fixedLocalBacking") is not True
+                or operation.get("providerBacked") is not False
+                or operation.get("remote") is not False
+                or operation.get("removable") is not False
+                or operation.get("special") is not False
+                or operation.get("redirected") is not False
+                or operation.get("unsafeTarget") is not False
+                or operation.get("metadataOnlyBeforeAcceptance") is not True
+                or operation.get("selectedByteIoBeforeAcceptance") is not False
+                or operation.get("unapprovedHelperEffectObserved") is not False
+                or operation.get("productionPathExercised") is not True
+                or operation.get("result") != "PASS"
+            ):
+                failures.append(Failure("P2-EVID-0033", subject, "a native broker operation attestation is non-credit"))
+                break
+
+    exports = record.get("vendorDeployableExportRejection")
+    surfaces = exports.get("surfaces") if isinstance(exports, dict) else None
+    surface_ids, surfaces_unique = _string_id_set(surfaces, "surfaceId")
+    if (
+        not _has_exact_fields(exports, EXPORT_REJECTION_FIELDS)
+        or exports.get("schemaVersion") != "1.0"
+        or exports.get("complete") is not True
+        or exports.get("result") != "PASS"
+        or not surfaces_unique
+        or surface_ids != REQUIRED_EXPORT_SURFACES
+    ):
+        failures.append(Failure("P2-EVID-0034", subject, "export rejection surface inventory is incomplete"))
+    if isinstance(surfaces, list):
+        for surface in surfaces:
+            if (
+                not _has_exact_fields(surface, EXPORT_SURFACE_FIELDS)
+                or surface.get("closedFormatSet") is not True
+                or surface.get("deployableArtifactAttemptsRejected") is not True
+                or surface.get("vendorArtifactAttemptsRejected") is not True
+                or surface.get("productionPathExercised") is not True
+                or surface.get("sideEffectsObserved") is not False
+                or surface.get("result") != "PASS"
+            ):
+                failures.append(Failure("P2-EVID-0035", subject, "an export surface lacks fail-closed proof"))
+                break
+    return failures
+
+
 def validate_evidence_record(
     record: Mapping[str, Any], binding: Mapping[str, Any], evidence_base: Path
 ) -> list[Failure]:
@@ -546,6 +889,7 @@ def validate_evidence_record(
         platforms = record.get("platformConfigurations")
         if not isinstance(platforms, list) or not platforms:
             failures.append(Failure("P2-EVID-0024", subject, "isolation platform/configuration coverage is empty"))
+        failures.extend(validate_isolation_evidence_fields(record, binding, subject))
     return failures
 
 

@@ -1,7 +1,11 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { isIP } from "node:net";
 
-export const EVIDENCE_SCHEMA_VERSION = "1.1";
+export const EVIDENCE_SCHEMA_VERSION = "2.0";
+export const ISOLATION_EVIDENCE_RECORD_SCHEMA_VERSION = "2.0";
+export const ISOLATION_APPROVAL_DECISION_ID = "P2-DEC-ISO-NATIVE-001";
+export const ISOLATION_APPROVAL_PATH = "ADR/0005-phase-2-native-isolation-shell.md";
 export const ISOLATION_VERIFICATION_IDS = Object.freeze([
   "VER-ISO-0001",
   "VER-ISO-0002",
@@ -14,35 +18,111 @@ export const ISOLATION_VERIFICATION_IDS = Object.freeze([
 export const EXPECTED_DIRECTIVE_SHA256 =
   "938A0958F0CF15739A2DC8ED674F7C9F25D531DCE32CCA6A4CEEE5D638E68536";
 
-export const DEFAULT_FUZZ_CASES = Object.freeze([
-  Object.freeze({ category: "url", id: "https-reserved-name", value: "https://plc.isolation.invalid/device/1" }),
-  Object.freeze({ category: "url", id: "http-documentation-address", value: "http://192.0.2.1:102/rack/0" }),
-  Object.freeze({ category: "url", id: "ws-loopback", value: "ws://127.0.0.1:65535/controller" }),
-  Object.freeze({ category: "url", id: "wss-ipv6-loopback", value: "wss://[::1]:65535/controller" }),
-  Object.freeze({ category: "protocol", id: "ftp-reserved-name", value: "ftp://plc.isolation.invalid/program" }),
-  Object.freeze({ category: "protocol", id: "opc-tcp", value: "opc.tcp://192.0.2.2:4840" }),
-  Object.freeze({ category: "protocol", id: "s7-shaped", value: "s7://192.0.2.3/rack/0/slot/1" }),
-  Object.freeze({ category: "unc", id: "unc-reserved-name", value: "\\\\plc.isolation.invalid\\share\\project.vlabproj" }),
-  Object.freeze({ category: "pipe", id: "windows-pipe", value: "\\\\.\\pipe\\plc-engineering" }),
-  Object.freeze({ category: "device", id: "windows-device-path", value: "\\\\.\\COM1" }),
-  Object.freeze({ category: "device", id: "reserved-com", value: "COM1" }),
-  Object.freeze({ category: "device", id: "reserved-lpt", value: "LPT1" }),
-  Object.freeze({ category: "print", id: "reserved-prn", value: "PRN" }),
-  Object.freeze({ category: "print", id: "ipp-reserved-name", value: "ipp://printer.isolation.invalid/ipp/print" }),
-  Object.freeze({ category: "file", id: "remote-file-url", value: "file://plc.isolation.invalid/share/project.vlabproj" }),
-  Object.freeze({ category: "malformed", id: "malformed-ipv6-url", value: "http://[::1" }),
-  Object.freeze({ category: "malformed", id: "credential-and-null-escape", value: "https://user:pass@plc.isolation.invalid/%00" }),
-  Object.freeze({ category: "escape", id: "relative-device-escape", value: "..\\..\\device\\COM1" }),
-  Object.freeze({ category: "malformed", id: "embedded-nul", value: "endpoint\u0000https://plc.isolation.invalid" }),
-  Object.freeze({ category: "malformed", id: "lone-surrogate", value: "endpoint-\ud800" }),
+export const DEFAULT_FUZZ_CASES = Object.freeze(parseFuzzCorpus(
+  readFileSync(new URL("./isolation-fuzz-corpus.tsv", import.meta.url), "utf8"),
+));
+
+export const REQUIRED_FUZZ_BOUNDARY_IDS = Object.freeze([
+  "file-metadata-open",
+  "file-metadata-create",
+  "file-metadata-replace",
+  "project-display-name",
+  "saved-project-decode",
+  "scl-source-text",
+  "semantic-navigation",
+  "trace-export-canonical-json",
+  "trace-export-csv",
+  "virtual-download-target",
+]);
+
+export const REQUIRED_EXPORT_SURFACE_IDS = Object.freeze([
+  "project-native-save",
+  "replay-verification-package",
+  "trace-canonical-json",
+  "trace-csv",
+]);
+
+export const REQUIRED_NATIVE_BROKER_OPERATION_IDS = Object.freeze([
+  "open",
+  "create",
+  "replace",
+]);
+
+export const SUPPORTED_WINDOWS_CONFIGURATION_IDS = Object.freeze([
+  "windows-x64-chromium-native-broker-adapters-on",
+  "windows-x64-chromium-packaged-adapters-off",
+]);
+
+export const SUPPORTED_CHROMIUM_RUNTIME_PRODUCTS = Object.freeze([
+  "google-chrome",
+  "microsoft-edge",
+  "microsoft-edge-webview2",
+]);
+
+export const ISOLATION_CLOSURE_REQUIRED_FIELDS = Object.freeze([
+  "boundaryFuzzCoverage",
+  "candidateCommit",
+  "candidateTree",
+  "configurationCoverage",
+  "evidenceKind",
+  "fixedNativeBackingAttestation",
+  "liveLanTopologyVariation",
+  "schemaVersion",
+  "vendorDeployableExportRejection",
 ]);
 
 const LOOPBACK_HOSTS = new Set(["localhost", "localhost.localdomain", "127.0.0.1", "::1", "0:0:0:0:0:0:0:1"]);
 const UNSPECIFIED_HOSTS = new Set(["", "0.0.0.0", "::", "0:0:0:0:0:0:0:0", "*"]);
 const SHA256_PATTERN = /^[A-F0-9]{64}$/u;
+const PASS_ENVELOPE_FIELDS = ["complete", "result", "schemaVersion"];
+const BOUNDARY_COVERAGE_FIELDS = [
+  ...PASS_ENVELOPE_FIELDS, "boundaries", "caseCount", "caseIdsSha256", "corpusSha256",
+];
+const BOUNDARY_ROW_FIELDS = [
+  "boundaryId", "caseCount", "caseIdsSha256", "corpusSha256", "externalAttemptCount",
+  "productionPathExercised", "result", "sideEffectsObserved",
+];
+const CONFIGURATION_COVERAGE_FIELDS = [
+  "approvalDecisionId", "approvalSha256", "approvalStatus", "evidenceBindings",
+  "expectedConfigurationIds", "status",
+];
+const CONFIGURATION_BINDING_FIELDS = [
+  "architecture", "browserExecutableSha256", "browserFamily", "browserRuntimeProduct",
+  "browserRuntimeVersion", "candidateCommit", "candidateTree", "completeLogs", "configurationId",
+  "evidenceManifestSha256", "fileAccessPosture", "hostNetworkPosture", "matchesCandidate",
+  "platform", "productionPathExercised", "result", "zeroExternalAttempts",
+];
+const NATIVE_BACKING_FIELDS = [
+  ...PASS_ENVELOPE_FIELDS, "architecture", "candidateCommit", "candidateTree", "decisionId",
+  "evidenceManifestSha256", "operations", "platform",
+];
+const NATIVE_OPERATION_FIELDS = [
+  "attestationVersion", "fixedLocalBacking", "metadataOnlyBeforeAcceptance", "operationId",
+  "productionPathExercised", "providerBacked", "redirected", "remote", "removable", "result",
+  "selectedByteIoBeforeAcceptance", "special", "unapprovedHelperEffectObserved", "unsafeTarget",
+];
+const TOPOLOGY_VARIATION_FIELDS = [
+  ...PASS_ENVELOPE_FIELDS, "applicationNetworkCapabilityPresent", "discoveryApiSurfacePresent",
+  "scenarios",
+];
+const LAN_SCENARIO_FIELDS = [
+  "architecture", "candidateCommit", "candidateTree", "completeLogs", "configurationId",
+  "controlledInputSha256", "deterministicOutputSha256", "evidenceManifestSha256",
+  "externalAttemptCount", "platform", "postTopologyFingerprint", "preTopologyFingerprint",
+  "productionPathExercised", "result", "scenarioId", "topologyFingerprint",
+  "topologyMutationControl", "topologySource",
+];
+const EXPORT_REJECTION_FIELDS = [...PASS_ENVELOPE_FIELDS, "surfaces"];
+const EXPORT_SURFACE_FIELDS = [
+  "closedFormatSet", "deployableArtifactAttemptsRejected", "productionPathExercised", "result",
+  "sideEffectsObserved", "surfaceId", "vendorArtifactAttemptsRejected",
+];
 
 export const sha256 = (value) =>
   createHash("sha256").update(value).digest("hex").toUpperCase();
+
+export const FUZZ_CORPUS_SHA256 = sha256(stableJson(DEFAULT_FUZZ_CASES));
+export const FUZZ_CASE_IDS_SHA256 = sha256(stableJson(DEFAULT_FUZZ_CASES.map(({ id }) => id)));
 
 export function stableJson(value) {
   return JSON.stringify(sortJson(value), null, 2).concat("\n");
@@ -60,6 +140,45 @@ function sortJson(value) {
     );
   }
   return value;
+}
+
+function hasExactOwnFields(value, expectedFields) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const observed = Object.keys(value).sort((left, right) => left.localeCompare(right, "en-US"));
+  const expected = [...expectedFields].sort((left, right) => left.localeCompare(right, "en-US"));
+  return observed.length === expected.length && observed.every((field, index) => field === expected[index]);
+}
+
+function parseFuzzCorpus(source) {
+  const cases = source
+    .split(/\r?\n/u)
+    .filter((line) => line.length > 0)
+    .map((line) => {
+      const [category, id, encodedValue, ...extra] = line.split("\t");
+      if (
+        extra.length !== 0 ||
+        !/^[a-z][a-z0-9-]*$/u.test(category ?? "") ||
+        !/^[a-z0-9][a-z0-9-]*$/u.test(id ?? "")
+      ) {
+        throw new Error(`Malformed isolation fuzz corpus row: ${line}`);
+      }
+      let value;
+      try {
+        value = JSON.parse(encodedValue);
+      } catch {
+        throw new Error(`Malformed isolation fuzz JSON value for ${id}`);
+      }
+      if (typeof value !== "string") {
+        throw new Error(`Isolation fuzz value for ${id} is not a string`);
+      }
+      return Object.freeze({ category, id, value });
+    });
+  if (cases.length !== 27 || new Set(cases.map(({ id }) => id)).size !== cases.length) {
+    throw new Error("Isolation fuzz corpus must contain exactly 27 unique case IDs");
+  }
+  return cases;
 }
 
 export function normalizeHost(value) {
@@ -434,41 +553,352 @@ export function analyzeNetLogTargets(parsed, allowedOrigins = new Set(), allowed
   };
 }
 
-export function assessConfigurationCoverage(coverage) {
+export function assessBoundaryFuzzCoverage(coverage) {
   const failures = [];
+  if (!hasExactOwnFields(coverage, BOUNDARY_COVERAGE_FIELDS)) {
+    failures.push("Boundary fuzz coverage contains missing or unrecognized fields");
+  }
+  if (coverage?.schemaVersion !== "1.0" || coverage?.result !== "PASS" || coverage?.complete !== true) {
+    failures.push("Boundary fuzz coverage is not a complete PASS under schema 1.0");
+  }
+  if (
+    coverage?.corpusSha256 !== FUZZ_CORPUS_SHA256 ||
+    coverage?.caseIdsSha256 !== FUZZ_CASE_IDS_SHA256 ||
+    coverage?.caseCount !== DEFAULT_FUZZ_CASES.length
+  ) {
+    failures.push("Boundary fuzz coverage is not bound to the complete issued corpus");
+  }
+  const boundaries = Array.isArray(coverage?.boundaries) ? coverage.boundaries : [];
+  const boundaryIds = boundaries.map(({ boundaryId }) => String(boundaryId ?? ""));
+  if (new Set(boundaryIds).size !== boundaryIds.length) {
+    failures.push("Boundary fuzz coverage contains duplicate boundary identities");
+  }
+  const expected = new Set(REQUIRED_FUZZ_BOUNDARY_IDS);
+  const observed = new Set(boundaryIds);
+  if (
+    expected.size !== observed.size ||
+    [...expected].some((boundaryId) => !observed.has(boundaryId))
+  ) {
+    failures.push("Boundary fuzz coverage does not exactly enumerate every applicable typed boundary");
+  }
+  for (const boundary of boundaries) {
+    const boundaryId = String(boundary?.boundaryId ?? "<missing>");
+    if (
+      !hasExactOwnFields(boundary, BOUNDARY_ROW_FIELDS) ||
+      boundary?.caseCount !== DEFAULT_FUZZ_CASES.length ||
+      boundary?.caseIdsSha256 !== FUZZ_CASE_IDS_SHA256 ||
+      boundary?.corpusSha256 !== FUZZ_CORPUS_SHA256 ||
+      boundary?.externalAttemptCount !== 0 ||
+      boundary?.productionPathExercised !== true ||
+      boundary?.result !== "PASS" ||
+      boundary?.sideEffectsObserved !== false
+    ) {
+      failures.push(`Boundary ${boundaryId} lacks complete inert exact-corpus PASS evidence`);
+    }
+  }
+  return { complete: failures.length === 0, failures };
+}
+
+export function assessLiveLanTopologyVariation(evidence, candidate) {
+  const failures = [];
+  if (!hasExactOwnFields(evidence, TOPOLOGY_VARIATION_FIELDS)) {
+    failures.push("Live-LAN variation contains missing or unrecognized fields");
+  }
+  if (
+    evidence?.schemaVersion !== "1.0" ||
+    evidence?.result !== "PASS" ||
+    evidence?.complete !== true ||
+    evidence?.applicationNetworkCapabilityPresent !== false ||
+    evidence?.discoveryApiSurfacePresent !== false
+  ) {
+    failures.push("Live-LAN variation is not a complete capability-free PASS under schema 1.0");
+  }
+  const scenarios = Array.isArray(evidence?.scenarios) ? evidence.scenarios : [];
+  if (scenarios.length < 2) {
+    failures.push("Live-LAN variation requires at least two controlled topology scenarios");
+  }
+  const scenarioIds = scenarios.map(({ scenarioId }) => String(scenarioId ?? ""));
+  const topologyFingerprints = scenarios.map(({ topologyFingerprint }) => String(topologyFingerprint ?? ""));
+  if (new Set(scenarioIds).size !== scenarios.length || scenarioIds.some((value) => value.length === 0)) {
+    failures.push("Live-LAN scenarios have missing or duplicate identities");
+  }
+  if (
+    new Set(topologyFingerprints).size < 2 ||
+    topologyFingerprints.some((digest) => !SHA256_PATTERN.test(digest))
+  ) {
+    failures.push("Live-LAN scenarios do not prove at least two distinct topology fingerprints");
+  }
+  const inputHashes = new Set();
+  const outputHashes = new Set();
+  for (const scenario of scenarios) {
+    const scenarioId = String(scenario?.scenarioId ?? "<missing>");
+    inputHashes.add(String(scenario?.controlledInputSha256 ?? ""));
+    outputHashes.add(String(scenario?.deterministicOutputSha256 ?? ""));
+    if (
+      !hasExactOwnFields(scenario, LAN_SCENARIO_FIELDS) ||
+      scenario?.candidateCommit !== candidate?.commit ||
+      scenario?.candidateTree !== candidate?.tree ||
+      scenario?.configurationId !== SUPPORTED_WINDOWS_CONFIGURATION_IDS[0] ||
+      scenario?.platform !== "windows" ||
+      scenario?.architecture !== "x64" ||
+      scenario?.topologySource !== "WINDOWS_LIVE_ADAPTER_SNAPSHOT" ||
+      scenario?.topologyMutationControl !== "EXTERNAL_LAB_OR_OPERATOR_CONTROLLED" ||
+      scenario?.completeLogs !== true ||
+      scenario?.externalAttemptCount !== 0 ||
+      scenario?.productionPathExercised !== true ||
+      scenario?.result !== "PASS" ||
+      scenario?.preTopologyFingerprint !== scenario?.topologyFingerprint ||
+      scenario?.postTopologyFingerprint !== scenario?.topologyFingerprint ||
+      !SHA256_PATTERN.test(String(scenario?.evidenceManifestSha256 ?? "")) ||
+      !SHA256_PATTERN.test(String(scenario?.preTopologyFingerprint ?? "")) ||
+      !SHA256_PATTERN.test(String(scenario?.postTopologyFingerprint ?? "")) ||
+      !SHA256_PATTERN.test(String(scenario?.controlledInputSha256 ?? "")) ||
+      !SHA256_PATTERN.test(String(scenario?.deterministicOutputSha256 ?? ""))
+    ) {
+      failures.push(`Live-LAN scenario ${scenarioId} lacks complete exact-candidate PASS evidence`);
+    }
+  }
+  if (inputHashes.size !== 1 || outputHashes.size !== 1) {
+    failures.push("Live-LAN topology variation changed the controlled input or deterministic product output");
+  }
+  return { complete: failures.length === 0, failures };
+}
+
+export function assessVendorDeployableExportRejection(evidence) {
+  const failures = [];
+  if (!hasExactOwnFields(evidence, EXPORT_REJECTION_FIELDS)) {
+    failures.push("Export rejection evidence contains missing or unrecognized fields");
+  }
+  if (evidence?.schemaVersion !== "1.0" || evidence?.result !== "PASS" || evidence?.complete !== true) {
+    failures.push("Export rejection evidence is not a complete PASS under schema 1.0");
+  }
+  const surfaces = Array.isArray(evidence?.surfaces) ? evidence.surfaces : [];
+  const surfaceIds = surfaces.map(({ surfaceId }) => String(surfaceId ?? ""));
+  if (new Set(surfaceIds).size !== surfaceIds.length) {
+    failures.push("Export rejection evidence contains duplicate surface identities");
+  }
+  const expected = new Set(REQUIRED_EXPORT_SURFACE_IDS);
+  const observed = new Set(surfaceIds);
+  if (
+    expected.size !== observed.size ||
+    [...expected].some((surfaceId) => !observed.has(surfaceId))
+  ) {
+    failures.push("Export rejection evidence does not exactly enumerate every Phase 2 export surface");
+  }
+  for (const surface of surfaces) {
+    const surfaceId = String(surface?.surfaceId ?? "<missing>");
+    if (
+      !hasExactOwnFields(surface, EXPORT_SURFACE_FIELDS) ||
+      surface?.closedFormatSet !== true ||
+      surface?.deployableArtifactAttemptsRejected !== true ||
+      surface?.vendorArtifactAttemptsRejected !== true ||
+      surface?.productionPathExercised !== true ||
+      surface?.result !== "PASS" ||
+      surface?.sideEffectsObserved !== false
+    ) {
+      failures.push(`Export surface ${surfaceId} lacks vendor/deployable fail-closed proof`);
+    }
+  }
+  return { complete: failures.length === 0, failures };
+}
+
+export function assessFixedNativeBackingAttestation(evidence, candidate) {
+  const failures = [];
+  if (!hasExactOwnFields(evidence, NATIVE_BACKING_FIELDS)) {
+    failures.push("Fixed-native-backing evidence contains missing or unrecognized fields");
+  }
+  if (
+    evidence?.schemaVersion !== "1.0" ||
+    evidence?.result !== "PASS" ||
+    evidence?.complete !== true ||
+    evidence?.decisionId !== ISOLATION_APPROVAL_DECISION_ID ||
+    evidence?.candidateCommit !== candidate?.commit ||
+    evidence?.candidateTree !== candidate?.tree ||
+    evidence?.platform !== "windows" ||
+    evidence?.architecture !== "x64" ||
+    !SHA256_PATTERN.test(String(evidence?.evidenceManifestSha256 ?? ""))
+  ) {
+    failures.push("Fixed-native-backing evidence is not a complete exact-candidate Windows PASS");
+  }
+  const operations = Array.isArray(evidence?.operations) ? evidence.operations : [];
+  const operationIds = operations.map(({ operationId }) => String(operationId ?? ""));
+  const expected = new Set(REQUIRED_NATIVE_BROKER_OPERATION_IDS);
+  const observed = new Set(operationIds);
+  if (
+    operationIds.length !== observed.size ||
+    expected.size !== observed.size ||
+    [...expected].some((operationId) => !observed.has(operationId))
+  ) {
+    failures.push("Fixed-native-backing evidence does not exactly enumerate open/create/replace");
+  }
+  for (const operation of operations) {
+    const operationId = String(operation?.operationId ?? "<missing>");
+    if (
+      !hasExactOwnFields(operation, NATIVE_OPERATION_FIELDS) ||
+      operation?.attestationVersion !== 1 ||
+      operation?.fixedLocalBacking !== true ||
+      operation?.providerBacked !== false ||
+      operation?.remote !== false ||
+      operation?.removable !== false ||
+      operation?.special !== false ||
+      operation?.redirected !== false ||
+      operation?.unsafeTarget !== false ||
+      operation?.metadataOnlyBeforeAcceptance !== true ||
+      operation?.selectedByteIoBeforeAcceptance !== false ||
+      operation?.unapprovedHelperEffectObserved !== false ||
+      operation?.productionPathExercised !== true ||
+      operation?.result !== "PASS"
+    ) {
+      failures.push(`Native broker operation ${operationId} lacks fail-closed backing attestation`);
+    }
+  }
+  return { complete: failures.length === 0, failures };
+}
+
+export function assessConfigurationCoverage(coverage, candidate = undefined) {
+  const failures = [];
+  if (!hasExactOwnFields(coverage, CONFIGURATION_COVERAGE_FIELDS)) {
+    failures.push("Configuration coverage contains missing or unrecognized fields");
+  }
   const approvalDecisionId = String(coverage?.approvalDecisionId ?? "");
   if (
-    !/^(?:OQ-0001|ADR-[A-Z0-9-]+)$/u.test(approvalDecisionId) ||
+    approvalDecisionId !== ISOLATION_APPROVAL_DECISION_ID ||
     coverage?.approvalStatus !== "APPROVED" ||
     !SHA256_PATTERN.test(String(coverage?.approvalSha256 ?? ""))
   ) {
     failures.push("The supported platform/configuration set has no approved decision binding");
   }
+  if (
+    candidate !== undefined &&
+    (
+      approvalDecisionId !== candidate?.isolationApprovalDecisionId ||
+      coverage?.approvalSha256 !== candidate?.isolationApprovalSha256
+    )
+  ) {
+    failures.push("The supported configuration approval does not match the exact candidate ADR blob");
+  }
+  if (coverage?.status !== "COMPLETE") {
+    failures.push("Supported configuration evidence is not marked COMPLETE");
+  }
   const expected = Array.isArray(coverage?.expectedConfigurationIds)
     ? coverage.expectedConfigurationIds.map(String)
     : [];
-  if (expected.length === 0 || new Set(expected).size !== expected.length) {
-    failures.push("The supported configuration set is empty or contains duplicates");
+  if (
+    expected.length !== SUPPORTED_WINDOWS_CONFIGURATION_IDS.length ||
+    new Set(expected).size !== expected.length ||
+    SUPPORTED_WINDOWS_CONFIGURATION_IDS.some((configurationId) => !expected.includes(configurationId))
+  ) {
+    failures.push("The supported configuration set is not the exact approved Windows-first set");
   }
   const bindings = Array.isArray(coverage?.evidenceBindings) ? coverage.evidenceBindings : [];
   const bindingConfigurationIds = bindings.map((binding) => String(binding.configurationId ?? ""));
   if (new Set(bindingConfigurationIds).size !== bindingConfigurationIds.length) {
     failures.push("Configuration evidence bindings contain duplicate identities");
   }
+  if (
+    bindingConfigurationIds.length !== expected.length ||
+    bindingConfigurationIds.some((configurationId) => !expected.includes(configurationId))
+  ) {
+    failures.push("Configuration evidence bindings do not exactly match the approved set");
+  }
   const byConfiguration = new Map(bindings.map((binding) => [String(binding.configurationId ?? ""), binding]));
   for (const configurationId of expected) {
     const binding = byConfiguration.get(configurationId);
     if (
       binding === undefined ||
+      !hasExactOwnFields(binding, CONFIGURATION_BINDING_FIELDS) ||
       binding.completeLogs !== true ||
       binding.matchesCandidate !== true ||
       binding.result !== "PASS" ||
+      binding.platform !== "windows" ||
+      binding.architecture !== "x64" ||
+      binding.browserFamily !== "chromium" ||
+      !SUPPORTED_CHROMIUM_RUNTIME_PRODUCTS.includes(binding.browserRuntimeProduct) ||
+      !isBoundedRuntimeVersion(binding.browserRuntimeVersion) ||
+      !SHA256_PATTERN.test(String(binding.browserExecutableSha256 ?? "")) ||
+      binding.productionPathExercised !== true ||
+      binding.zeroExternalAttempts !== true ||
+      (candidate !== undefined && (
+        binding.candidateCommit !== candidate?.commit ||
+        binding.candidateTree !== candidate?.tree
+      )) ||
       !SHA256_PATTERN.test(String(binding.evidenceManifestSha256 ?? ""))
     ) {
       failures.push(`Configuration ${configurationId} lacks complete exact-candidate PASS evidence`);
     }
   }
+  const native = byConfiguration.get(SUPPORTED_WINDOWS_CONFIGURATION_IDS[0]);
+  if (
+    native?.fileAccessPosture !== "native-broker" ||
+    native?.hostNetworkPosture !== "adapters-on-controlled-lan" ||
+    native?.browserRuntimeProduct !== "microsoft-edge-webview2"
+  ) {
+    failures.push("Native-broker configuration posture is incomplete");
+  }
+  const packaged = byConfiguration.get(SUPPORTED_WINDOWS_CONFIGURATION_IDS[1]);
+  if (
+    packaged?.fileAccessPosture !== "packaged-browser-disabled" ||
+    packaged?.hostNetworkPosture !== "adapters-off" ||
+    !["google-chrome", "microsoft-edge"].includes(packaged?.browserRuntimeProduct)
+  ) {
+    failures.push("Packaged adapters-off configuration posture is incomplete");
+  }
   return { complete: failures.length === 0, failures };
+}
+
+function isBoundedRuntimeVersion(value) {
+  return typeof value === "string" && /^[A-Za-z0-9][A-Za-z0-9._+ -]{0,127}$/u.test(value);
+}
+
+export function assessIsolationClosureEvidence(value, candidate) {
+  const failures = [];
+  const isRecord = value !== null && typeof value === "object" && !Array.isArray(value);
+  if (
+    !isRecord ||
+    value.schemaVersion !== "1.0" ||
+    value.evidenceKind !== "PHASE2_ISOLATION_CLOSURE_INPUT" ||
+    value.candidateCommit !== candidate?.commit ||
+    value.candidateTree !== candidate?.tree
+  ) {
+    failures.push("Closure evidence is not an exact-candidate schema 1.0 isolation input");
+  }
+  const observedFields = isRecord ? Object.keys(value).sort((left, right) => left.localeCompare(right, "en-US")) : [];
+  if (
+    observedFields.length !== ISOLATION_CLOSURE_REQUIRED_FIELDS.length ||
+    ISOLATION_CLOSURE_REQUIRED_FIELDS.some((field) => !observedFields.includes(field))
+  ) {
+    failures.push("Closure evidence fields do not exactly match the machine-readable contract");
+  }
+  const assessments = {
+    backing: assessFixedNativeBackingAttestation(value?.fixedNativeBackingAttestation, candidate),
+    boundary: assessBoundaryFuzzCoverage(value?.boundaryFuzzCoverage),
+    configuration: assessConfigurationCoverage(value?.configurationCoverage, candidate),
+    export: assessVendorDeployableExportRejection(value?.vendorDeployableExportRejection),
+    topology: assessLiveLanTopologyVariation(value?.liveLanTopologyVariation, candidate),
+  };
+  for (const [name, assessment] of Object.entries(assessments)) {
+    failures.push(...assessment.failures.map((failure) => `${name}: ${failure}`));
+  }
+  return { assessments, complete: failures.length === 0, failures };
+}
+
+export function isolationGateProofFieldsFromClosure(value, candidate) {
+  const assessment = assessIsolationClosureEvidence(value, candidate);
+  if (!assessment.complete) {
+    throw new Error(`Isolation closure is non-credit: ${assessment.failures.join("; ")}`);
+  }
+  return {
+    boundaryFuzzCoverage: structuredClone(value.boundaryFuzzCoverage),
+    fixedNativeBackingAttestation: structuredClone(value.fixedNativeBackingAttestation),
+    isolationApproval: {
+      decisionId: value.configurationCoverage.approvalDecisionId,
+      sha256: value.configurationCoverage.approvalSha256,
+    },
+    isolationSchemaVersion: ISOLATION_EVIDENCE_RECORD_SCHEMA_VERSION,
+    liveLanTopologyVariation: structuredClone(value.liveLanTopologyVariation),
+    platformConfigurations: structuredClone(value.configurationCoverage.evidenceBindings),
+    vendorDeployableExportRejection: structuredClone(value.vendorDeployableExportRejection),
+  };
 }
 
 export function assessEvidenceCompleteness(report) {
@@ -524,9 +954,25 @@ export function assessEvidenceCompleteness(report) {
   if (report.assertions?.fixedNativeLocalBackingProven !== true) {
     failures.push("Fixed native local non-provider non-removable file backing was not proven");
   }
+  const fixedNativeBacking = assessFixedNativeBackingAttestation(
+    report.fixedNativeBackingAttestation,
+    report.candidate,
+  );
+  failures.push(...fixedNativeBacking.failures);
   if (report.assertions?.vendorDeployableExportRejectionProven !== true) {
     failures.push("Every export surface was not proven to reject vendor or deployable artifacts");
   }
+  const boundaryFuzzCoverage = assessBoundaryFuzzCoverage(report.boundaryFuzzCoverage);
+  failures.push(...boundaryFuzzCoverage.failures);
+  const liveLanTopologyVariation = assessLiveLanTopologyVariation(
+    report.liveLanTopologyVariation,
+    report.candidate,
+  );
+  failures.push(...liveLanTopologyVariation.failures);
+  const exportRejection = assessVendorDeployableExportRejection(
+    report.vendorDeployableExportRejection,
+  );
+  failures.push(...exportRejection.failures);
   if (report.assertions?.loopbackTrafficAccounted !== true) {
     failures.push("Loopback test/control traffic was not separately accounted");
   }
@@ -566,8 +1012,23 @@ export function assessEvidenceCompleteness(report) {
   if (report.chromiumNetLog?.parsed !== true) {
     failures.push("Chromium NetLog was unavailable or malformed");
   }
-  const configurationCoverage = assessConfigurationCoverage(report.configurationCoverage);
+  const configurationCoverage = assessConfigurationCoverage(report.configurationCoverage, report.candidate);
   failures.push(...configurationCoverage.failures);
+  const packagedBinding = Array.isArray(report.configurationCoverage?.evidenceBindings)
+    ? report.configurationCoverage.evidenceBindings.find(({ configurationId }) =>
+      configurationId === SUPPORTED_WINDOWS_CONFIGURATION_IDS[1])
+    : undefined;
+  if (
+    packagedBinding === undefined ||
+    !SUPPORTED_CHROMIUM_RUNTIME_PRODUCTS.includes(report.browser?.browserRuntimeProduct) ||
+    !isBoundedRuntimeVersion(report.browser?.browserRuntimeVersion) ||
+    !SHA256_PATTERN.test(String(report.browser?.browserExecutableSha256 ?? "")) ||
+    packagedBinding.browserRuntimeProduct !== report.browser?.browserRuntimeProduct ||
+    packagedBinding.browserRuntimeVersion !== report.browser?.browserRuntimeVersion ||
+    packagedBinding.browserExecutableSha256 !== report.browser?.browserExecutableSha256
+  ) {
+    failures.push("The packaged configuration row does not match the measured Chromium runtime identity");
+  }
   return { complete: failures.length === 0, failures };
 }
 

@@ -31,9 +31,9 @@ Exact implementation and test paths for every row are recorded in `PHASE2_COVERA
 | `VER-IR-0001` | `IMPLEMENTED_EVIDENCE_READY` | None found in this static pass; executable evidence remains required. |
 | `VER-ISO-0001` | `IMPLEMENTED_EVIDENCE_READY` | None found in this static pass; executable evidence remains required. |
 | `VER-ISO-0002` | `IMPLEMENTED_EVIDENCE_READY` | None found in this static pass; executable evidence remains required. |
-| `VER-ISO-0003` | `PARTIAL` | The inert fuzz corpus is not yet routed through every applicable file-metadata, navigation, trace-export, and saved-project typed boundary.<br>Controlled live-LAN topology variation is not available in the current single-host run. |
-| `VER-ISO-0004` | `PARTIAL` | Chooser/open/create/replace lacks a complete adversarial proof that only side-effect-free handle metadata is inspected before acceptance.<br>Remote/removable/device-file/API, pipe/socket, redirect/escape, print/spool, and unapproved-helper effects lack an exhaustive negative matrix.<br>Every export surface is not tested to reject vendor/deployable artifacts. |
-| `VER-ISO-0005` | `PARTIAL` | No current machine-readable runtime isolation evidence package covers every supported platform/configuration with complete bound logs. |
+| `VER-ISO-0003` | `PARTIAL` | Two genuine operator-controlled live-LAN topology runs with stable pre/post fingerprints and invariant product output have not been collected.<br>The concrete native shell host needed to exercise the admitted adapters-on renderer/broker configuration is not implemented. |
+| `VER-ISO-0004` | `PARTIAL` | No concrete native shell host installs the approved bridge into the production renderer, so open/create/replace cannot yet receive productionPathExercised credit.<br>Complete exact-candidate Windows runtime logs have not yet bound the native backing attestations and four export-surface results into one evidence record. |
+| `VER-ISO-0005` | `PARTIAL` | No current machine-readable runtime isolation package binds complete real logs for both approved Windows configuration rows.<br>The adapters-on topology pair and adapters-off before/after host-state runs remain unexecuted. |
 | `VER-KRN-0001` | `IMPLEMENTED_EVIDENCE_READY` | None found in this static pass; executable evidence remains required. |
 | `VER-KRN-0002` | `IMPLEMENTED_EVIDENCE_READY` | None found in this static pass; executable evidence remains required. |
 | `VER-LAD-0001` | `IMPLEMENTED_EVIDENCE_READY` | None found in this static pass; executable evidence remains required. |
@@ -95,4 +95,4 @@ Deliverable: Complete vocabulary/clarification/reservation audits and extend the
 
 Every requirement record remains at its extracted truth state and its Appendix H area mapping remains explicitly unreviewed. The machine-readable audit lists all requirement IDs, candidate proof IDs, static signals, empty execution-evidence IDs, and zero verification credit.
 
-Evidence-surface binding: `055795F026A3C92FA301076EEB59BF7F283A5889C1C9520FCB8E781779853A9C` across 223 production/test/governance files. Exact candidate commit/tree binding remains the responsibility of the Phase 2 exit gate.
+Evidence-surface binding: `02DCFB3F922AC6F91E1886526CBD77EF11A37857A18AA9DF15DD240368F8DE28` across 246 production/test/governance files. Exact candidate commit/tree binding remains the responsibility of the Phase 2 exit gate.

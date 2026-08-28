@@ -10,6 +10,8 @@ from verify_phase2 import (
     EXPECTED_REQUIREMENT_COUNT,
     EXPECTED_VERIFICATION_COUNT,
     G2_IDS,
+    ISOLATION_FUZZ_CASE_IDS_SHA256,
+    ISOLATION_FUZZ_CORPUS_SHA256,
     JOURNEY_IDS,
     accounted_untracked_paths,
     git_blob_sources,
@@ -57,12 +59,181 @@ class Phase2GateTests(unittest.TestCase):
         return {
             "candidateCommit": "a" * 40,
             "candidateTree": "b" * 40,
+            "isolationApprovalDecisionId": "P2-DEC-ISO-NATIVE-001",
+            "isolationApprovalSha256": "2" * 64,
             "productionSourceSha256": "C" * 64,
             "testSourceSha256": "D" * 64,
             "requirementsSourceSha256": "E" * 64,
             "requirementRegistrySha256": "F" * 64,
             "verificationCatalogSha256": "0" * 64,
             "directiveSha256": "1" * 64,
+        }
+
+    def isolation_fields(self) -> dict:
+        self.assertEqual(
+            ISOLATION_FUZZ_CORPUS_SHA256,
+            "C61573EF4B2B686E4DC8E326505B65BFFFC4FFE247D8BE2855612F0D6D3D0F66",
+        )
+        self.assertEqual(
+            ISOLATION_FUZZ_CASE_IDS_SHA256,
+            "D7FDF0D3ED6E8BF03772F83F44E7F51E432BE67DE0BD20B247FFE076DFD329F8",
+        )
+        binding = self.binding()
+        digest = "A" * 64
+        configuration_ids = [
+            "windows-x64-chromium-native-broker-adapters-on",
+            "windows-x64-chromium-packaged-adapters-off",
+        ]
+        boundary_ids = [
+            "file-metadata-open",
+            "file-metadata-create",
+            "file-metadata-replace",
+            "project-display-name",
+            "saved-project-decode",
+            "scl-source-text",
+            "semantic-navigation",
+            "trace-export-canonical-json",
+            "trace-export-csv",
+            "virtual-download-target",
+        ]
+        boundary = {
+            "schemaVersion": "1.0",
+            "complete": True,
+            "result": "PASS",
+            "caseCount": 27,
+            "corpusSha256": ISOLATION_FUZZ_CORPUS_SHA256,
+            "caseIdsSha256": ISOLATION_FUZZ_CASE_IDS_SHA256,
+        }
+        boundary["boundaries"] = [
+            {
+                "boundaryId": boundary_id,
+                "caseCount": 27,
+                "corpusSha256": ISOLATION_FUZZ_CORPUS_SHA256,
+                "caseIdsSha256": ISOLATION_FUZZ_CASE_IDS_SHA256,
+                "externalAttemptCount": 0,
+                "productionPathExercised": True,
+                "sideEffectsObserved": False,
+                "result": "PASS",
+            }
+            for boundary_id in boundary_ids
+        ]
+        topology = {
+            "schemaVersion": "1.0",
+            "complete": True,
+            "result": "PASS",
+            "applicationNetworkCapabilityPresent": False,
+            "discoveryApiSurfacePresent": False,
+            "scenarios": [
+                {
+                    "scenarioId": scenario_id,
+                    "topologyFingerprint": topology_digest,
+                    "controlledInputSha256": "C" * 64,
+                    "deterministicOutputSha256": "D" * 64,
+                    "candidateCommit": binding["candidateCommit"],
+                    "candidateTree": binding["candidateTree"],
+                    "configurationId": configuration_ids[0],
+                    "platform": "windows",
+                    "architecture": "x64",
+                    "preTopologyFingerprint": topology_digest,
+                    "postTopologyFingerprint": topology_digest,
+                    "topologySource": "WINDOWS_LIVE_ADAPTER_SNAPSHOT",
+                    "topologyMutationControl": "EXTERNAL_LAB_OR_OPERATOR_CONTROLLED",
+                    "completeLogs": True,
+                    "externalAttemptCount": 0,
+                    "productionPathExercised": True,
+                    "result": "PASS",
+                    "evidenceManifestSha256": digest,
+                }
+                for scenario_id, topology_digest in (("lan-a", "E" * 64), ("lan-b", "F" * 64))
+            ],
+        }
+        backing = {
+            "schemaVersion": "1.0",
+            "complete": True,
+            "result": "PASS",
+            "decisionId": "P2-DEC-ISO-NATIVE-001",
+            "candidateCommit": binding["candidateCommit"],
+            "candidateTree": binding["candidateTree"],
+            "platform": "windows",
+            "architecture": "x64",
+            "evidenceManifestSha256": digest,
+            "operations": [
+                {
+                    "operationId": operation_id,
+                    "attestationVersion": 1,
+                    "fixedLocalBacking": True,
+                    "providerBacked": False,
+                    "remote": False,
+                    "removable": False,
+                    "special": False,
+                    "redirected": False,
+                    "unsafeTarget": False,
+                    "metadataOnlyBeforeAcceptance": True,
+                    "selectedByteIoBeforeAcceptance": False,
+                    "unapprovedHelperEffectObserved": False,
+                    "productionPathExercised": True,
+                    "result": "PASS",
+                }
+                for operation_id in ("open", "create", "replace")
+            ],
+        }
+        exports = {
+            "schemaVersion": "1.0",
+            "complete": True,
+            "result": "PASS",
+            "surfaces": [
+                {
+                    "surfaceId": surface_id,
+                    "closedFormatSet": True,
+                    "deployableArtifactAttemptsRejected": True,
+                    "vendorArtifactAttemptsRejected": True,
+                    "productionPathExercised": True,
+                    "sideEffectsObserved": False,
+                    "result": "PASS",
+                }
+                for surface_id in (
+                    "project-native-save",
+                    "replay-verification-package",
+                    "trace-canonical-json",
+                    "trace-csv",
+                )
+            ],
+        }
+        platforms = [
+            {
+                "configurationId": configuration_id,
+                "platform": "windows",
+                "architecture": "x64",
+                "browserExecutableSha256": digest,
+                "browserFamily": "chromium",
+                "browserRuntimeProduct": (
+                    "microsoft-edge-webview2" if index == 0 else "microsoft-edge"
+                ),
+                "browserRuntimeVersion": "140.0.0.0",
+                "fileAccessPosture": "native-broker" if index == 0 else "packaged-browser-disabled",
+                "hostNetworkPosture": "adapters-on-controlled-lan" if index == 0 else "adapters-off",
+                "candidateCommit": binding["candidateCommit"],
+                "candidateTree": binding["candidateTree"],
+                "completeLogs": True,
+                "matchesCandidate": True,
+                "productionPathExercised": True,
+                "zeroExternalAttempts": True,
+                "result": "PASS",
+                "evidenceManifestSha256": digest,
+            }
+            for index, configuration_id in enumerate(configuration_ids)
+        ]
+        return {
+            "isolationApproval": {
+                "decisionId": binding["isolationApprovalDecisionId"],
+                "sha256": binding["isolationApprovalSha256"],
+            },
+            "isolationSchemaVersion": "2.0",
+            "platformConfigurations": platforms,
+            "boundaryFuzzCoverage": boundary,
+            "liveLanTopologyVariation": topology,
+            "fixedNativeBackingAttestation": backing,
+            "vendorDeployableExportRejection": exports,
         }
 
     def evidence(
@@ -117,7 +288,7 @@ class Phase2GateTests(unittest.TestCase):
                 {
                     "zeroExternalAttempts": True,
                     "instrumentationStatus": "COMPLETE",
-                    "platformConfigurations": ["windows-adapters-on", "windows-adapters-off"],
+                    **self.isolation_fields(),
                 }
             )
         return record
@@ -167,6 +338,87 @@ class Phase2GateTests(unittest.TestCase):
         codes = [failure.code for failure in failures]
         self.assertIn("P2-EVID-0003", codes)
         self.assertGreaterEqual(codes.count("P2-EVID-0008"), 3)
+
+    def test_isolation_record_rejects_string_platform_theater_and_invariant_mutations(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            log = base / "isolation.log"
+            log.write_text("complete isolation output\n", encoding="utf-8")
+            record = self.evidence(
+                "E-ISOLATION",
+                "ISOLATION",
+                {"requirements": [], "verifications": [], "journeys": ["G"], "gates": ["G2-12"]},
+                log,
+                ["ISOLATION"],
+            )
+            record["platformConfigurations"] = ["windows-adapters-on", "windows-adapters-off"]
+            record["isolationApproval"]["sha256"] = "3" * 64
+            record["boundaryFuzzCoverage"]["corpusSha256"] = "A" * 64
+            record["liveLanTopologyVariation"]["scenarios"][1]["deterministicOutputSha256"] = "9" * 64
+            record["liveLanTopologyVariation"]["scenarios"][0]["postTopologyFingerprint"] = "8" * 64
+            record["fixedNativeBackingAttestation"]["operations"][0]["providerBacked"] = True
+            record["vendorDeployableExportRejection"]["surfaces"].pop()
+            failures = validate_evidence_record(record, self.binding(), base)
+        codes = {failure.code for failure in failures}
+        self.assertTrue(
+            {
+                "P2-EVID-0026",
+                "P2-EVID-0028",
+                "P2-EVID-0030",
+                "P2-EVID-0031",
+                "P2-EVID-0033",
+                "P2-EVID-0034",
+                "P2-EVID-0036",
+            }.issubset(codes)
+        )
+
+    def test_isolation_record_rejects_unrecognized_nested_proof_fields(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            log = base / "isolation.log"
+            log.write_text("complete isolation output\n", encoding="utf-8")
+            record = self.evidence(
+                "E-ISOLATION",
+                "ISOLATION",
+                {"requirements": [], "verifications": [], "journeys": ["G"], "gates": ["G2-12"]},
+                log,
+                ["ISOLATION"],
+            )
+            record["platformConfigurations"][0]["theater"] = False
+            record["boundaryFuzzCoverage"]["boundaries"][0]["theater"] = False
+            record["liveLanTopologyVariation"]["scenarios"][0]["theater"] = False
+            record["fixedNativeBackingAttestation"]["operations"][0]["theater"] = False
+            record["vendorDeployableExportRejection"]["surfaces"][0]["theater"] = False
+            failures = validate_evidence_record(record, self.binding(), base)
+        codes = {failure.code for failure in failures}
+        self.assertTrue(
+            {
+                "P2-EVID-0027",
+                "P2-EVID-0029",
+                "P2-EVID-0031",
+                "P2-EVID-0033",
+                "P2-EVID-0035",
+            }.issubset(codes)
+        )
+
+    def test_isolation_runtime_identity_must_match_each_supported_product_path(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            log = base / "isolation.log"
+            log.write_text("complete isolation output\n", encoding="utf-8")
+            record = self.evidence(
+                "E-ISOLATION",
+                "ISOLATION",
+                {"requirements": [], "verifications": [], "journeys": ["G"], "gates": ["G2-12"]},
+                log,
+                ["ISOLATION"],
+            )
+            record["platformConfigurations"][0]["browserRuntimeProduct"] = "microsoft-edge"
+            record["platformConfigurations"][1]["browserRuntimeProduct"] = (
+                "microsoft-edge-webview2"
+            )
+            failures = validate_evidence_record(record, self.binding(), base)
+        self.assertIn("P2-EVID-0027", {failure.code for failure in failures})
 
     def test_complete_synthetic_claim_has_a_reachable_pass_path(self) -> None:
         registry, catalog = self.catalogs()
