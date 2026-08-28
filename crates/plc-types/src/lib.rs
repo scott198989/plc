@@ -1060,7 +1060,10 @@ pub fn convert(
 ) -> Result<TypedScalar, ScalarFault> {
     let source = value.data_type;
     if source == destination {
-        return Ok(value.clone());
+        return source
+            .is_integer()
+            .then(|| value.clone())
+            .ok_or(ScalarFault::Conversion);
     }
     if source.is_integer() && destination.is_integer() {
         let mathematical_bits = match value.value {
@@ -1134,7 +1137,7 @@ pub fn convert(
 #[must_use]
 pub fn explicit_conversion_allowed(source: PrimitiveType, destination: PrimitiveType) -> bool {
     if source == destination {
-        return true;
+        return source.is_integer();
     }
     (source.is_integer() && destination.is_integer())
         || (source.is_integer()
