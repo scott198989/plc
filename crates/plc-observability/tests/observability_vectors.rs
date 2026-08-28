@@ -1132,15 +1132,30 @@ fn diagnostics_have_fixed_registry_uuid_lifecycle_caps_and_one_gap() {
 fn navigation_is_identity_based_side_aware_and_transactional() {
     let offline = hash("offline");
     let loaded = hash("loaded");
-    let mut builder = NavigationIndexBuilder::new(1, offline, Some(loaded)).unwrap();
+    let mut builder = NavigationIndexBuilder::new(
+        1,
+        offline,
+        Some(LoadedArtifactBinding {
+            fingerprint: loaded,
+            controller_epoch: 9,
+        }),
+    )
+    .unwrap();
     builder
         .insert_anchor(NavigationAnchor {
             identity: SemanticIdentity(1),
             kind: NavigationKind::SourceSpan,
             side: ArtifactSide::CurrentOffline,
             artifact_fingerprint: offline,
+            controller_epoch: None,
             source: None,
+            domain_projection: Some(NavigationDomainProjection::ProgramMember {
+                owner_identity: 1,
+                member_identity: 1,
+            }),
             probe_target: None,
+            relationship_kind: NavigationRelationshipKind::Selected,
+            validity: NavigationValidity::Valid,
             tombstone_reason_hash: None,
         })
         .unwrap();
@@ -1150,8 +1165,15 @@ fn navigation_is_identity_based_side_aware_and_transactional() {
             kind: NavigationKind::SourceSpan,
             side: ArtifactSide::Loaded,
             artifact_fingerprint: loaded,
+            controller_epoch: Some(9),
             source: None,
+            domain_projection: Some(NavigationDomainProjection::ProgramMember {
+                owner_identity: 1,
+                member_identity: 1,
+            }),
             probe_target: Some(StableTargetId(10)),
+            relationship_kind: NavigationRelationshipKind::Selected,
+            validity: NavigationValidity::Valid,
             tombstone_reason_hash: None,
         })
         .unwrap();
@@ -1161,8 +1183,12 @@ fn navigation_is_identity_based_side_aware_and_transactional() {
             kind: NavigationKind::Tombstone,
             side: ArtifactSide::CurrentOffline,
             artifact_fingerprint: offline,
+            controller_epoch: None,
             source: None,
+            domain_projection: None,
             probe_target: None,
+            relationship_kind: NavigationRelationshipKind::Selected,
+            validity: NavigationValidity::TargetRemoved,
             tombstone_reason_hash: Some(hash("deleted")),
         })
         .unwrap();

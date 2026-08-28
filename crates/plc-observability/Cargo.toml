@@ -13,6 +13,7 @@ path = "src/lib.rs"
 [dependencies]
 plc-runtime = { path = "../plc-runtime" }
 plc-commissioning = { path = "../plc-commissioning" }
+plc-hardware = { path = "../plc-hardware" }
 plc-types = { path = "../plc-types" }
 
 [lints.rust]

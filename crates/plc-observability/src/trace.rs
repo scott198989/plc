@@ -8,6 +8,7 @@ use core::{error::Error, fmt};
 
 use plc_commissioning::CommissionedScanReceipt;
 use plc_runtime::{CanonicalValue, CpuState, Hash32, RunOutcome, SCAN_QUANTUM_MS};
+use plc_types::{CanonicalF32, CanonicalF64};
 
 use crate::{
     DiagnosticEvent, DiagnosticEventKind, DiagnosticId, DiagnosticRegistry, ForceProvenance,
@@ -140,37 +141,55 @@ impl TraceRuntimePublication {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NumericValue {
-    Signed(i64),
-    Unsigned(u64),
+    I8(i8),
+    I16(i16),
+    I32(i32),
+    I64(i64),
+    U8(u8),
+    U16(u16),
+    U32(u32),
+    U64(u64),
+    TimeMs(i64),
+    F32(CanonicalF32),
+    F64(CanonicalF64),
 }
 
 impl NumericValue {
     fn from_canonical(value: CanonicalValue) -> Option<Self> {
         match value {
-            CanonicalValue::I32(value) => Some(Self::Signed(i64::from(value))),
-            CanonicalValue::I64(value) => Some(Self::Signed(value)),
-            CanonicalValue::U32(value) => Some(Self::Unsigned(u64::from(value))),
-            CanonicalValue::TimeMs(value) => Some(Self::Signed(value)),
-            CanonicalValue::I8(value) => Some(Self::Signed(i64::from(value))),
-            CanonicalValue::I16(value) => Some(Self::Signed(i64::from(value))),
-            CanonicalValue::U8(value) => Some(Self::Unsigned(u64::from(value))),
-            CanonicalValue::U16(value) => Some(Self::Unsigned(u64::from(value))),
-            CanonicalValue::U64(value) => Some(Self::Unsigned(value)),
+            CanonicalValue::I8(value) => Some(Self::I8(value)),
+            CanonicalValue::I16(value) => Some(Self::I16(value)),
+            CanonicalValue::I32(value) => Some(Self::I32(value)),
+            CanonicalValue::I64(value) => Some(Self::I64(value)),
+            CanonicalValue::U8(value) => Some(Self::U8(value)),
+            CanonicalValue::U16(value) => Some(Self::U16(value)),
+            CanonicalValue::U32(value) => Some(Self::U32(value)),
+            CanonicalValue::U64(value) => Some(Self::U64(value)),
+            CanonicalValue::TimeMs(value) => Some(Self::TimeMs(value)),
+            CanonicalValue::F32(value) => Some(Self::F32(value)),
+            CanonicalValue::F64(value) => Some(Self::F64(value)),
             CanonicalValue::Bool(_)
             | CanonicalValue::Bits8(_)
             | CanonicalValue::Bits16(_)
             | CanonicalValue::Bits32(_)
             | CanonicalValue::Bits64(_)
-            | CanonicalValue::F32(_)
-            | CanonicalValue::F64(_)
             | CanonicalValue::Char(_) => None,
         }
     }
 
-    fn as_i128(self) -> i128 {
+    const fn value_type(self) -> ValueType {
         match self {
-            Self::Signed(value) => i128::from(value),
-            Self::Unsigned(value) => i128::from(value),
+            Self::I8(_) => ValueType::I8,
+            Self::I16(_) => ValueType::I16,
+            Self::I32(_) => ValueType::I32,
+            Self::I64(_) => ValueType::I64,
+            Self::U8(_) => ValueType::U8,
+            Self::U16(_) => ValueType::U16,
+            Self::U32(_) => ValueType::U32,
+            Self::U64(_) => ValueType::U64,
+            Self::TimeMs(_) => ValueType::TimeMs,
+            Self::F32(_) => ValueType::F32,
+            Self::F64(_) => ValueType::F64,
         }
     }
 }
@@ -656,7 +675,6 @@ impl TraceEngine {
             .get(&id)
             .cloned()
             .ok_or(TraceError::UnknownConfiguration(id))?;
-        self.terminal_states.insert(id, TraceState::Validating);
         let mut resolved_channels = Vec::with_capacity(config.channels.len());
         let mut unique = BTreeSet::new();
         let mut channel_identity = BTreeSet::new();
@@ -676,6 +694,7 @@ impl TraceEngine {
             resolved_channels.push(resolved);
         }
         validate_trigger_channels(&config.trigger, &channel_identity)?;
+        validate_trigger_types(&config.trigger, &resolved_channels)?;
         validate_diagnostic_trigger(&config.trigger, diagnostic_registry, catalog, context)?;
         let config_hash = hash_config(&config);
         let armed_event_key = TraceEventKey {
@@ -1411,6 +1430,58 @@ fn validate_trigger_channels(
     }
 }
 
+fn validate_trigger_types(
+    trigger: &TraceTrigger,
+    channels: &[ResolvedTraceChannel],
+) -> Result<(), TraceError> {
+    match trigger {
+        TraceTrigger::BooleanRising(channel) | TraceTrigger::BooleanFalling(channel) => {
+            validate_channel_type(*channel, ValueType::Bool, channels)
+        }
+        TraceTrigger::NumericCrossing {
+            channel, threshold, ..
+        } => validate_channel_type(*channel, threshold.value_type(), channels),
+        TraceTrigger::Expression(expression) => validate_expression_types(expression, channels),
+        TraceTrigger::Immediate | TraceTrigger::DiagnosticEvent(_) => Ok(()),
+    }
+}
+
+fn validate_expression_types(
+    expression: &ExpressionNode,
+    channels: &[ResolvedTraceChannel],
+) -> Result<(), TraceError> {
+    match expression {
+        ExpressionNode::BooleanChannel(channel) => {
+            validate_channel_type(*channel, ValueType::Bool, channels)
+        }
+        ExpressionNode::NumericComparison {
+            channel, threshold, ..
+        } => validate_channel_type(*channel, threshold.value_type(), channels),
+        ExpressionNode::Not(child) => validate_expression_types(child, channels),
+        ExpressionNode::All(children) | ExpressionNode::Any(children) => {
+            for child in children {
+                validate_expression_types(child, channels)?;
+            }
+            Ok(())
+        }
+    }
+}
+
+fn validate_channel_type(
+    channel: TraceChannelId,
+    expected: ValueType,
+    channels: &[ResolvedTraceChannel],
+) -> Result<(), TraceError> {
+    if channels
+        .iter()
+        .any(|resolved| resolved.channel_id == channel && resolved.value_type == expected)
+    {
+        Ok(())
+    } else {
+        Err(TraceError::TriggerTypeMismatch(channel))
+    }
+}
+
 fn collect_trigger_channels(trigger: &TraceTrigger, channels: &mut BTreeSet<TraceChannelId>) {
     match trigger {
         TraceTrigger::BooleanRising(channel)
@@ -1493,8 +1564,15 @@ fn evaluate_trigger(
                 .get(channel)
                 .and_then(|value| NumericValue::from_canonical(*value))
                 .ok_or(TraceError::TriggerTypeMismatch(*channel))?;
-            old.is_some_and(|old| !compare(old, *operator, *threshold))
-                && compare(new, *operator, *threshold)
+            let old_matches = old
+                .map(|old| {
+                    compare(old, *operator, *threshold)
+                        .ok_or(TraceError::TriggerTypeMismatch(*channel))
+                })
+                .transpose()?;
+            let new_matches = compare(new, *operator, *threshold)
+                .ok_or(TraceError::TriggerTypeMismatch(*channel))?;
+            old_matches == Some(false) && new_matches
         }
         TraceTrigger::Expression(expression) => evaluate_expression(expression, current)?,
         TraceTrigger::DiagnosticEvent(expected) => {
@@ -1563,7 +1641,7 @@ fn evaluate_expression(
                 .get(channel)
                 .and_then(|value| NumericValue::from_canonical(*value))
                 .ok_or(TraceError::TriggerTypeMismatch(*channel))?;
-            Ok(compare(value, *operator, *threshold))
+            compare(value, *operator, *threshold).ok_or(TraceError::TriggerTypeMismatch(*channel))
         }
         ExpressionNode::Not(child) => Ok(!evaluate_expression(child, current)?),
         ExpressionNode::All(children) => {
@@ -1585,9 +1663,44 @@ fn evaluate_expression(
     }
 }
 
-fn compare(left: NumericValue, operator: ComparisonOperator, right: NumericValue) -> bool {
-    let left = left.as_i128();
-    let right = right.as_i128();
+fn compare(left: NumericValue, operator: ComparisonOperator, right: NumericValue) -> Option<bool> {
+    Some(match (left, right) {
+        (NumericValue::I8(left), NumericValue::I8(right)) => compare_values(left, operator, right),
+        (NumericValue::I16(left), NumericValue::I16(right)) => {
+            compare_values(left, operator, right)
+        }
+        (NumericValue::I32(left), NumericValue::I32(right)) => {
+            compare_values(left, operator, right)
+        }
+        (NumericValue::I64(left), NumericValue::I64(right))
+        | (NumericValue::TimeMs(left), NumericValue::TimeMs(right)) => {
+            compare_values(left, operator, right)
+        }
+        (NumericValue::U8(left), NumericValue::U8(right)) => compare_values(left, operator, right),
+        (NumericValue::U16(left), NumericValue::U16(right)) => {
+            compare_values(left, operator, right)
+        }
+        (NumericValue::U32(left), NumericValue::U32(right)) => {
+            compare_values(left, operator, right)
+        }
+        (NumericValue::U64(left), NumericValue::U64(right)) => {
+            compare_values(left, operator, right)
+        }
+        (NumericValue::F32(left), NumericValue::F32(right)) => {
+            compare_values(left.get(), operator, right.get())
+        }
+        (NumericValue::F64(left), NumericValue::F64(right)) => {
+            compare_values(left.get(), operator, right.get())
+        }
+        _ => return None,
+    })
+}
+
+fn compare_values<T: PartialEq + PartialOrd>(
+    left: T,
+    operator: ComparisonOperator,
+    right: T,
+) -> bool {
     match operator {
         ComparisonOperator::Equal => left == right,
         ComparisonOperator::NotEqual => left != right,
@@ -1764,13 +1877,49 @@ fn encode_expression(expression: &ExpressionNode, hasher: &mut CanonicalHasher) 
 
 fn encode_numeric(value: NumericValue, hasher: &mut CanonicalHasher) {
     match value {
-        NumericValue::Signed(value) => {
+        NumericValue::I8(value) => {
             hasher.u8(1);
+            hasher.i32(i32::from(value));
+        }
+        NumericValue::I16(value) => {
+            hasher.u8(2);
+            hasher.i32(i32::from(value));
+        }
+        NumericValue::I32(value) => {
+            hasher.u8(3);
+            hasher.i32(value);
+        }
+        NumericValue::I64(value) => {
+            hasher.u8(4);
             hasher.i64(value);
         }
-        NumericValue::Unsigned(value) => {
-            hasher.u8(2);
+        NumericValue::U8(value) => {
+            hasher.u8(5);
+            hasher.u8(value);
+        }
+        NumericValue::U16(value) => {
+            hasher.u8(6);
+            hasher.u16(value);
+        }
+        NumericValue::U32(value) => {
+            hasher.u8(7);
+            hasher.u32(value);
+        }
+        NumericValue::U64(value) => {
+            hasher.u8(8);
             hasher.u64(value);
+        }
+        NumericValue::TimeMs(value) => {
+            hasher.u8(9);
+            hasher.i64(value);
+        }
+        NumericValue::F32(value) => {
+            hasher.u8(10);
+            hasher.u32(value.bits());
+        }
+        NumericValue::F64(value) => {
+            hasher.u8(11);
+            hasher.u64(value.bits());
         }
     }
 }

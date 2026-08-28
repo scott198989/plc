@@ -371,8 +371,13 @@ fn runtime_mapping(code: RuntimeDiagnosticCode) -> RuntimeMapping {
             lifecycle: DiagnosticLifecycle::OneShot,
         },
         RuntimeDiagnosticCode::ArithmeticDivideByZero
-        | RuntimeDiagnosticCode::ArithmeticOverflow => RuntimeMapping {
+        | RuntimeDiagnosticCode::ArithmeticOverflow
+        | RuntimeDiagnosticCode::InvalidArgument => RuntimeMapping {
             registry_code: "EDU-RTM-0001",
+            lifecycle: DiagnosticLifecycle::Condition,
+        },
+        RuntimeDiagnosticCode::BoundsOrString => RuntimeMapping {
+            registry_code: "EDU-RTM-0002",
             lifecycle: DiagnosticLifecycle::Condition,
         },
         RuntimeDiagnosticCode::TimerOverflow => RuntimeMapping {

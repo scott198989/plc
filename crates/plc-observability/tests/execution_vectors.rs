@@ -17,7 +17,7 @@ fn hash(value: &str) -> Hash32 {
     Sha256::digest(value.as_bytes())
 }
 
-fn package() -> VirtualLoadPackage {
+fn package_with_operation(operation: Operation) -> VirtualLoadPackage {
     let runtime_artifact = ArtifactPackage::seal_verified(ArtifactSpec::edu21(
         hash("execution-profile"),
         vec![plc_runtime::MemoryDefinition {
@@ -33,15 +33,7 @@ fn package() -> VirtualLoadPackage {
             timed: vec![],
             cyclic: ProgramBlock {
                 id: BlockId(1),
-                instructions: vec![Instruction::new(
-                    1,
-                    0x8101,
-                    Operation::AddI32 {
-                        left: Operand::Memory(MEMORY),
-                        right: Operand::Constant(CanonicalValue::I32(1)),
-                        target: MEMORY,
-                    },
-                )],
+                instructions: vec![Instruction::new(1, 0x8101, operation)],
             },
         },
     ))
@@ -72,8 +64,23 @@ fn package() -> VirtualLoadPackage {
     .unwrap()
 }
 
-fn setup() -> (VirtualUniverse, ProbeCatalog) {
-    let package = package();
+fn package() -> VirtualLoadPackage {
+    package_with_operation(Operation::AddI32 {
+        left: Operand::Memory(MEMORY),
+        right: Operand::Constant(CanonicalValue::I32(1)),
+        target: MEMORY,
+    })
+}
+
+fn faulting_package() -> VirtualLoadPackage {
+    package_with_operation(Operation::DivideI32 {
+        numerator: Operand::Constant(CanonicalValue::I32(1)),
+        denominator: Operand::Constant(CanonicalValue::I32(0)),
+        target: MEMORY,
+    })
+}
+
+fn setup_with_package(package: VirtualLoadPackage) -> (VirtualUniverse, ProbeCatalog) {
     let mut offline = OfflineEngineeringState {
         configured: ConfiguredController {
             id: OFFLINE,
@@ -154,6 +161,10 @@ fn setup() -> (VirtualUniverse, ProbeCatalog) {
         })
         .unwrap();
     (universe, catalog)
+}
+
+fn setup() -> (VirtualUniverse, ProbeCatalog) {
+    setup_with_package(package())
 }
 
 fn modify_command(
@@ -362,8 +373,7 @@ fn trace_scan_metrics_are_sampled_from_the_authoritative_commissioned_scan_recei
 
 #[test]
 fn runtime_diagnostic_bridge_ingests_real_provider_events_exactly_once() {
-    let (mut universe, catalog) = setup();
-    let registry = ForceRegistry::new();
+    let (mut universe, _) = setup_with_package(faulting_package());
     let rejected_binding = universe.session_command_binding(SESSION).unwrap();
     assert!(universe.request_stop(rejected_binding).is_err());
     let provider_cpu_event = universe
@@ -413,26 +423,6 @@ fn runtime_diagnostic_bridge_ingests_real_provider_events_exactly_once() {
     assert!(duplicate[0].duplicate);
     assert_eq!(ledger.ledger_hash(), ledger_hash_after_first);
 
-    let mut scheduler = ModifyScheduler::default();
-    let binding = universe.session_command_binding(SESSION).unwrap();
-    let stop_context = ObservationContext::from_virtual_universe(
-        &universe,
-        binding,
-        PublicationBoundary::SerializedCommand,
-    )
-    .unwrap();
-    let mut overflow = modify_command(stop_context, &catalog, &registry);
-    overflow.command_id = 0x8b00;
-    overflow.idempotency_key = 0x8b01;
-    overflow.items[0].value = CanonicalValue::I32(i32::MAX);
-    scheduler
-        .submit(overflow, stop_context, &catalog, &registry)
-        .unwrap();
-    let plan = scheduler
-        .next_due(stop_context, &catalog, &registry)
-        .unwrap()
-        .unwrap();
-    publish_modify_plan(&mut universe, binding, &mut scheduler, &registry, &plan).unwrap();
     let run_binding = universe.session_command_binding(SESSION).unwrap();
     universe
         .request_run(run_binding, RestartKind::WarmRestart)
@@ -441,7 +431,7 @@ fn runtime_diagnostic_bridge_ingests_real_provider_events_exactly_once() {
         .run_scan(universe.session_command_binding(SESSION).unwrap())
         .unwrap()
     else {
-        panic!("overflowing AddI32 must fault the authoritative runtime");
+        panic!("division by zero must fault the authoritative runtime");
     };
 
     let receipts = bridge

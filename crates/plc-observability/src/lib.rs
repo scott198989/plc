@@ -8,6 +8,7 @@ mod context;
 mod diagnostics;
 mod execution;
 mod force;
+mod hardware_diagnostics;
 mod layers;
 mod modify;
 mod monitor;
@@ -34,6 +35,10 @@ pub use force::{
     ForceId, ForceReceipt, ForceRegistry, ForceRegistrySnapshot, ForceStatus, ForceWritePlan,
     GlobalForceProjection, GlobalForceProjectionEntry, RemoveAllApproval, RemoveAllPreview,
 };
+pub use hardware_diagnostics::{
+    HardwareDiagnosticBridge, HardwareDiagnosticBridgeError, HardwareDiagnosticProviderKey,
+    HardwareDiagnosticReceipt,
+};
 pub use layers::{
     CanonicalLayerBundle, CanonicalLayerSnapshot, EngineeringValueLayers, LayerCodecLimits,
     LayerError, LayerForce, LayerTargetKind, RuntimeValueLayers, ScalarEngineeringValueLayers,
@@ -49,8 +54,9 @@ pub use monitor::{
     RuntimeIoState, SampleFreshness, WatchRow, WatchRowId, WatchTable, WatchTableId,
 };
 pub use navigation::{
-    ArtifactSide, NavigationAnchor, NavigationError, NavigationIndex, NavigationIndexBuilder,
-    NavigationKind, NavigationResult, SemanticIdentity,
+    ArtifactSide, LoadedArtifactBinding, NavigationAnchor, NavigationDomainProjection,
+    NavigationError, NavigationIndex, NavigationIndexBuilder, NavigationKind,
+    NavigationRelationshipKind, NavigationResult, NavigationValidity, SemanticIdentity,
 };
 pub use runtime_diagnostics::{
     RuntimeDiagnosticBridge, RuntimeDiagnosticBridgeError, RuntimeDiagnosticProviderKey,
