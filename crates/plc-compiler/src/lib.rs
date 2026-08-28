@@ -46,9 +46,10 @@ pub use ids::{
 pub use ir::{
     BinaryOperator, IrActivation, IrAggregateSource, IrBasicBlock, IrBoundInput, IrDeclaredOutput,
     IrFormalRef, IrFunction, IrInstanceIdentity, IrOperation, IrOperationKind, IrTerminator,
-    IrTerminatorKind, IrType, IrValue, ProbeDefinition, ProbeKind, ProbeTable, RuntimeOperationId,
-    SourceMapEntry, SourceMapSite, SourceMapTable, TypedIrProgram, UnaryOperator,
-    VerificationError, VerifiedIr, verify_typed_ir,
+    IrTerminatorKind, IrType, IrValue, ProbeDefinition, ProbeKind, ProbeTable,
+    ResolvedSourceAnchor, RuntimeOperationId, SourceAnchorResolution,
+    SourceAnchorUnavailableReason, SourceMapEntry, SourceMapSite, SourceMapTable, TypedIrProgram,
+    UnaryOperator, VerificationError, VerifiedIr, verify_typed_ir,
 };
 pub use limits::{CancellationToken, ResourceLimit, ResourceLimits, ResourceProfileError};
 pub use plc_runtime::Hash32;
@@ -57,7 +58,10 @@ pub use runtime_adapter::{
     RuntimeBlockBinding, RuntimeMappedSite, RuntimeMemoryBinding, RuntimeSourceBinding,
     project_verified_ir_to_runtime,
 };
-pub use source::{GraphSourceIds, LineColumn, SclSource, SourceAnchor, SourceLanguage, TextRange};
+pub use source::{
+    GraphSourceIds, LineColumn, SclSource, SourceAnchor, SourceLanguage, StableSourceIdentity,
+    TextRange,
+};
 
 /// Compiler semantics are immutable build input. Any semantic change requires
 /// a new value.

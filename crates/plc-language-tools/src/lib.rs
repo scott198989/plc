@@ -41,7 +41,8 @@ pub use fbd_lowering::{
 pub use ids::{ConnectionId, FbdDocumentId, NetworkId, NodeId, PortId, StateInstanceId};
 pub use scl_service::{
     CompletionItem, CompletionKind, HoverInfo, InterfaceRename, RenameError, RenamePlan,
-    SclLanguageService, SemanticToken, SemanticTokenKind, SignatureFormal, SignatureHelp,
+    SclLanguageService, SclNavigationEntry, SclNavigationRelationship, SclNavigationTarget,
+    SclNavigationValidity, SemanticToken, SemanticTokenKind, SignatureFormal, SignatureHelp,
     SourceEdit, SymbolDefinition,
 };
 pub use type_adapter::{TypeAdapterError, data_type_to_ir_type};

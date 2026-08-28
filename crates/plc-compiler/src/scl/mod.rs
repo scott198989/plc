@@ -9,6 +9,7 @@ mod lexer;
 mod parser;
 mod semantics;
 
+pub(crate) use lexer::ranges_semantically_equivalent;
 pub use lexer::{LexedSource, Token, TokenKind, Trivia, TriviaKind, lex_scl};
 pub use parser::{
     BinaryOp, CallActual, CallArgument, CallBinding, CaseArm, CaseLabel, Designator,
@@ -17,8 +18,8 @@ pub use parser::{
     UnaryOp, parse_scl,
 };
 pub use semantics::{
-    SclAccessKind, SclOccurrenceResolution, SclSemanticSnapshot, SclSemanticSymbol,
-    SclSymbolOccurrence, SclTypeFact, analyze_scl, analyze_scl_with_program,
+    SclAccessKind, SclOccurrenceKind, SclOccurrenceResolution, SclSemanticSnapshot,
+    SclSemanticSymbol, SclSymbolOccurrence, SclTypeFact, analyze_scl, analyze_scl_with_program,
 };
 
 pub(crate) use semantics::{

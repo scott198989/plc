@@ -3,7 +3,7 @@ use std::collections::BTreeMap;
 use plc_compiler::{
     BinaryOperator, BuildAttempt, BuildAttemptId, BuildScope, BuildSnapshot, Compiler,
     CompilerProfile, IrFormalRef, IrOperationKind, IrType, ResourceLimits, SclSource,
-    UnaryOperator,
+    SourceAnchorResolution, UnaryOperator,
 };
 use plc_language_tools::{
     ActivationRole, ConnectionId, ConnectionKind, DiagnosticSeverity, DisabledOutputBehavior,
@@ -221,6 +221,70 @@ fn semantic_fingerprint_is_deterministic_and_layout_independent() {
         invalid_extra_state.semantic_fingerprint(),
         before,
         "even invalid state omitted by an order projection remains dirty and hash-visible"
+    );
+}
+
+#[test]
+fn production_fbd_maps_relocate_by_graph_identity_and_retain_related_edges() {
+    let document = bool_pipeline();
+    let owner = owner_block();
+    let before = lower_fbd_to_ir(&document, &owner).expect("valid FBD lowers");
+    let before_entry = before
+        .source_maps
+        .entries()
+        .values()
+        .find(|entry| entry.source.node == Some(NodeId::new(20)))
+        .expect("inverter source map");
+    assert_eq!(
+        before.source_maps.source_to_ir(&before_entry.source),
+        vec![before_entry.site]
+    );
+    assert!(!before.source_maps.node_to_ir(NodeId::new(20)).is_empty());
+    assert!(!before.probes.node_to_probes(NodeId::new(20)).is_empty());
+
+    let compiler_entry = before
+        .compiler_source_maps
+        .entries()
+        .values()
+        .find(|entry| {
+            entry
+                .anchors
+                .iter()
+                .any(|anchor| anchor.node_id == Some(NodeId::new(20).get()))
+                && entry.anchors.iter().any(|anchor| anchor.edge_id.is_some())
+        })
+        .expect("one mapped operation retains node plus incoming edge anchors");
+    assert!(compiler_entry.anchors.len() >= 2);
+    let loaded_anchor = compiler_entry
+        .anchors
+        .iter()
+        .find(|anchor| anchor.edge_id.is_none())
+        .cloned()
+        .expect("base node anchor");
+
+    let mut reordered = document;
+    apply_fbd_edits_atomically(
+        &mut reordered,
+        &[FbdEdit::MoveNode {
+            network: NetworkId::new(1),
+            node: NodeId::new(20),
+            new_index: 0,
+        }],
+    )
+    .expect("stable-node semantic reorder");
+    let after = lower_fbd_to_ir(&reordered, &owner).expect("reordered FBD still lowers");
+    let SourceAnchorResolution::Relocated(relocated) = after
+        .compiler_source_maps
+        .resolve_source_anchor(&loaded_anchor)
+    else {
+        panic!("stable graph IDs should relocate across graph revision");
+    };
+    assert_eq!(relocated.anchor.network_id, loaded_anchor.network_id);
+    assert_eq!(relocated.anchor.node_id, loaded_anchor.node_id);
+    assert_eq!(relocated.anchor.port_id, loaded_anchor.port_id);
+    assert_ne!(
+        relocated.anchor.semantic_node_id, loaded_anchor.semantic_node_id,
+        "semantic ordering is not graph navigation identity"
     );
 }
 

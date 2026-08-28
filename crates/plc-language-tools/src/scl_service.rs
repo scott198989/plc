@@ -1,4 +1,5 @@
 use alloc::{
+    collections::BTreeSet,
     string::{String, ToString},
     vec::Vec,
 };
@@ -6,8 +7,9 @@ use alloc::{
 use plc_compiler::{
     LineColumn, ResourceLimits, SclSource, SourceAnchor, TextRange,
     scl::{
-        SclOccurrenceResolution, SclSemanticSnapshot, SclSemanticSymbol, SclSymbolOccurrence,
-        TokenKind, analyze_scl, analyze_scl_with_program, lex_scl,
+        SclAccessKind, SclOccurrenceKind, SclOccurrenceResolution, SclSemanticSnapshot,
+        SclSemanticSymbol, SclSymbolOccurrence, TokenKind, analyze_scl, analyze_scl_with_program,
+        lex_scl,
     },
 };
 use plc_program::{
@@ -55,6 +57,48 @@ pub struct SymbolDefinition {
     pub data_type: DataType,
     pub role: InterfaceRole,
     pub declared_order: u32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SclNavigationTarget {
+    Block(BlockId),
+    Member {
+        owner: BlockId,
+        member: InterfaceMemberId,
+    },
+    UnresolvedOccurrence {
+        owner: BlockId,
+        source_revision: plc_compiler::Hash32,
+        semantic_node: plc_compiler::SemanticNodeId,
+        text_range: Option<TextRange>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SclNavigationRelationship {
+    Definition,
+    Use,
+    Assignment,
+    Call,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SclNavigationValidity {
+    Valid,
+    Unresolved,
+    Ambiguous,
+}
+
+/// One read-only compiler-index projection for SCL definitions and
+/// relationships. Every non-definition entry retains the exact immutable
+/// source anchor; unresolved and ambiguous entries retain occurrence identity
+/// without inventing a target.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct SclNavigationEntry {
+    pub target: SclNavigationTarget,
+    pub source: Option<SourceAnchor>,
+    pub relationship: SclNavigationRelationship,
+    pub validity: SclNavigationValidity,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -261,18 +305,55 @@ impl SclLanguageService {
 
     #[must_use]
     pub fn references(&self, byte_offset: u32) -> Vec<SourceAnchor> {
-        let Some(member) = occurrence_at(&self.snapshot, byte_offset)
+        let Some(identity) = occurrence_at(&self.snapshot, byte_offset)
             .filter(|occurrence| occurrence.resolution == SclOccurrenceResolution::Resolved)
-            .and_then(|occurrence| occurrence.member)
+            .and_then(occurrence_member_identity)
         else {
             return Vec::new();
         };
         self.snapshot
             .occurrences()
             .iter()
-            .filter(|occurrence| occurrence.member == Some(member))
+            .filter(|occurrence| occurrence_member_identity(occurrence) == Some(identity))
             .map(|occurrence| occurrence.source.clone())
             .collect()
+    }
+
+    /// Returns the deterministic semantic relationships produced by the
+    /// compiler binder. This is intentionally not a text-search result.
+    #[must_use]
+    pub fn navigation_entries(&self) -> Vec<SclNavigationEntry> {
+        let mut entries = Vec::new();
+        let mut definitions = BTreeSet::new();
+        for symbol in self.snapshot.symbols() {
+            definitions.insert(SclNavigationTarget::Member {
+                owner: symbol.owner,
+                member: symbol.member,
+            });
+        }
+        for occurrence in self.snapshot.occurrences() {
+            let target = navigation_target(occurrence);
+            if occurrence.resolution == SclOccurrenceResolution::Resolved
+                && !matches!(target, SclNavigationTarget::UnresolvedOccurrence { .. })
+            {
+                definitions.insert(target);
+            }
+            entries.push(SclNavigationEntry {
+                target,
+                source: Some(occurrence.source.clone()),
+                relationship: navigation_relationship(occurrence),
+                validity: navigation_validity(occurrence.resolution),
+            });
+        }
+        entries.extend(definitions.into_iter().map(|target| SclNavigationEntry {
+            target,
+            source: None,
+            relationship: SclNavigationRelationship::Definition,
+            validity: SclNavigationValidity::Valid,
+        }));
+        entries.sort();
+        entries.dedup();
+        entries
     }
 
     pub fn rename(&self, byte_offset: u32, replacement: &str) -> Result<RenamePlan, RenameError> {
@@ -288,24 +369,37 @@ impl SclLanguageService {
         if !self.valid_identifier(replacement) {
             return Err(RenameError::InvalidIdentifier);
         }
-        if let Some(collision) =
-            self.snapshot.symbols().iter().find(|symbol| {
-                symbol.member != member && symbol.name.eq_ignore_ascii_case(replacement)
-            })
-        {
-            return Err(RenameError::NameCollision(collision.member));
+        let definition =
+            definition_for_occurrence(&self.snapshot, occurrence, self.program.as_ref())
+                .ok_or(RenameError::NoSymbol)?;
+        let collision = if definition.owner == self.snapshot.source().owner() {
+            self.snapshot
+                .symbols()
+                .iter()
+                .find(|candidate| {
+                    candidate.member != member && candidate.name.eq_ignore_ascii_case(replacement)
+                })
+                .map(|candidate| candidate.member)
+        } else {
+            self.program
+                .as_ref()
+                .and_then(|program| program.block(definition.owner))
+                .and_then(|block| {
+                    block.interface.members.values().find(|candidate| {
+                        candidate.id != member && candidate.name.eq_ignore_ascii_case(replacement)
+                    })
+                })
+                .map(|candidate| candidate.id)
+        };
+        if let Some(collision) = collision {
+            return Err(RenameError::NameCollision(collision));
         }
-        let definition = self
-            .snapshot
-            .symbols()
-            .iter()
-            .find(|symbol| symbol.member == member)
-            .ok_or(RenameError::NoSymbol)?;
+        let identity = (definition.owner, member);
         let source_edits = self
             .snapshot
             .occurrences()
             .iter()
-            .filter(|candidate| candidate.member == Some(member))
+            .filter(|candidate| occurrence_member_identity(candidate) == Some(identity))
             .map(|candidate| SourceEdit {
                 source: candidate.source.clone(),
                 replacement: replacement.to_string(),
@@ -328,6 +422,12 @@ impl SclLanguageService {
             return SignatureHelp::ProgramContextRequired;
         };
         let Some(target) = occurrence_at(&self.snapshot, byte_offset)
+            .filter(|occurrence| {
+                matches!(
+                    occurrence.kind,
+                    SclOccurrenceKind::CallTarget | SclOccurrenceKind::CallFormal
+                )
+            })
             .and_then(|occurrence| occurrence.definition_owner)
             .and_then(|owner| program.block(owner))
         else {
@@ -450,23 +550,71 @@ fn definition_for_occurrence(
     program: Option<&ControllerProgram>,
 ) -> Option<SymbolDefinition> {
     let member = occurrence.member?;
-    snapshot
-        .symbols()
-        .iter()
-        .find(|symbol| symbol.member == member)
-        .map(symbol_definition)
-        .or_else(|| {
-            let owner = occurrence.definition_owner?;
-            let member = program?.block(owner)?.interface.member(member)?;
-            Some(SymbolDefinition {
-                owner,
-                member: member.id,
-                name: member.name.clone(),
-                data_type: member.data_type.clone(),
-                role: member.role,
-                declared_order: member.declared_order,
-            })
-        })
+    let owner = occurrence.definition_owner?;
+    if owner == snapshot.source().owner() {
+        return snapshot
+            .symbols()
+            .iter()
+            .find(|symbol| symbol.owner == owner && symbol.member == member)
+            .map(symbol_definition);
+    }
+    let member = program?.block(owner)?.interface.member(member)?;
+    Some(SymbolDefinition {
+        owner,
+        member: member.id,
+        name: member.name.clone(),
+        data_type: member.data_type.clone(),
+        role: member.role,
+        declared_order: member.declared_order,
+    })
+}
+
+fn occurrence_member_identity(
+    occurrence: &SclSymbolOccurrence,
+) -> Option<(BlockId, InterfaceMemberId)> {
+    Some((occurrence.definition_owner?, occurrence.member?))
+}
+
+fn navigation_target(occurrence: &SclSymbolOccurrence) -> SclNavigationTarget {
+    match (
+        occurrence.resolution,
+        occurrence.kind,
+        occurrence.definition_owner,
+        occurrence.member,
+    ) {
+        (SclOccurrenceResolution::Resolved, SclOccurrenceKind::CallTarget, Some(owner), None) => {
+            SclNavigationTarget::Block(owner)
+        }
+        (SclOccurrenceResolution::Resolved, _, Some(owner), Some(member)) => {
+            SclNavigationTarget::Member { owner, member }
+        }
+        _ => SclNavigationTarget::UnresolvedOccurrence {
+            owner: occurrence.source.owner_object_id,
+            source_revision: occurrence.source.source_revision_hash,
+            semantic_node: occurrence.source.semantic_node_id,
+            text_range: occurrence.source.text_range,
+        },
+    }
+}
+
+const fn navigation_relationship(occurrence: &SclSymbolOccurrence) -> SclNavigationRelationship {
+    match (occurrence.kind, occurrence.access) {
+        (SclOccurrenceKind::CallTarget, _) => SclNavigationRelationship::Call,
+        (SclOccurrenceKind::MemberReference, SclAccessKind::Write) => {
+            SclNavigationRelationship::Assignment
+        }
+        (SclOccurrenceKind::MemberReference | SclOccurrenceKind::CallFormal, _) => {
+            SclNavigationRelationship::Use
+        }
+    }
+}
+
+const fn navigation_validity(resolution: SclOccurrenceResolution) -> SclNavigationValidity {
+    match resolution {
+        SclOccurrenceResolution::Resolved => SclNavigationValidity::Valid,
+        SclOccurrenceResolution::Unresolved => SclNavigationValidity::Unresolved,
+        SclOccurrenceResolution::Ambiguous => SclNavigationValidity::Ambiguous,
+    }
 }
 
 fn symbol_definition(symbol: &SclSemanticSymbol) -> SymbolDefinition {

@@ -111,6 +111,80 @@ pub fn lex_scl(source: &SclSource, limits: ResourceLimits) -> LexedSource {
     Lexer::new(source.clone(), limits).run()
 }
 
+pub(crate) fn ranges_semantically_equivalent(
+    left: &SclSource,
+    left_range: TextRange,
+    right: &SclSource,
+    right_range: TextRange,
+    limits: ResourceLimits,
+) -> bool {
+    let Some(left_text) = left.range_text(left_range) else {
+        return false;
+    };
+    let Some(right_text) = right.range_text(right_range) else {
+        return false;
+    };
+    let left_fragment = SclSource::new(left.owner(), left_text);
+    let right_fragment = SclSource::new(right.owner(), right_text);
+    let left_lexed = lex_scl(&left_fragment, limits);
+    let right_lexed = lex_scl(&right_fragment, limits);
+    if left_lexed.resource_limit().is_some()
+        || right_lexed.resource_limit().is_some()
+        || !left_lexed.issues().is_empty()
+        || !right_lexed.issues().is_empty()
+    {
+        return false;
+    }
+    let mut left_tokens = left_lexed
+        .tokens()
+        .iter()
+        .filter(|token| token.kind != TokenKind::Eof);
+    let mut right_tokens = right_lexed
+        .tokens()
+        .iter()
+        .filter(|token| token.kind != TokenKind::Eof);
+    loop {
+        let (left_token, right_token) = match (left_tokens.next(), right_tokens.next()) {
+            (None, None) => return true,
+            (Some(left_token), Some(right_token)) => (left_token, right_token),
+            (None, Some(_)) | (Some(_), None) => return false,
+        };
+        if left_token.kind != right_token.kind || left_token.kind == TokenKind::Malformed {
+            return false;
+        }
+        if !token_spelling_is_semantic(left_token.kind) {
+            continue;
+        }
+        let Some(left_spelling) = left_fragment.range_text(left_token.range) else {
+            return false;
+        };
+        let Some(right_spelling) = right_fragment.range_text(right_token.range) else {
+            return false;
+        };
+        let equivalent = if left_token.kind == TokenKind::Identifier {
+            left_spelling.eq_ignore_ascii_case(right_spelling)
+        } else {
+            left_spelling == right_spelling
+        };
+        if !equivalent {
+            return false;
+        }
+    }
+}
+
+const fn token_spelling_is_semantic(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Identifier
+            | TokenKind::IntegerLiteral
+            | TokenKind::RealLiteral
+            | TokenKind::QuotedLiteral
+            | TokenKind::TimeLiteral
+            | TokenKind::TypedLiteral
+            | TokenKind::Malformed
+    )
+}
+
 struct Lexer {
     source: SclSource,
     limits: ResourceLimits,

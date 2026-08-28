@@ -17,8 +17,10 @@ use plc_types::{
 };
 
 use crate::{
-    IrBasicBlockId, IrOperationId, IrValueId, ProbeId, SourceAnchor, SourceMapId, TYPED_IR_VERSION,
+    IrBasicBlockId, IrOperationId, IrValueId, ProbeId, ResourceLimits, SourceAnchor,
+    SourceLanguage, SourceMapId, TYPED_IR_VERSION,
     hash::CanonicalHasher,
+    scl::{SclSemanticSnapshot, ranges_semantically_equivalent},
 };
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -416,6 +418,51 @@ pub struct SourceMapEntry {
     pub compiler_generated: bool,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolvedSourceAnchor {
+    pub anchor: SourceAnchor,
+    pub sites: Vec<SourceMapSite>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SourceAnchorUnavailableReason {
+    /// No anchor in the current immutable table retains the requested stable
+    /// semantic identity. The source may have been deleted or changed so that
+    /// safe relocation is impossible.
+    StableIdentityMissing,
+    /// Text relocation requires both immutable source revisions so token-level
+    /// semantic equivalence can be established.
+    TextRelocationGuardRequired,
+    /// The supplied source text does not own or hash to the corresponding
+    /// immutable anchor revision.
+    SourceRevisionMismatch,
+    /// Stable node identity survived, but the authored token sequence changed.
+    /// Relocation is therefore not safe.
+    SemanticContentChanged,
+    /// The table contains a different location for the same stable identity
+    /// and the same revision hash. This is an internally contradictory map,
+    /// not a relocation opportunity.
+    ConflictingAnchorAtSameRevision,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum SourceAnchorResolution {
+    Exact(ResolvedSourceAnchor),
+    Relocated(ResolvedSourceAnchor),
+    Ambiguous(Vec<ResolvedSourceAnchor>),
+    Unavailable(SourceAnchorUnavailableReason),
+}
+
+impl SourceAnchorResolution {
+    #[must_use]
+    pub const fn resolved(&self) -> Option<&ResolvedSourceAnchor> {
+        match self {
+            Self::Exact(resolved) | Self::Relocated(resolved) => Some(resolved),
+            Self::Ambiguous(_) | Self::Unavailable(_) => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct SourceMapTable {
     entries: BTreeMap<SourceMapId, SourceMapEntry>,
@@ -455,6 +502,167 @@ impl SourceMapTable {
             .collect()
     }
 
+    /// Resolves an exact immutable anchor or safely relocates it by stable
+    /// semantic identity. A missing or non-unique identity fails closed; this
+    /// method never falls back to a same-named, same-line, or same-layout
+    /// guess.
+    #[must_use]
+    pub fn resolve_source_anchor(&self, requested: &SourceAnchor) -> SourceAnchorResolution {
+        let exact_sites = self.exact_sites(requested);
+        if !exact_sites.is_empty() {
+            return SourceAnchorResolution::Exact(ResolvedSourceAnchor {
+                anchor: requested.clone(),
+                sites: exact_sites.into_iter().collect(),
+            });
+        }
+
+        if requested.language == SourceLanguage::Scl {
+            return SourceAnchorResolution::Unavailable(
+                SourceAnchorUnavailableReason::TextRelocationGuardRequired,
+            );
+        }
+
+        let candidates = self.stable_candidates(requested);
+
+        if candidates.is_empty() {
+            return SourceAnchorResolution::Unavailable(
+                SourceAnchorUnavailableReason::StableIdentityMissing,
+            );
+        }
+        if candidates.len() != 1 {
+            return SourceAnchorResolution::Ambiguous(
+                candidates
+                    .into_iter()
+                    .map(|(anchor, sites)| ResolvedSourceAnchor {
+                        anchor,
+                        sites: sites.into_iter().collect(),
+                    })
+                    .collect(),
+            );
+        }
+        let Some((anchor, sites)) = candidates.into_iter().next() else {
+            return SourceAnchorResolution::Unavailable(
+                SourceAnchorUnavailableReason::StableIdentityMissing,
+            );
+        };
+        if anchor.source_revision_hash == requested.source_revision_hash {
+            return SourceAnchorResolution::Unavailable(
+                SourceAnchorUnavailableReason::ConflictingAnchorAtSameRevision,
+            );
+        }
+        SourceAnchorResolution::Relocated(ResolvedSourceAnchor {
+            anchor,
+            sites: sites.into_iter().collect(),
+        })
+    }
+
+    /// Relocates an SCL anchor only when the caller supplies both immutable
+    /// source revisions and the compiler lexer proves that the anchored token
+    /// sequence is unchanged apart from trivia and ASCII identifier case.
+    #[must_use]
+    pub fn resolve_scl_source_anchor(
+        &self,
+        requested: &SourceAnchor,
+        requested_semantics: &SclSemanticSnapshot,
+        current_semantics: &SclSemanticSnapshot,
+        limits: ResourceLimits,
+    ) -> SourceAnchorResolution {
+        let exact_sites = self.exact_sites(requested);
+        if !exact_sites.is_empty() {
+            return SourceAnchorResolution::Exact(ResolvedSourceAnchor {
+                anchor: requested.clone(),
+                sites: exact_sites.into_iter().collect(),
+            });
+        }
+        if requested.language != SourceLanguage::Scl {
+            return self.resolve_source_anchor(requested);
+        }
+        let requested_source = requested_semantics.source();
+        let current_source = current_semantics.source();
+        if requested_semantics.resource_limit().is_some()
+            || current_semantics.resource_limit().is_some()
+        {
+            return SourceAnchorResolution::Unavailable(
+                SourceAnchorUnavailableReason::SemanticContentChanged,
+            );
+        }
+        if requested_source.owner() != requested.owner_object_id
+            || requested_source.revision_hash() != requested.source_revision_hash
+            || current_source.owner() != requested.owner_object_id
+        {
+            return SourceAnchorResolution::Unavailable(
+                SourceAnchorUnavailableReason::SourceRevisionMismatch,
+            );
+        }
+        let Some(requested_range) = requested.text_range else {
+            return SourceAnchorResolution::Unavailable(
+                SourceAnchorUnavailableReason::SemanticContentChanged,
+            );
+        };
+        let candidates = self.stable_candidates(requested);
+        if candidates.is_empty() {
+            return SourceAnchorResolution::Unavailable(
+                SourceAnchorUnavailableReason::StableIdentityMissing,
+            );
+        }
+        let mut equivalent = Vec::new();
+        for (anchor, sites) in candidates {
+            let Some(current_range) = anchor.text_range else {
+                continue;
+            };
+            if anchor.source_revision_hash == current_source.revision_hash()
+                && ranges_semantically_equivalent(
+                    requested_source,
+                    requested_range,
+                    current_source,
+                    current_range,
+                    limits,
+                )
+                && scl_anchor_relationships(requested_semantics, requested_range)
+                    == scl_anchor_relationships(current_semantics, current_range)
+            {
+                equivalent.push(ResolvedSourceAnchor {
+                    anchor,
+                    sites: sites.into_iter().collect(),
+                });
+            }
+        }
+        match equivalent.as_slice() {
+            [] => SourceAnchorResolution::Unavailable(
+                SourceAnchorUnavailableReason::SemanticContentChanged,
+            ),
+            [resolved] => SourceAnchorResolution::Relocated(resolved.clone()),
+            _ => SourceAnchorResolution::Ambiguous(equivalent),
+        }
+    }
+
+    fn exact_sites(&self, requested: &SourceAnchor) -> BTreeSet<SourceMapSite> {
+        self.entries
+            .values()
+            .filter(|entry| entry.anchors.contains(requested))
+            .map(|entry| entry.site)
+            .collect()
+    }
+
+    fn stable_candidates(
+        &self,
+        requested: &SourceAnchor,
+    ) -> BTreeMap<SourceAnchor, BTreeSet<SourceMapSite>> {
+        let requested_identity = requested.stable_identity();
+        let mut candidates = BTreeMap::new();
+        for entry in self.entries.values() {
+            for anchor in &entry.anchors {
+                if anchor.stable_identity() == requested_identity {
+                    candidates
+                        .entry(anchor.clone())
+                        .or_insert_with(BTreeSet::new)
+                        .insert(entry.site);
+                }
+            }
+        }
+        candidates
+    }
+
     #[must_use]
     pub fn fingerprint(&self) -> Hash32 {
         let mut hasher = CanonicalHasher::new("PES-SOURCE-MAPS-1");
@@ -470,6 +678,41 @@ impl SourceMapTable {
         }
         hasher.finish()
     }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct SclAnchorRelationship {
+    kind: crate::scl::SclOccurrenceKind,
+    access: crate::scl::SclAccessKind,
+    resolution: crate::scl::SclOccurrenceResolution,
+    definition_owner: Option<BlockId>,
+    member: Option<InterfaceMemberId>,
+    role: Option<InterfaceRole>,
+    data_type: Option<DataType>,
+}
+
+fn scl_anchor_relationships(
+    semantics: &SclSemanticSnapshot,
+    anchor_range: crate::TextRange,
+) -> Vec<SclAnchorRelationship> {
+    semantics
+        .occurrences()
+        .iter()
+        .filter(|occurrence| {
+            occurrence.source.text_range.is_some_and(|range| {
+                anchor_range.start <= range.start && range.end <= anchor_range.end
+            })
+        })
+        .map(|occurrence| SclAnchorRelationship {
+            kind: occurrence.kind,
+            access: occurrence.access,
+            resolution: occurrence.resolution,
+            definition_owner: occurrence.definition_owner,
+            member: occurrence.member,
+            role: occurrence.role,
+            data_type: occurrence.data_type.clone(),
+        })
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -524,6 +767,18 @@ impl ProbeTable {
         anchor: &SourceAnchor,
     ) -> Vec<ProbeId> {
         let sites: BTreeSet<_> = source_maps.source_to_ir(anchor).into_iter().collect();
+        self.entries
+            .values()
+            .filter(|probe| sites.contains(&probe.site))
+            .map(|probe| probe.id)
+            .collect()
+    }
+
+    /// Resolves probes for a previously exact or safely relocated source
+    /// anchor without repeating text or name matching.
+    #[must_use]
+    pub fn resolved_source_to_probes(&self, resolved: &ResolvedSourceAnchor) -> Vec<ProbeId> {
+        let sites = resolved.sites.iter().copied().collect::<BTreeSet<_>>();
         self.entries
             .values()
             .filter(|probe| sites.contains(&probe.site))

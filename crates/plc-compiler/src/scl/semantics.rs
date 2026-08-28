@@ -32,6 +32,16 @@ pub enum SclOccurrenceResolution {
     Ambiguous,
 }
 
+/// Compiler-owned semantic role for a textual identifier occurrence.
+/// Consumers must use this role instead of inferring calls or assignments from
+/// spelling or punctuation.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum SclOccurrenceKind {
+    MemberReference,
+    CallTarget,
+    CallFormal,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SclSemanticSymbol {
     pub owner: BlockId,
@@ -46,6 +56,7 @@ pub struct SclSemanticSymbol {
 pub struct SclSymbolOccurrence {
     pub source: SourceAnchor,
     pub spelling: String,
+    pub kind: SclOccurrenceKind,
     pub access: SclAccessKind,
     pub resolution: SclOccurrenceResolution,
     pub member: Option<InterfaceMemberId>,
@@ -634,6 +645,7 @@ impl Binder<'_> {
                     &callee.spelling,
                     callee.range,
                     node,
+                    SclOccurrenceKind::CallTarget,
                     SclAccessKind::Read,
                     SclOccurrenceResolution::Resolved,
                     Some(target.id),
@@ -646,6 +658,7 @@ impl Binder<'_> {
                     &callee.spelling,
                     callee.range,
                     node,
+                    SclOccurrenceKind::CallTarget,
                     SclAccessKind::Read,
                     SclOccurrenceResolution::Unresolved,
                     None,
@@ -664,6 +677,7 @@ impl Binder<'_> {
                     &callee.spelling,
                     callee.range,
                     node,
+                    SclOccurrenceKind::CallTarget,
                     SclAccessKind::Read,
                     SclOccurrenceResolution::Ambiguous,
                     None,
@@ -715,6 +729,7 @@ impl Binder<'_> {
                         &argument.formal.spelling,
                         argument.formal.range,
                         node,
+                        SclOccurrenceKind::CallFormal,
                         SclAccessKind::Read,
                         SclOccurrenceResolution::Resolved,
                         Some(target.id),
@@ -727,6 +742,7 @@ impl Binder<'_> {
                         &argument.formal.spelling,
                         argument.formal.range,
                         node,
+                        SclOccurrenceKind::CallFormal,
                         SclAccessKind::Read,
                         SclOccurrenceResolution::Unresolved,
                         Some(target.id),
@@ -748,6 +764,7 @@ impl Binder<'_> {
                         &argument.formal.spelling,
                         argument.formal.range,
                         node,
+                        SclOccurrenceKind::CallFormal,
                         SclAccessKind::Read,
                         SclOccurrenceResolution::Ambiguous,
                         Some(target.id),
@@ -898,6 +915,7 @@ impl Binder<'_> {
         self.occurrences.push(SclSymbolOccurrence {
             source: SourceAnchor::scl(self.source_owner, self.source_revision, node, range),
             spelling: spelling.into(),
+            kind: SclOccurrenceKind::MemberReference,
             access,
             resolution,
             member: member.map(|value| value.id),
@@ -913,6 +931,7 @@ impl Binder<'_> {
         spelling: &str,
         range: TextRange,
         node: SemanticNodeId,
+        kind: SclOccurrenceKind,
         access: SclAccessKind,
         resolution: SclOccurrenceResolution,
         definition_owner: Option<BlockId>,
@@ -921,6 +940,7 @@ impl Binder<'_> {
         self.occurrences.push(SclSymbolOccurrence {
             source: SourceAnchor::scl(self.source_owner, self.source_revision, node, range),
             spelling: spelling.into(),
+            kind,
             access,
             resolution,
             member: member.map(|value| value.id),

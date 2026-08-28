@@ -124,6 +124,26 @@ pub struct SourceAnchor {
     pub state_instance_id: Option<u128>,
 }
 
+/// Revision-independent source identity used only for guarded relocation.
+///
+/// Text anchors retain the compiler-issued semantic node identity. Graph
+/// anchors instead retain the authored graph identities required by
+/// `PES-SMAP-0001`; graph semantic order is deliberately absent so a safe
+/// relocation does not turn into a coordinate or ordering match.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct StableSourceIdentity {
+    pub owner_object_id: BlockId,
+    pub language: SourceLanguage,
+    pub semantic_node_id: Option<SemanticNodeId>,
+    pub network_id: Option<u128>,
+    pub node_id: Option<u128>,
+    pub port_id: Option<u128>,
+    pub edge_id: Option<u128>,
+    pub operand_id: Option<u128>,
+    pub call_site_id: Option<u128>,
+    pub state_instance_id: Option<u128>,
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GraphSourceIds {
     pub network_id: Option<u128>,
@@ -184,6 +204,39 @@ impl SourceAnchor {
             call_site_id: ids.call_site_id,
             state_instance_id: ids.state_instance_id,
         })
+    }
+
+    /// Returns the only identity that may be used to relocate an anchor
+    /// across source revisions. Names, text, addresses, line numbers, and
+    /// layout are intentionally excluded.
+    #[must_use]
+    pub const fn stable_identity(&self) -> StableSourceIdentity {
+        match self.language {
+            SourceLanguage::Scl => StableSourceIdentity {
+                owner_object_id: self.owner_object_id,
+                language: SourceLanguage::Scl,
+                semantic_node_id: Some(self.semantic_node_id),
+                network_id: None,
+                node_id: None,
+                port_id: None,
+                edge_id: None,
+                operand_id: None,
+                call_site_id: None,
+                state_instance_id: None,
+            },
+            SourceLanguage::Lad | SourceLanguage::Fbd => StableSourceIdentity {
+                owner_object_id: self.owner_object_id,
+                language: self.language,
+                semantic_node_id: None,
+                network_id: self.network_id,
+                node_id: self.node_id,
+                port_id: self.port_id,
+                edge_id: self.edge_id,
+                operand_id: self.operand_id,
+                call_site_id: self.call_site_id,
+                state_instance_id: self.state_instance_id,
+            },
+        }
     }
 
     /// Checks the language-specific identity shape and owning IR function.
