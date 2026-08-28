@@ -12,6 +12,7 @@
 extern crate alloc;
 
 mod build;
+mod composition;
 mod diagnostic;
 mod hash;
 mod ids;
@@ -28,6 +29,10 @@ pub use build::{
     BuildOutcome, BuildReport, BuildScope, BuildSnapshot, Compiler, CompilerInitError,
     CompilerProfile, CompilerStage, DependencyRecord, ExpandedScope, ProfileError, ScopeError,
     SnapshotError, StageMetric,
+};
+pub use composition::{
+    ComposedFrontendArtifact, CompositionError, CompositionIdentityKind, FrontendArtifact,
+    SclFrontendError, SclLoweringFailure, compose_frontend_artifacts, lower_scl_frontend_artifact,
 };
 pub use diagnostic::{
     BuildDiagnostic, DiagnosticCode, DiagnosticDefinition, DiagnosticParameter,
