@@ -47,3 +47,91 @@ Exit codes:
 - `0`: generated successfully, or all checked files are current;
 - `1`: `--check` found missing or stale generated output;
 - `2`: source integrity, package parsing, or required-input failure.
+
+## Phase 2 implementation/evidence gate
+
+`verify_phase2.py` is the fail-closed implementation exit gate. It does not
+infer product truth from code volume, test names, fixtures, screenshots, or a
+successful build. The tracked
+`evidence/phase2/PHASE2_IMPLEMENTATION_STATUS.json` deliberately enumerates all
+937 extracted requirements, all 44 Appendix H proof obligations, Journeys A-H,
+and G2-01 through G2-15 as `NOT_STARTED`.
+
+Run the gate with the pinned runtime:
+
+```powershell
+pnpm gate:phase2
+```
+
+The gate requires the candidate ref to be the current exact HEAD, a clean
+tracked worktree, and no untracked files except byte-current paths already
+accounted by P2-00. It binds evidence to the candidate commit, tree,
+production-source manifest, test-source manifest, requirement-source manifest,
+requirement registry, Appendix H catalog, and directive SHA-256 values. Use the
+read-only binding view when producing an external evidence package:
+
+```powershell
+node tools/phase2/run_pinned_python.mjs -B tools/phase2/verify_phase2.py `
+  --root . --candidate-ref HEAD --binding-only
+```
+
+Evidence can be supplied in an external status ledger using `--status`. This
+avoids a self-referential evidence commit: immutable evidence may bind to an
+already-created candidate commit without changing that commit. Every credited
+record must have exact binding fields, an exit-zero command transcript, valid
+timestamps, explicit non-skipped/non-flaky/non-crashed/non-canned flags, a real
+production-path assertion, and at least one non-empty byte/hash-verified log.
+Mutation evidence also requires the expected named detector to equal the
+actual detector and a nonzero detector rejection without crash credit.
+Isolation evidence requires complete instrumentation, named platform/config
+coverage, and an explicit zero-external-attempt result.
+
+The candidate verdict is reachable only when all requirements and Appendix H
+rows are `VERIFIED`, all journeys and G2 gates are `PASS`, no Critical/High
+defect remains open, mappings and evidence are complete, extraction is current,
+and the complete-workspace source policy passes. Otherwise the verdict is
+`BLOCKED` and the process exits nonzero.
+
+`source_policy.py` discovers every `crates/<name>` member from the workspace
+Cargo.toml instead of using a fixed list. It scans every member's manifest,
+build script, and production Rust source, plus production TypeScript and
+dependency manifests. Consequently a newly added Phase 2 crate cannot evade
+the PhysicalUniverse capability scan.
+
+Run the dependency-free regression suite:
+
+```powershell
+pnpm test:phase2:gate
+```
+
+`governance_audit.py` independently checks the canonical directive hash,
+authority hierarchy, all 937 normative requirement rows, Appendix H inventory,
+clarification ledger, open decisions, exclusions, phase reservations, and the
+mandatory verdict/stop vocabulary. It is read-only and grants no implementation
+or verification credit. Run it directly with:
+
+```powershell
+pnpm audit:phase2:governance
+```
+
+## Static coverage audit
+
+`generate_phase2_coverage_audit.py` deterministically inventories all 937
+requirements and all 44 Appendix H minimum proofs against the current
+production/test surface. Its three classifications are deliberately below a
+verification verdict:
+
+- `IMPLEMENTED_EVIDENCE_READY`: static production and directly applicable test
+  paths cover the full minimum-proof clause, but current-candidate execution
+  evidence is still required;
+- `PARTIAL`: some support exists and every uncovered clause is named;
+- `MISSING`: no directly applicable implementation/evidence harness exists.
+
+The generated JSON preserves unreviewed requirement mappings, contains empty
+execution-evidence lists, and grants zero verification credit. Regenerate or
+check it with:
+
+```powershell
+pnpm coverage:phase2:generate
+pnpm coverage:phase2:check
+```
