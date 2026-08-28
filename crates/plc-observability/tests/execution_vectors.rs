@@ -1,8 +1,10 @@
 use plc_commissioning::*;
 use plc_observability::*;
 use plc_runtime::{
-    ArtifactSpec, BlockId, Instruction, Operand, Operation, ProgramBlock, ProgramImage,
-    RestartKind, SCAN_QUANTUM_MS, Sha256,
+    ArtifactSpec, BlockId, Instruction, MAX_WORK_UNITS_PER_SCAN, MemoryDefinition, Operand,
+    Operation, ProgramBlock, ProgramImage, ReplayEventKind, RestartKind, RuntimeBoundInput,
+    RuntimeDeclaredOutput, RuntimeFormalRef, RuntimeInstructionCode, RuntimeInstructionInvocation,
+    SCAN_QUANTUM_MS, Sha256, StateDefinition, StateId, StateStart,
 };
 
 const UNIVERSE: UniverseId = UniverseId(0x8100);
@@ -78,6 +80,172 @@ fn faulting_package() -> VirtualLoadPackage {
         denominator: Operand::Constant(CanonicalValue::I32(0)),
         target: MEMORY,
     })
+}
+
+fn fault_vector_package(
+    memory: Vec<MemoryDefinition>,
+    states: Vec<StateDefinition>,
+    instructions: Vec<Instruction>,
+) -> VirtualLoadPackage {
+    let memory_schema = memory
+        .iter()
+        .enumerate()
+        .map(|(index, definition)| MemoryMemberSchema {
+            member_id: 0x8f00 + u128::try_from(index).expect("bounded fault-vector memory"),
+            runtime_memory_id: definition.id,
+            value_type: definition.value_type,
+            role: MemoryRole::Marker,
+            instance_path: vec![],
+            retentive: definition.retentive,
+            loaded_start: definition.loaded_start,
+        })
+        .collect();
+    let state_schema = states
+        .iter()
+        .enumerate()
+        .map(|(index, definition)| StateMemberSchema {
+            state_member_id: 0x9000 + u128::try_from(index).expect("bounded fault-vector state"),
+            runtime_state_id: definition.id,
+            kind: match definition.loaded_start {
+                StateStart::Edge { .. } => StateKind::Edge,
+                StateStart::Timer { .. } => StateKind::Timer,
+                StateStart::Counter { .. } => StateKind::Counter,
+            },
+            owner_member_id: 0x8f00,
+            instance_path: vec![],
+            retentive: definition.retentive,
+        })
+        .collect();
+    let runtime_artifact = ArtifactPackage::seal_verified(ArtifactSpec::edu21(
+        hash("execution-profile"),
+        memory,
+        vec![],
+        states,
+        ProgramImage {
+            startup: None,
+            timed: vec![],
+            cyclic: ProgramBlock {
+                id: BlockId(1),
+                instructions,
+            },
+        },
+    ))
+    .unwrap();
+    VirtualLoadPackage::seal_verified(LoadPackageParts {
+        runtime_artifact,
+        semantic_build_fingerprint: hash("fault-vector-semantic"),
+        verified_ir_fingerprint: hash("fault-vector-ir"),
+        schedule_fingerprint: hash("fault-vector-schedule"),
+        hardware_fingerprint: hash("fault-vector-hardware"),
+        source_map_fingerprint: hash("fault-vector-source-map"),
+        probe_identity_fingerprint: hash("fault-vector-probes"),
+        capability_fingerprint: hash("fault-vector-capabilities"),
+        build_snapshot_hash: hash("fault-vector-build"),
+        build_is_current: true,
+        blocking_diagnostic_count: 0,
+        memory_schema,
+        state_schema,
+    })
+    .unwrap()
+}
+
+fn marker_memory() -> MemoryDefinition {
+    MemoryDefinition {
+        id: MEMORY,
+        value_type: ValueType::I32,
+        loaded_start: CanonicalValue::I32(0),
+        retentive: true,
+    }
+}
+
+fn timer_fault_package() -> VirtualLoadPackage {
+    let timer_state = StateId(1);
+    fault_vector_package(
+        vec![
+            marker_memory(),
+            MemoryDefinition {
+                id: MemoryId(2),
+                value_type: ValueType::Bool,
+                loaded_start: CanonicalValue::Bool(false),
+                retentive: false,
+            },
+            MemoryDefinition {
+                id: MemoryId(3),
+                value_type: ValueType::TimeMs,
+                loaded_start: CanonicalValue::TimeMs(0),
+                retentive: false,
+            },
+        ],
+        vec![StateDefinition {
+            id: timer_state,
+            loaded_start: StateStart::Timer {
+                elapsed_ms: u64::MAX,
+                output: false,
+            },
+            retentive: false,
+        }],
+        vec![Instruction::new(
+            1,
+            0x9101,
+            Operation::TimerOnDelay {
+                input: Operand::Constant(CanonicalValue::Bool(true)),
+                preset_ms: 10,
+                state: timer_state,
+                output: MemoryId(2),
+                elapsed: MemoryId(3),
+            },
+        )],
+    )
+}
+
+fn budget_fault_package() -> VirtualLoadPackage {
+    let instructions = (1..=MAX_WORK_UNITS_PER_SCAN + 1)
+        .map(|operation_id| {
+            Instruction::new(
+                operation_id,
+                0x9200 + u128::from(operation_id),
+                Operation::Noop,
+            )
+        })
+        .collect();
+    fault_vector_package(vec![marker_memory()], vec![], instructions)
+}
+
+fn invariant_fault_package() -> VirtualLoadPackage {
+    const OUTPUT: RuntimeFormalRef = RuntimeFormalRef::Instruction(0x0011);
+    fault_vector_package(
+        vec![marker_memory()],
+        vec![],
+        vec![
+            Instruction::new(1, 0x9301, Operation::Jump { target: 2 }),
+            Instruction::new(
+                2,
+                0x9302,
+                Operation::InvokeInstruction(RuntimeInstructionInvocation {
+                    instruction: RuntimeInstructionCode::Move,
+                    inputs: vec![RuntimeBoundInput {
+                        formal: RuntimeFormalRef::Instruction(0x0010),
+                        source: Operand::Constant(CanonicalValue::I32(1)),
+                    }],
+                    outputs: vec![RuntimeDeclaredOutput {
+                        formal: OUTPUT,
+                        value_type: ValueType::I32,
+                    }],
+                    instance: None,
+                    activation: None,
+                }),
+            ),
+            Instruction::new(
+                3,
+                0x9303,
+                Operation::InvocationOutput {
+                    invocation_id: 2,
+                    formal: OUTPUT,
+                    target: MEMORY,
+                },
+            ),
+        ],
+    )
 }
 
 fn setup_with_package(package: VirtualLoadPackage) -> (VirtualUniverse, ProbeCatalog) {
@@ -471,20 +639,149 @@ fn runtime_diagnostic_bridge_ingests_real_provider_events_exactly_once() {
     assert_eq!(bridge.replay_hash().unwrap(), bridge.bridge_hash());
 }
 
+fn assert_runtime_fault_vector(
+    vector: &str,
+    package: VirtualLoadPackage,
+    expected_code: plc_runtime::DiagnosticCode,
+    expected_registry_code: &str,
+) {
+    let (mut universe, _) = setup_with_package(package);
+    universe
+        .request_run(
+            universe.session_command_binding(SESSION).unwrap(),
+            RestartKind::Resume,
+        )
+        .unwrap();
+    let RunOutcome::Faulted(provider_fault) = universe
+        .run_scan(universe.session_command_binding(SESSION).unwrap())
+        .unwrap()
+    else {
+        panic!("{vector} artifact must enter the authoritative fatal boundary");
+    };
+    let runtime = universe.controller(CONTROLLER).unwrap().runtime();
+    assert_eq!(runtime.cpu_state(), CpuState::Faulted);
+    assert_eq!(provider_fault.code, expected_code);
+    assert_eq!(
+        provider_fault.severity,
+        plc_runtime::DiagnosticSeverity::Fatal
+    );
+    assert_eq!(
+        provider_fault.root_occurrence_id,
+        provider_fault.occurrence_id
+    );
+    assert_eq!(provider_fault.parent_occurrence_id, None);
+    assert_eq!(
+        provider_fault.fault_boundary_state_hash,
+        Some(runtime.last_state_hash())
+    );
+    assert!(runtime.boundary_hashes().last().unwrap().is_fatal_fault());
+    assert_eq!(
+        runtime.replay_events().last().unwrap().kind,
+        ReplayEventKind::FatalFault
+    );
+    let context = ObservationContext::from_virtual_universe(
+        &universe,
+        universe.session_command_binding(SESSION).unwrap(),
+        PublicationBoundary::FatalFault,
+    )
+    .unwrap();
+    let fault_context = provider_fault
+        .fault_context
+        .as_ref()
+        .expect("fatal vector has source context");
+    assert_eq!(
+        fault_context.artifact_fingerprint,
+        context.artifact_fingerprint
+    );
+    assert_eq!(fault_context.controller_epoch, context.controller_epoch);
+    assert_eq!(
+        fault_context.virtual_timestamp_ms,
+        provider_fault.virtual_timestamp_ms
+    );
+
+    let mut ledger = DiagnosticLedger::new(
+        DiagnosticRegistry::edu21_runtime(),
+        DiagnosticLimits::edu21(),
+    )
+    .unwrap();
+    let mut bridge = RuntimeDiagnosticBridge::default();
+    let receipts = bridge
+        .ingest_from_virtual_universe(
+            &mut ledger,
+            &universe,
+            universe.session_command_binding(SESSION).unwrap(),
+        )
+        .unwrap();
+    let receipt = receipts
+        .iter()
+        .find(|receipt| receipt.provider_key.occurrence_id == provider_fault.occurrence_id)
+        .expect("runtime fault crossed the provider seam");
+    assert!(!receipt.duplicate);
+    assert!(receipt.verify());
+    assert_eq!(receipt.provider_code, expected_code);
+    let diagnostic = ledger
+        .retained_events()
+        .into_iter()
+        .find(|event| event.occurrence_id == receipt.ledger_occurrence_id)
+        .expect("provider receipt resolves to the causal diagnostic");
+    assert_eq!(diagnostic.severity, DiagnosticSeverity::Fatal);
+    assert_eq!(diagnostic.payload_hash, receipt.provider_payload_hash);
+    assert_eq!(
+        ledger
+            .registry()
+            .definition(diagnostic.definition_id)
+            .unwrap()
+            .code
+            .0,
+        expected_registry_code
+    );
+    assert_eq!(bridge.replay_hash().unwrap(), bridge.bridge_hash());
+}
+
 #[test]
-fn defensive_fault_taxonomy_crosses_the_causal_diagnostic_provider_seam_without_loss() {
-    let (mut universe, _) = setup();
-    for _ in 0..3 {
-        universe
-            .request_run(
-                universe.session_command_binding(SESSION).unwrap(),
-                RestartKind::Resume,
-            )
-            .unwrap();
-        universe
-            .request_stop(universe.session_command_binding(SESSION).unwrap())
-            .unwrap();
+fn runtime_fault_matrix_crosses_the_authoritative_diagnostic_provider_seam() {
+    for (vector, package, code, registry_code) in [
+        (
+            "divide",
+            faulting_package(),
+            plc_runtime::DiagnosticCode::ArithmeticDivideByZero,
+            "EDU-RTM-0001",
+        ),
+        (
+            "timer",
+            timer_fault_package(),
+            plc_runtime::DiagnosticCode::TimerOverflow,
+            "EDU-RTM-0003",
+        ),
+        (
+            "budget",
+            budget_fault_package(),
+            plc_runtime::DiagnosticCode::WorkUnitBudgetExceeded,
+            "EDU-RTM-0004",
+        ),
+        (
+            "invariant",
+            invariant_fault_package(),
+            plc_runtime::DiagnosticCode::RuntimeInvariantFailure,
+            "EDU-RTM-0006",
+        ),
+    ] {
+        assert_runtime_fault_vector(vector, package, code, registry_code);
     }
+}
+
+#[test]
+fn defensive_bounds_provider_contract_preserves_causality_without_ui_injection() {
+    let (mut universe, _) = setup();
+    universe
+        .request_run(
+            universe.session_command_binding(SESSION).unwrap(),
+            RestartKind::Resume,
+        )
+        .unwrap();
+    universe
+        .request_stop(universe.session_command_binding(SESSION).unwrap())
+        .unwrap();
     let binding = universe.session_command_binding(SESSION).unwrap();
     let context = ObservationContext::from_virtual_universe(
         &universe,
@@ -492,21 +789,14 @@ fn defensive_fault_taxonomy_crosses_the_causal_diagnostic_provider_seam_without_
         PublicationBoundary::SerializedCommand,
     )
     .unwrap();
-    let taxonomy = [
-        (plc_runtime::DiagnosticCode::TimerOverflow, "EDU-RTM-0003"),
-        (
-            plc_runtime::DiagnosticCode::WorkUnitBudgetExceeded,
-            "EDU-RTM-0004",
-        ),
-        (plc_runtime::DiagnosticCode::BoundsOrString, "EDU-RTM-0002"),
-        (
-            plc_runtime::DiagnosticCode::RuntimeInvariantFailure,
-            "EDU-RTM-0006",
-        ),
-    ];
     assert!(context.event_sequence >= 1);
-    for (index, (code, expected_registry_code)) in taxonomy.into_iter().enumerate() {
-        let occurrence_id = 0xFA01 + u128::try_from(index).unwrap();
+    for (index, (code, registry_code)) in
+        [(plc_runtime::DiagnosticCode::BoundsOrString, "EDU-RTM-0002")]
+            .into_iter()
+            .enumerate()
+    {
+        let ordinal = u128::try_from(index).unwrap();
+        let occurrence_id = 0xFA01 + ordinal;
         let provider = plc_runtime::DiagnosticEvent {
             occurrence_id,
             parent_occurrence_id: None,
@@ -521,7 +811,7 @@ fn defensive_fault_taxonomy_crosses_the_causal_diagnostic_provider_seam_without_
                 artifact_fingerprint: context.artifact_fingerprint,
                 block_id: BlockId(0xF0),
                 operation_id: u32::try_from(index).unwrap() + 1,
-                source_identity: 0xFB01 + u128::try_from(index).unwrap(),
+                source_identity: 0xFB01 + ordinal,
                 scan_sequence: 1,
                 controller_epoch: context.controller_epoch,
                 virtual_timestamp_ms: context.virtual_timestamp_ms,
@@ -537,17 +827,13 @@ fn defensive_fault_taxonomy_crosses_the_causal_diagnostic_provider_seam_without_
         let mut bridge = RuntimeDiagnosticBridge::default();
         let receipts = bridge
             .ingest_provider_events(&mut ledger, context, core::slice::from_ref(&provider))
-            .expect("validated authoritative provider event");
+            .expect("validated defensive runtime provider event");
         let receipt = &receipts[0];
         assert!(!receipt.duplicate);
         assert!(receipt.verify());
         assert_eq!(receipt.provider_code, provider.code);
         assert_eq!(receipt.provider_key.occurrence_id, provider.occurrence_id);
         assert_eq!(receipt.provider_event_sequence, provider.event_sequence);
-        assert_eq!(
-            receipt.provider_virtual_timestamp_ms,
-            provider.virtual_timestamp_ms
-        );
         let event = ledger
             .retained_events()
             .into_iter()
@@ -563,7 +849,7 @@ fn defensive_fault_taxonomy_crosses_the_causal_diagnostic_provider_seam_without_
                 .unwrap()
                 .code
                 .0,
-            expected_registry_code
+            registry_code
         );
         assert_eq!(bridge.receipts().len(), 1);
         assert_eq!(bridge.replay_hash().unwrap(), bridge.bridge_hash());

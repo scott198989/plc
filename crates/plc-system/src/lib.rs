@@ -9,6 +9,7 @@
 
 mod build_product;
 mod graph_projection;
+mod hardware_observation;
 mod hardware_projection;
 mod replay_executor;
 mod replay_package;
@@ -29,6 +30,10 @@ pub use session::{
     RestorePreview, SystemCommandIdentity, SystemError, TraceReadModel, WatchTableReadModel,
 };
 
+pub use hardware_observation::{
+    HardwareObservationCapture, HardwareObservationError, HardwareObservationLinkRequest,
+    HardwareObservationReplayReceipt, HardwareObservationSnapshot,
+};
 pub use hardware_projection::{
     CanonicalHardwareProjection, ProjectDiagnostic, ProjectDiagnosticPhase, project_hardware,
 };

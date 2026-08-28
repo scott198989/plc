@@ -556,6 +556,20 @@ impl DiagnosticLedgerSnapshot {
     pub fn verify(&self) -> bool {
         self.schema_version == 1 && self.content_hash == hash_ledger_snapshot(self)
     }
+
+    /// Returns whether the integrity-bound snapshot retains one authoritative
+    /// occurrence. Aggregate snapshot owners use this to prove that a provider
+    /// receipt resolves inside the captured ledger rather than only in live
+    /// mutable state.
+    #[must_use]
+    pub fn contains_occurrence(&self, occurrence_id: OccurrenceId) -> bool {
+        self.verify()
+            && self
+                .state
+                .retained_events()
+                .into_iter()
+                .any(|event| event.occurrence_id == occurrence_id)
+    }
 }
 
 impl DiagnosticLimits {

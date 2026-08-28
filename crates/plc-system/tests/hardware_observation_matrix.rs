@@ -22,6 +22,10 @@ use plc_observability::{
 use plc_runtime::{
     CanonicalValue, CpuState, Hash32, MemoryId, Sha256, UniverseId, ValueType, VirtualControllerId,
 };
+use plc_system::{
+    HardwareObservationCapture, HardwareObservationError, HardwareObservationLinkRequest,
+    HardwareObservationSnapshot,
+};
 
 struct Ids {
     ordinal: u64,
@@ -386,6 +390,7 @@ fn observe_transition(
     monitor: &mut MonitoringEngine,
     trace: &mut TraceEngine,
     catalog: &ProbeCatalog,
+    links: &mut Vec<HardwareObservationLinkRequest>,
 ) {
     let value_type = catalog
         .definition(affected_target)
@@ -484,6 +489,18 @@ fn observe_transition(
             .iter()
             .all(|occurrence| sample.diagnostic_occurrence_ids.contains(occurrence))
     }));
+    links.extend(
+        diagnostic_receipts
+            .iter()
+            .filter(|receipt| !receipt.duplicate)
+            .map(|receipt| HardwareObservationLinkRequest {
+                provider_event_sequence: receipt.provider_key.provider_event_sequence,
+                diagnostic_occurrence_id: receipt.ledger_occurrence_id,
+                monitor_row_id: row,
+                publication_event_sequence: publish_context.event_sequence,
+                trace_capture_id: capture.id,
+            }),
+    );
 
     let replayed = HardwareConditionEngine::replay(
         fixture.profile.pin(),
@@ -536,6 +553,7 @@ fn complete_physical_condition_matrix_keeps_one_causal_monitor_trace_snapshot_an
     .expect("ledger");
     let mut bridge = HardwareDiagnosticBridge::default();
     let mut commands = Vec::new();
+    let mut links = Vec::new();
     let steps = [
         (
             HardwareFaultAction::PullModule(fixture.digital_input_module),
@@ -605,6 +623,7 @@ fn complete_physical_condition_matrix_keeps_one_causal_monitor_trace_snapshot_an
             &mut monitor,
             &mut trace,
             &catalog,
+            &mut links,
         );
         let active = projections(&fixture);
         let affected = &active[usize::try_from(target.0 - 1).expect("target index")];
@@ -629,6 +648,7 @@ fn complete_physical_condition_matrix_keeps_one_causal_monitor_trace_snapshot_an
             &mut monitor,
             &mut trace,
             &catalog,
+            &mut links,
         );
         assert_eq!(
             projections(&fixture)[usize::try_from(target.0 - 1).expect("target index")].quality,
@@ -644,4 +664,56 @@ fn complete_physical_condition_matrix_keeps_one_causal_monitor_trace_snapshot_an
         fixture.engine.condition_events().len()
     );
     assert!(monitor.persistence().expect("monitor snapshot").verify());
+
+    let aggregate_context = context((ordinal - 1) * 10 + 1);
+    let snapshot = HardwareObservationSnapshot::capture(HardwareObservationCapture {
+        conditions: &fixture.engine,
+        commands: &commands,
+        monitoring: &monitor,
+        traces: &trace,
+        diagnostics: &ledger,
+        diagnostic_bridge: &bridge,
+        context: aggregate_context,
+        links: &links,
+    })
+    .expect("aggregate hardware-observation snapshot");
+    assert!(snapshot.verify());
+    assert_eq!(snapshot.command_count(), commands.len());
+    assert_eq!(
+        snapshot.causal_link_count(),
+        fixture.engine.condition_events().len()
+    );
+    let replay = snapshot
+        .replay(
+            fixture.profile.pin(),
+            fixture.configuration.clone(),
+            fixture.pristine_network.clone(),
+        )
+        .expect("aggregate hardware-observation replay");
+    assert_eq!(replay.snapshot_content_hash, snapshot.content_hash);
+    assert_eq!(
+        replay.replayed_condition_fingerprint,
+        fixture.engine.snapshot().state_fingerprint
+    );
+    assert_eq!(replay.replayed_command_count, commands.len());
+    assert_eq!(replay.replayed_causal_link_count, links.len());
+
+    let mut incomplete_links = links.clone();
+    incomplete_links.pop();
+    assert!(matches!(
+        HardwareObservationSnapshot::capture(HardwareObservationCapture {
+            conditions: &fixture.engine,
+            commands: &commands,
+            monitoring: &monitor,
+            traces: &trace,
+            diagnostics: &ledger,
+            diagnostic_bridge: &bridge,
+            context: aggregate_context,
+            links: &incomplete_links,
+        }),
+        Err(HardwareObservationError::DuplicateOrIncompleteCausalLinks)
+    ));
+    let mut tampered = snapshot.clone();
+    tampered.conditions.command_boundary += 1;
+    assert!(!tampered.verify());
 }

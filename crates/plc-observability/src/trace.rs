@@ -530,6 +530,25 @@ impl TraceEngineSnapshot {
     pub fn verify(&self) -> bool {
         self.schema_version == 1 && self.content_hash == hash_engine_snapshot(self)
     }
+
+    /// Proves that one captured trace sample carries the exact authoritative
+    /// diagnostic occurrence at the declared publication boundary.
+    #[must_use]
+    pub fn contains_diagnostic_occurrence(
+        &self,
+        capture_id: TraceCaptureId,
+        event_sequence: u64,
+        occurrence_id: OccurrenceId,
+    ) -> bool {
+        self.verify()
+            && self.state.captures.get(&capture_id).is_some_and(|capture| {
+                capture.verify()
+                    && capture.samples.iter().any(|sample| {
+                        sample.event_sequence == event_sequence
+                            && sample.diagnostic_occurrence_ids.contains(&occurrence_id)
+                    })
+            })
+    }
 }
 
 impl TraceCapture {
