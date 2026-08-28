@@ -318,6 +318,56 @@ pub enum BuildScope {
     ControllerBuild,
 }
 
+/// Execution strategy is intentionally separate from build scope and from the
+/// attempt identity. It may change work reuse, but it never enters artifact or
+/// semantic fingerprint domains.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum BuildMode {
+    ColdCache,
+    WarmCache,
+    Incremental,
+    RebuildAll,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum CacheLookup {
+    NotRequested,
+    NotEligible,
+    BypassedCold,
+    BypassedRebuild,
+    Miss,
+    Hit,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+struct BuildCacheKey {
+    snapshot_hash: Hash32,
+    semantic_environment_hash: Hash32,
+}
+
+/// Disposable, capability-free build cache. Entries are inserted only after a
+/// complete verified artifact has been returned by the owning compiler stage.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct BuildCache {
+    artifacts: BTreeMap<BuildCacheKey, BuildArtifact>,
+}
+
+impl BuildCache {
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.artifacts.len()
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.artifacts.is_empty()
+    }
+
+    pub fn clear(&mut self) {
+        self.artifacts.clear();
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExpandedScope {
     requested: BuildScope,
@@ -439,6 +489,9 @@ pub struct BuildReport {
     semantic_fingerprint: Option<Hash32>,
     artifact_fingerprint: Option<Hash32>,
     stale: bool,
+    build_mode: BuildMode,
+    cache_lookup: CacheLookup,
+    cache_published: bool,
 }
 
 impl BuildReport {
@@ -490,6 +543,21 @@ impl BuildReport {
     #[must_use]
     pub const fn is_stale(&self) -> bool {
         self.stale
+    }
+
+    #[must_use]
+    pub const fn build_mode(&self) -> BuildMode {
+        self.build_mode
+    }
+
+    #[must_use]
+    pub const fn cache_lookup(&self) -> CacheLookup {
+        self.cache_lookup
+    }
+
+    #[must_use]
+    pub const fn cache_published(&self) -> bool {
+        self.cache_published
     }
 }
 
@@ -705,6 +773,215 @@ impl Compiler {
             Ok(completion) => completion,
             Err(stop) => context.stop_completion(stop),
         }
+    }
+
+    /// Executes one of the four deterministic build modes against a
+    /// caller-owned disposable cache. Only complete Rebuild-All-software
+    /// artifacts are cache eligible. Attempt identity, cache state, and mode
+    /// never enter artifact bytes or fingerprints.
+    #[must_use]
+    pub fn compile_in_mode(
+        &self,
+        attempt: &BuildAttempt,
+        current_snapshot_hash: Hash32,
+        cancellation: Option<&CancellationToken>,
+        mode: BuildMode,
+        cache: &mut BuildCache,
+    ) -> BuildCompletion {
+        let eligible = attempt.requested_scope == BuildScope::RebuildAllSoftware;
+        let key = build_cache_key(&attempt.snapshot);
+        let cached = if eligible && matches!(mode, BuildMode::WarmCache | BuildMode::Incremental) {
+            cache.artifacts.get(&key).cloned()
+        } else {
+            None
+        };
+        let lookup = if eligible {
+            match mode {
+                BuildMode::ColdCache => CacheLookup::BypassedCold,
+                BuildMode::RebuildAll => CacheLookup::BypassedRebuild,
+                BuildMode::WarmCache | BuildMode::Incremental => {
+                    if cached.is_some() {
+                        CacheLookup::Hit
+                    } else {
+                        CacheLookup::Miss
+                    }
+                }
+            }
+        } else {
+            CacheLookup::NotEligible
+        };
+        if let Some(artifact) = cached
+            && !cancellation.is_some_and(CancellationToken::is_cancelled)
+        {
+            return self.cached_completion(attempt, current_snapshot_hash, mode, lookup, artifact);
+        }
+        let mut completion = self.compile(attempt, current_snapshot_hash, cancellation);
+        completion.report.build_mode = mode;
+        completion.report.cache_lookup = lookup;
+        if eligible
+            && let Some(artifact) = completion.artifact.as_ref()
+            && completion.report.outcome == BuildOutcome::ArtifactCreated
+            && !completion
+                .report
+                .diagnostics
+                .iter()
+                .any(BuildDiagnostic::is_blocking)
+        {
+            cache.artifacts.insert(key, artifact.clone());
+            completion.report.cache_published = true;
+        }
+        completion
+    }
+
+    fn cached_completion(
+        &self,
+        attempt: &BuildAttempt,
+        current_snapshot_hash: Hash32,
+        mode: BuildMode,
+        lookup: CacheLookup,
+        artifact: BuildArtifact,
+    ) -> BuildCompletion {
+        let stale = current_snapshot_hash != attempt.snapshot.snapshot_hash;
+        let mut diagnostics = Vec::new();
+        if stale {
+            diagnostics.push(BuildDiagnostic::new(
+                attempt.id,
+                attempt.snapshot.snapshot_hash,
+                DiagnosticCode::STALE_BUILD_RESULT,
+                DiagnosticTarget::Project,
+                Vec::new(),
+                vec![
+                    DiagnosticParameter::Hash(attempt.snapshot.snapshot_hash),
+                    DiagnosticParameter::Hash(current_snapshot_hash),
+                ],
+                "editable state no longer equals the captured immutable build snapshot",
+            ));
+        }
+        let report = BuildReport {
+            attempt_id: attempt.id,
+            snapshot_hash: attempt.snapshot.snapshot_hash,
+            requested_scope: attempt.requested_scope.clone(),
+            expanded_scope: self
+                .expand_scope(&attempt.snapshot, &attempt.requested_scope)
+                .ok(),
+            outcome: BuildOutcome::ArtifactCreated,
+            diagnostics,
+            stage_metrics: vec![StageMetric {
+                stage: CompilerStage::ReportAndArtifactPublication,
+                deterministic_work_units: 0,
+            }],
+            semantic_fingerprint: Some(artifact.semantic_fingerprint),
+            artifact_fingerprint: Some(artifact.package_fingerprint),
+            stale,
+            build_mode: mode,
+            cache_lookup: lookup,
+            cache_published: false,
+        };
+        BuildCompletion {
+            report,
+            artifact: Some(artifact),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArtifactFreshness {
+    Absent,
+    Current,
+    Stale,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PublicationDecision {
+    Published,
+    RetainedPrevious,
+    RejectedStale,
+    NoArtifact,
+}
+
+/// Owns the atomic publication boundary separately from compilation. A later
+/// failed, cancelled, resource-limited, or stale attempt replaces the visible
+/// report/diagnostics but cannot mutate or discard the last successful
+/// artifact.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BuildPublicationState {
+    current_snapshot_hash: Hash32,
+    last_successful_artifact: Option<BuildArtifact>,
+    last_report: Option<BuildReport>,
+}
+
+impl BuildPublicationState {
+    #[must_use]
+    pub const fn new(current_snapshot_hash: Hash32) -> Self {
+        Self {
+            current_snapshot_hash,
+            last_successful_artifact: None,
+            last_report: None,
+        }
+    }
+
+    pub fn set_current_snapshot_hash(&mut self, current_snapshot_hash: Hash32) {
+        self.current_snapshot_hash = current_snapshot_hash;
+    }
+
+    #[must_use]
+    pub const fn current_snapshot_hash(&self) -> Hash32 {
+        self.current_snapshot_hash
+    }
+
+    #[must_use]
+    pub fn artifact_freshness(&self) -> ArtifactFreshness {
+        self.last_successful_artifact
+            .as_ref()
+            .map_or(ArtifactFreshness::Absent, |artifact| {
+                if artifact.snapshot_hash == self.current_snapshot_hash {
+                    ArtifactFreshness::Current
+                } else {
+                    ArtifactFreshness::Stale
+                }
+            })
+    }
+
+    #[must_use]
+    pub const fn last_successful_artifact(&self) -> Option<&BuildArtifact> {
+        self.last_successful_artifact.as_ref()
+    }
+
+    #[must_use]
+    pub const fn last_report(&self) -> Option<&BuildReport> {
+        self.last_report.as_ref()
+    }
+
+    #[must_use]
+    pub fn current_diagnostics(&self) -> &[BuildDiagnostic] {
+        self.last_report
+            .as_ref()
+            .map_or(&[], BuildReport::diagnostics)
+    }
+
+    #[must_use]
+    pub fn apply(&mut self, completion: BuildCompletion) -> PublicationDecision {
+        let (report, artifact) = completion.into_parts();
+        let decision = match artifact {
+            Some(artifact)
+                if report.outcome == BuildOutcome::ArtifactCreated
+                    && !report.stale
+                    && !report.diagnostics.iter().any(BuildDiagnostic::is_blocking) =>
+            {
+                self.last_successful_artifact = Some(artifact);
+                PublicationDecision::Published
+            }
+            Some(_) if report.stale => PublicationDecision::RejectedStale,
+            Some(_) | None => {
+                if self.last_successful_artifact.is_some() {
+                    PublicationDecision::RetainedPrevious
+                } else {
+                    PublicationDecision::NoArtifact
+                }
+            }
+        };
+        self.last_report = Some(report);
+        decision
     }
 }
 
@@ -1297,6 +1574,9 @@ impl BuildContext<'_> {
             semantic_fingerprint,
             artifact_fingerprint,
             stale: self.stale,
+            build_mode: BuildMode::ColdCache,
+            cache_lookup: CacheLookup::NotRequested,
+            cache_published: false,
         }
     }
 }
@@ -1451,6 +1731,26 @@ fn hash_capabilities(capabilities: &[String]) -> Hash32 {
         hasher.string(capability);
     }
     hasher.finish()
+}
+
+fn build_cache_key(snapshot: &BuildSnapshot) -> BuildCacheKey {
+    let mut hasher = CanonicalHasher::new("PES-BUILD-CACHE-SEMANTIC-ENVIRONMENT-1");
+    hasher.string(COMPILER_SEMANTICS_VERSION);
+    hasher.string(TYPE_SYSTEM_VERSION);
+    hasher.string(ARITHMETIC_POLICY_VERSION);
+    hasher.string(CONVERSION_POLICY_VERSION);
+    hasher.string(crate::TYPED_IR_VERSION);
+    hasher.string(RUNTIME_SEMANTICS_VERSION);
+    hasher.string(SCHEDULER_VERSION);
+    hasher.string(PRIORITY_TABLE_VERSION);
+    hasher.string(WORK_COST_VERSION);
+    hasher.hash(snapshot.profile.profile_manifest_hash);
+    hasher.hash(snapshot.profile.capability_manifest_hash);
+    hasher.hash(snapshot.instruction_registry_hash);
+    BuildCacheKey {
+        snapshot_hash: snapshot.snapshot_hash,
+        semantic_environment_hash: hasher.finish(),
+    }
 }
 
 fn instruction_registry_hash() -> Hash32 {

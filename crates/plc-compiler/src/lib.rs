@@ -25,9 +25,10 @@ mod source;
 pub mod scl;
 
 pub use build::{
-    ArtifactIntegrityHashes, BuildArtifact, BuildAttempt, BuildCompletion, BuildManifest,
-    BuildOutcome, BuildReport, BuildScope, BuildSnapshot, Compiler, CompilerInitError,
-    CompilerProfile, CompilerStage, DependencyRecord, ExpandedScope, ProfileError, ScopeError,
+    ArtifactFreshness, ArtifactIntegrityHashes, BuildArtifact, BuildAttempt, BuildCache,
+    BuildCompletion, BuildManifest, BuildMode, BuildOutcome, BuildPublicationState, BuildReport,
+    BuildScope, BuildSnapshot, CacheLookup, Compiler, CompilerInitError, CompilerProfile,
+    CompilerStage, DependencyRecord, ExpandedScope, ProfileError, PublicationDecision, ScopeError,
     SnapshotError, StageMetric,
 };
 pub use composition::{

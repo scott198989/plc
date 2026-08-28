@@ -7,11 +7,13 @@ use alloc::{
 
 use crate::{
     BindingActual, BlockId, CallSiteId, ControllerProgram, DataBlockKind, DataType, DependencyEdge,
-    DependencyGraph, DependencyReason, InstanceOwner, InstructionUseId, InterfaceMember,
-    InterfaceMemberId, InterfaceRole, MAX_BLOCKS_PER_CONTROLLER, MAX_CALLS_PER_BLOCK,
-    MAX_INSTRUCTION_USES_PER_BLOCK, MAX_INTERFACE_MEMBERS_PER_BLOCK,
+    DependencyEdgeKind, DependencyGraph, DependencyLocation, DependencyNodeId,
+    DependencyOccurrenceId, DependencyReason, DependencyResolution, InstanceOwner,
+    InstructionUseId, InterfaceMember, InterfaceMemberId, InterfaceRole, MAX_BLOCKS_PER_CONTROLLER,
+    MAX_CALLS_PER_BLOCK, MAX_INSTRUCTION_USES_PER_BLOCK, MAX_INTERFACE_MEMBERS_PER_BLOCK,
     PHASE2_INSTRUCTION_REGISTRY_VERSION, PROGRAM_MODEL_SCHEMA_VERSION, ProgramBlock,
-    ProgramUnitKind, StateRequirement, VariableRef,
+    ProgramUnitKind, SemanticDependencyEdge, SemanticDependencyGraph, StateRequirement,
+    VariableRef,
     instruction::{CALL_FB, CALL_FC, InstructionCategory, phase2_instruction_registry},
 };
 
@@ -150,6 +152,7 @@ pub struct ValidationReport {
     pub issues: Vec<ProgramIssue>,
     pub call_graph: CallGraph,
     pub dependency_graph: DependencyGraph,
+    pub semantic_dependency_graph: SemanticDependencyGraph,
 }
 
 impl ValidationReport {
@@ -235,7 +238,191 @@ pub fn validate_program(program: &ControllerProgram) -> ValidationReport {
 
     report.issues.sort();
     report.issues.dedup();
+    report.semantic_dependency_graph = semantic_dependency_graph(program, &report.dependency_graph);
     report
+}
+
+fn semantic_dependency_graph(
+    program: &ControllerProgram,
+    legacy: &DependencyGraph,
+) -> SemanticDependencyGraph {
+    let mut graph = SemanticDependencyGraph::default();
+    register_program_semantic_units(program, &mut graph);
+    project_legacy_dependencies(legacy, &mut graph);
+    preserve_unresolved_calls(program, &mut graph);
+    graph
+}
+
+fn register_program_semantic_units(
+    program: &ControllerProgram,
+    graph: &mut SemanticDependencyGraph,
+) {
+    for block in program.blocks().values() {
+        let owner = DependencyNodeId::Object(block.id);
+        graph.insert_node(owner);
+        for member in block.interface.members.values() {
+            let node = DependencyNodeId::InterfaceMember {
+                owner: block.id,
+                member: member.id,
+            };
+            graph.insert_node(node);
+            graph
+                .insert_edge(SemanticDependencyEdge {
+                    dependent: node,
+                    dependency: owner,
+                    kind: DependencyEdgeKind::Declaration,
+                    location: Some(semantic_location(
+                        block.id,
+                        DependencyOccurrenceId::InterfaceMember(member.id),
+                    )),
+                    resolution: DependencyResolution::Resolved,
+                })
+                .expect("canonical interface-member dependency is internally valid");
+        }
+        register_instruction_units(block, owner, graph);
+        register_call_units(block, owner, graph);
+    }
+}
+
+fn register_instruction_units(
+    block: &ProgramBlock,
+    owner: DependencyNodeId,
+    graph: &mut SemanticDependencyGraph,
+) {
+    for instruction in &block.instructions {
+        let node = DependencyNodeId::InstructionUse {
+            owner: block.id,
+            instruction_use: instruction.id,
+        };
+        let capability = DependencyNodeId::ExternalSemanticUnit(
+            0x494e_5354_5255_4354_494f_4e00_0000_0000_u128 | u128::from(instruction.instruction.0),
+        );
+        let location = semantic_location(
+            block.id,
+            DependencyOccurrenceId::InstructionUse(instruction.id),
+        );
+        graph.insert_node(node);
+        graph.insert_node(capability);
+        for edge in [
+            SemanticDependencyEdge {
+                dependent: node,
+                dependency: owner,
+                kind: DependencyEdgeKind::Declaration,
+                location: Some(location),
+                resolution: DependencyResolution::Resolved,
+            },
+            SemanticDependencyEdge {
+                dependent: owner,
+                dependency: capability,
+                kind: DependencyEdgeKind::InstructionCapability,
+                location: Some(location),
+                resolution: DependencyResolution::Resolved,
+            },
+        ] {
+            graph
+                .insert_edge(edge)
+                .expect("canonical instruction dependency is internally valid");
+        }
+    }
+}
+
+fn register_call_units(
+    block: &ProgramBlock,
+    owner: DependencyNodeId,
+    graph: &mut SemanticDependencyGraph,
+) {
+    for call in &block.calls {
+        let node = DependencyNodeId::CallSite {
+            owner: block.id,
+            call_site: call.id,
+        };
+        graph.insert_node(node);
+        graph
+            .insert_edge(SemanticDependencyEdge {
+                dependent: node,
+                dependency: owner,
+                kind: DependencyEdgeKind::Declaration,
+                location: Some(semantic_location(
+                    block.id,
+                    DependencyOccurrenceId::CallSite(call.id),
+                )),
+                resolution: DependencyResolution::Resolved,
+            })
+            .expect("canonical call-site dependency is internally valid");
+    }
+}
+
+fn project_legacy_dependencies(legacy: &DependencyGraph, graph: &mut SemanticDependencyGraph) {
+    for edge in legacy.edges() {
+        let dependency = DependencyNodeId::Object(edge.dependency);
+        let resolution = if graph.nodes().contains(&dependency) {
+            DependencyResolution::Resolved
+        } else {
+            DependencyResolution::Unresolved
+        };
+        graph
+            .insert_edge(SemanticDependencyEdge {
+                dependent: DependencyNodeId::Object(edge.dependent),
+                dependency,
+                kind: match edge.reason {
+                    DependencyReason::Call => DependencyEdgeKind::Call,
+                    DependencyReason::DataUse => DependencyEdgeKind::MemberUse,
+                    DependencyReason::InstanceOf => DependencyEdgeKind::Instance,
+                    DependencyReason::MultiInstanceState => DependencyEdgeKind::StorageLayout,
+                },
+                location: Some(edge.call_site.map_or(
+                    DependencyLocation::ProjectObject(edge.dependent),
+                    |call_site| {
+                        semantic_location(
+                            edge.dependent,
+                            DependencyOccurrenceId::CallSite(call_site),
+                        )
+                    },
+                )),
+                resolution,
+            })
+            .expect("validated legacy dependency projects to a typed dependency");
+    }
+}
+
+fn preserve_unresolved_calls(program: &ControllerProgram, graph: &mut SemanticDependencyGraph) {
+    for block in program.blocks().values() {
+        for call in &block.calls {
+            let dependency = DependencyNodeId::Object(call.callee);
+            let resolution = if program.block(call.callee).is_some() {
+                DependencyResolution::Resolved
+            } else {
+                DependencyResolution::Unresolved
+            };
+            let edge = SemanticDependencyEdge {
+                dependent: DependencyNodeId::Object(block.id),
+                dependency,
+                kind: DependencyEdgeKind::Call,
+                location: Some(semantic_location(
+                    block.id,
+                    DependencyOccurrenceId::CallSite(call.id),
+                )),
+                resolution,
+            };
+            if !graph.edges().contains(&edge) {
+                graph
+                    .insert_edge(edge)
+                    .expect("call dependency has a registered dependent");
+            }
+        }
+    }
+}
+
+const fn semantic_location(
+    owner: BlockId,
+    occurrence: DependencyOccurrenceId,
+) -> DependencyLocation {
+    DependencyLocation::SourceOccurrence {
+        owner,
+        occurrence,
+        utf8_start: None,
+        utf8_end: None,
+    }
 }
 
 fn validate_ob_declarations(program: &ControllerProgram, report: &mut ValidationReport) {

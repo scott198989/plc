@@ -10,6 +10,7 @@
 
 extern crate alloc;
 
+mod dependency;
 mod ids;
 mod instruction;
 mod invalidation;
@@ -17,6 +18,12 @@ mod model;
 mod types;
 mod validation;
 
+pub use dependency::{
+    DependencyEdgeKind, DependencyGraphError, DependencyLocation, DependencyNodeId,
+    DependencyOccurrenceId, DependencyResolution, InvalidationEffect, InvalidationReason,
+    SemanticChange, SemanticChangeKind, SemanticDependencyEdge, SemanticDependencyGraph,
+    SemanticInvalidation, SemanticInvalidationPlan,
+};
 pub use ids::{BlockId, CallSiteId, ControllerId, InstructionUseId, InterfaceMemberId};
 pub use instruction::{
     ADD, BLKMOVE, BOOL_AND, BOOL_NOT, BOOL_OR, BOOL_XOR, BRANCH, BREAKPOINT_MARKER,
