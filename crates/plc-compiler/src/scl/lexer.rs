@@ -291,49 +291,49 @@ impl Lexer {
             );
         }
         if self.source.text().as_bytes().get(self.offset) == Some(&b'#') {
-            let word = &self.source.text()[start..word_end];
-            self.offset += 1;
-            let literal_start = self.offset;
-            if word.eq_ignore_ascii_case("T") || word.eq_ignore_ascii_case("TIME") {
-                while self
-                    .source
-                    .text()
-                    .as_bytes()
-                    .get(self.offset)
-                    .is_some_and(u8::is_ascii_alphanumeric)
-                {
-                    self.offset += 1;
-                }
-                if self.offset == literal_start {
-                    self.push_issue(
-                        DiagnosticCode::MALFORMED_TOKEN,
-                        start,
-                        self.offset,
-                        "TIME literal requires at least one component",
-                    );
-                }
-                self.push_token(TokenKind::TimeLiteral, start, self.offset);
-                return;
+            self.scan_prefixed_literal(start, word_end);
+            return;
+        }
+        let word = &self.source.text()[start..word_end];
+        let kind = keyword(word);
+        self.push_token(kind, start, word_end);
+    }
+
+    fn scan_prefixed_literal(&mut self, start: usize, word_end: usize) {
+        let word = &self.source.text()[start..word_end];
+        let is_time = word.eq_ignore_ascii_case("T") || word.eq_ignore_ascii_case("TIME");
+        let is_registered = is_registered_type_prefix(word);
+        self.offset += 1;
+        let literal_start = self.offset;
+        if is_time {
+            while self
+                .source
+                .text()
+                .as_bytes()
+                .get(self.offset)
+                .is_some_and(u8::is_ascii_alphanumeric)
+            {
+                self.offset += 1;
             }
-            if is_registered_type_prefix(word) {
-                if self.source.text().as_bytes().get(self.offset) == Some(&b'\'') {
-                    self.scan_quoted(start, TokenKind::TypedLiteral);
-                    return;
-                }
-                while self
-                    .source
-                    .text()
-                    .as_bytes()
-                    .get(self.offset)
-                    .is_some_and(|value| {
-                        value.is_ascii_alphanumeric() || matches!(*value, b'.' | b'+' | b'-' | b'#')
-                    })
-                {
-                    self.offset += 1;
-                }
-                self.push_token(TokenKind::TypedLiteral, start, self.offset);
-                return;
+            if self.offset == literal_start {
+                self.push_issue(
+                    DiagnosticCode::MALFORMED_TOKEN,
+                    start,
+                    self.offset,
+                    "TIME literal requires at least one component",
+                );
+            } else if !valid_time_components(&self.source.text()[literal_start..self.offset]) {
+                self.push_issue(
+                    DiagnosticCode::MALFORMED_TOKEN,
+                    start,
+                    self.offset,
+                    "TIME components must use unique d, h, m, s, or ms units in descending order",
+                );
             }
+            self.push_token(TokenKind::TimeLiteral, start, self.offset);
+        } else if is_registered {
+            self.scan_registered_typed_literal(start, literal_start);
+        } else {
             while self
                 .source
                 .text()
@@ -350,11 +350,42 @@ impl Lexer {
                 self.offset,
                 "unregistered explicit type or vendor literal prefix",
             );
+        }
+    }
+
+    fn scan_registered_typed_literal(&mut self, start: usize, literal_start: usize) {
+        if self.source.text().as_bytes().get(self.offset) == Some(&b'\'') {
+            self.scan_quoted(start, TokenKind::TypedLiteral);
             return;
         }
-        let word = &self.source.text()[start..word_end];
-        let kind = keyword(word);
-        self.push_token(kind, start, word_end);
+        while self
+            .source
+            .text()
+            .as_bytes()
+            .get(self.offset)
+            .is_some_and(|value| {
+                value.is_ascii_alphanumeric()
+                    || matches!(*value, b'.' | b'#')
+                    || (matches!(*value, b'+' | b'-')
+                        && self
+                            .source
+                            .text()
+                            .as_bytes()
+                            .get(self.offset.saturating_sub(1))
+                            .is_some_and(|previous| matches!(*previous, b'E' | b'e')))
+            })
+        {
+            self.offset += 1;
+        }
+        if self.offset == literal_start {
+            self.push_issue(
+                DiagnosticCode::MALFORMED_TOKEN,
+                start,
+                self.offset,
+                "explicit type prefix requires a literal payload",
+            );
+        }
+        self.push_token(TokenKind::TypedLiteral, start, self.offset);
     }
 
     fn scan_number(&mut self, start: usize) {
@@ -369,36 +400,63 @@ impl Lexer {
             self.offset += 1;
         }
         if self.source.text().as_bytes().get(self.offset) == Some(&b'#') {
-            let base = &self.source.text()[start..self.offset];
-            self.offset += 1;
-            let digits_start = self.offset;
-            while self
-                .source
-                .text()
-                .as_bytes()
-                .get(self.offset)
-                .is_some_and(u8::is_ascii_alphanumeric)
-            {
-                self.offset += 1;
-            }
-            let valid_base = matches!(base, "2" | "8" | "16");
-            if !valid_base || self.offset == digits_start {
-                self.push_issue(
-                    DiagnosticCode::MALFORMED_TOKEN,
-                    start,
-                    self.offset,
-                    "base-qualified integer requires base 2, 8, or 16 and digits",
-                );
-            }
-            self.push_token(TokenKind::IntegerLiteral, start, self.offset);
+            self.scan_based_integer(start);
             return;
         }
-        let mut real = false;
+
+        let mut real = self.scan_fraction(start);
+        real |= self.scan_exponent(start);
+        self.push_token(
+            if real {
+                TokenKind::RealLiteral
+            } else {
+                TokenKind::IntegerLiteral
+            },
+            start,
+            self.offset,
+        );
+    }
+
+    fn scan_based_integer(&mut self, start: usize) {
+        let base = &self.source.text()[start..self.offset];
+        self.offset += 1;
+        let digits_start = self.offset;
+        while self
+            .source
+            .text()
+            .as_bytes()
+            .get(self.offset)
+            .is_some_and(u8::is_ascii_alphanumeric)
+        {
+            self.offset += 1;
+        }
+        let valid_base = matches!(base, "2" | "8" | "16");
+        let digits = &self.source.text()[digits_start..self.offset];
+        let valid_digits = valid_base
+            && !digits.is_empty()
+            && digits.bytes().all(|digit| match base {
+                "2" => matches!(digit, b'0' | b'1'),
+                "8" => matches!(digit, b'0'..=b'7'),
+                "16" => digit.is_ascii_hexdigit(),
+                _ => false,
+            });
+        if !valid_digits {
+            self.push_issue(
+                DiagnosticCode::MALFORMED_TOKEN,
+                start,
+                self.offset,
+                "base-qualified integer contains no digits or a digit outside base 2, 8, or 16",
+            );
+        }
+        self.push_token(TokenKind::IntegerLiteral, start, self.offset);
+    }
+
+    fn scan_fraction(&mut self, start: usize) -> bool {
         if self.source.text().as_bytes().get(self.offset) == Some(&b'.')
             && self.source.text().as_bytes().get(self.offset + 1) != Some(&b'.')
         {
-            real = true;
             self.offset += 1;
+            let fraction_start = self.offset;
             while self
                 .source
                 .text()
@@ -408,7 +466,21 @@ impl Lexer {
             {
                 self.offset += 1;
             }
+            if fraction_start == self.offset {
+                self.push_issue(
+                    DiagnosticCode::MALFORMED_TOKEN,
+                    start,
+                    self.offset,
+                    "real literal requires decimal digits after '.'",
+                );
+            }
+            true
+        } else {
+            false
         }
+    }
+
+    fn scan_exponent(&mut self, start: usize) -> bool {
         if self
             .source
             .text()
@@ -416,7 +488,6 @@ impl Lexer {
             .get(self.offset)
             .is_some_and(|value| matches!(*value, b'E' | b'e'))
         {
-            real = true;
             self.offset += 1;
             if self
                 .source
@@ -445,16 +516,10 @@ impl Lexer {
                     "real exponent requires decimal digits",
                 );
             }
+            true
+        } else {
+            false
         }
-        self.push_token(
-            if real {
-                TokenKind::RealLiteral
-            } else {
-                TokenKind::IntegerLiteral
-            },
-            start,
-            self.offset,
-        );
     }
 
     fn scan_quoted(&mut self, token_start: usize, kind: TokenKind) {
@@ -553,9 +618,51 @@ fn range(start: usize, end: usize) -> TextRange {
 }
 
 fn is_registered_type_prefix(value: &str) -> bool {
-    ["BOOL", "INT", "DINT", "REAL", "STRING"]
-        .iter()
-        .any(|candidate| value.eq_ignore_ascii_case(candidate))
+    [
+        "BOOL", "SINT", "INT", "DINT", "LINT", "USINT", "UINT", "UDINT", "ULINT", "BYTE", "WORD",
+        "DWORD", "LWORD", "REAL", "LREAL", "CHAR", "STRING",
+    ]
+    .iter()
+    .any(|candidate| value.eq_ignore_ascii_case(candidate))
+}
+
+fn valid_time_components(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    let mut offset = 0;
+    let mut last_rank = 6_u8;
+    let mut seen = 0_u8;
+    while offset < bytes.len() {
+        let number_start = offset;
+        while bytes.get(offset).is_some_and(u8::is_ascii_digit) {
+            offset += 1;
+        }
+        if number_start == offset {
+            return false;
+        }
+        let remaining = &value[offset..];
+        let (rank, bit, width) = if remaining.len() >= 2
+            && remaining
+                .get(..2)
+                .is_some_and(|unit| unit.eq_ignore_ascii_case("ms"))
+        {
+            (1, 1, 2)
+        } else {
+            match bytes.get(offset).map(u8::to_ascii_lowercase) {
+                Some(b'd') => (5, 1 << 4, 1),
+                Some(b'h') => (4, 1 << 3, 1),
+                Some(b'm') => (3, 1 << 2, 1),
+                Some(b's') => (2, 1 << 1, 1),
+                _ => return false,
+            }
+        };
+        if rank >= last_rank || seen & bit != 0 {
+            return false;
+        }
+        offset += width;
+        last_rank = rank;
+        seen |= bit;
+    }
+    true
 }
 
 fn keyword(value: &str) -> TokenKind {
@@ -606,10 +713,33 @@ fn keyword(value: &str) -> TokenKind {
         "VAR_OUTPUT",
         "VAR_IN_OUT",
         "VAR_TEMP",
+        "VAR_GLOBAL",
+        "VAR_EXTERNAL",
+        "VAR_STAT",
+        "VAR_CONSTANT",
+        "VAR_CONFIG",
+        "VAR_ACCESS",
+        "END_VAR",
+        "TYPE",
+        "END_TYPE",
+        "STRUCT",
+        "END_STRUCT",
+        "FUNCTION",
+        "END_FUNCTION",
+        "FUNCTION_BLOCK",
+        "END_FUNCTION_BLOCK",
+        "ORGANIZATION_BLOCK",
+        "END_ORGANIZATION_BLOCK",
+        "DATA_BLOCK",
+        "END_DATA_BLOCK",
+        "PROGRAM",
+        "END_PROGRAM",
         "BEGIN",
         "END_BLOCK",
         "CONFIGURATION",
+        "END_CONFIGURATION",
         "RESOURCE",
+        "END_RESOURCE",
     ]
     .iter()
     .any(|candidate| value.eq_ignore_ascii_case(candidate))
