@@ -95,14 +95,10 @@ ASSESSMENTS: dict[str, dict[str, Any]] = {
         ["crates/plc-hardware/tests/edu21_contract.rs", "crates/plc-hardware/tests/hardware_condition_matrix.rs", "crates/plc-system/tests/canonical_hardware.rs"],
     ),
     "VER-HWD-0002": assessment(
-        PARTIAL,
-        "The complete physical-condition action matrix is causal and replayable, projects declared values/quality/suppression, crosses the runtime delivery boundary, and emits lifecycle diagnostics.",
-        ["crates/plc-hardware/src/condition.rs", "crates/plc-runtime/src/controller.rs", "crates/plc-observability/src/hardware_diagnostics.rs", "crates/plc-system/src/session.rs"],
-        ["crates/plc-hardware/tests/hardware_condition_matrix.rs", "crates/plc-runtime/tests/hardware_delivery_boundary.rs", "crates/plc-observability/tests/hardware_diagnostic_vectors.rs", "crates/plc-system/tests/system_journeys.rs"],
-        [
-            "The complete physical-condition matrix is not yet asserted through monitoring and trace while preserving the same causal event into the aggregate snapshot/replay boundary.",
-        ],
-        "LANE-PROFILE-HARDWARE-SYMBOLS",
+        READY,
+        "The complete typed pull/restore, wrong-module/restore, channel-fault/clear, wire-break/clear, station-loss/restore, and link-loss/restore matrix derives values, quality, output suppression, lifecycle diagnostics, monitor samples, and trace occurrence markers from the same condition events. The production HardwareObservationSnapshot binds every event to its ledger, monitor, and trace proof plus the component snapshots and exact command log, rejects incomplete or tampered joins, and replays to the exact condition snapshot.",
+        ["crates/plc-hardware/src/condition.rs", "crates/plc-runtime/src/controller.rs", "crates/plc-observability/src/hardware_diagnostics.rs", "crates/plc-observability/src/monitor.rs", "crates/plc-observability/src/trace.rs", "crates/plc-observability/src/diagnostics.rs", "crates/plc-system/src/hardware_observation.rs", "crates/plc-system/src/session.rs"],
+        ["crates/plc-hardware/tests/hardware_condition_matrix.rs", "crates/plc-runtime/tests/hardware_delivery_boundary.rs", "crates/plc-observability/tests/hardware_diagnostic_vectors.rs", "crates/plc-system/tests/hardware_observation_matrix.rs", "crates/plc-system/tests/system_journeys.rs"],
     ),
     "VER-NET-0001": assessment(
         READY,
@@ -213,16 +209,10 @@ ASSESSMENTS: dict[str, dict[str, Any]] = {
         ["crates/plc-runtime/tests/cpu_state_matrix.rs", "crates/plc-runtime/tests/runtime_vectors.rs", "crates/plc-commissioning/tests/commissioning_vectors.rs"],
     ),
     "VER-FLT-0001": assessment(
-        PARTIAL,
-        "Divide, timer overflow, and work-budget faults have declared fatal CPU boundary behavior with source occurrence context; real provider events bridge into causal diagnostics.",
+        READY,
+        "Verified runtime artifacts naturally induce divide, timer-overflow, work-budget, and control-flow invariant faults; every vector asserts the FAULTED CPU response, fatal boundary state hash and replay event, exact source context, and live VirtualUniverse diagnostic-provider mapping. Bounds remains an explicitly defensive runtime trap rather than an authored operation: the controller's real fatal policy proves its CPU response and causal event, while the validated provider-ingress vector separately proves mapping, causality, replay integrity, and idempotence without claiming an end-to-end authored bounds operation.",
         ["crates/plc-runtime/src/controller.rs", "crates/plc-runtime/src/model.rs", "crates/plc-observability/src/runtime_diagnostics.rs"],
         ["crates/plc-runtime/tests/runtime_vectors.rs", "crates/plc-runtime/tests/fault_policy_vectors.rs", "crates/plc-runtime/tests/invocation_calls.rs", "crates/plc-compiler/tests/scl_control_flow.rs", "crates/plc-observability/tests/execution_vectors.rs"],
-        [
-            "Bounds-fault CPU response and causal-diagnostic vector is absent.",
-            "Invariant-fault CPU response and causal-diagnostic vector is absent.",
-            "Timer- and budget-fault vectors are not asserted through the diagnostic-provider seam.",
-        ],
-        "LANE-FAULT-SNAPSHOT-OBSERVATION",
     ),
     "VER-SNP-0001": assessment(
         READY,
