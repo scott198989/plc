@@ -15,7 +15,8 @@ use plc_observability::{
 use plc_runtime::{CanonicalValue, CpuState, Hash32, ValueType};
 use plc_system::{
     EngineeringReadModel, EngineeringSession, EngineeringSessionSnapshot, ProjectDiagnostic,
-    ProjectDiagnosticPhase, SystemCommandIdentity, SystemError, project_hardware, project_software,
+    ProjectDiagnosticPhase, RestoreApproval, SystemCommandIdentity, SystemError, project_hardware,
+    project_software,
 };
 
 const SYSTEM_COMMAND_MAGIC: &str = "PES-SYSTEM-COMMAND-1";
@@ -212,7 +213,12 @@ impl SystemBridge {
                     .pending_snapshot
                     .clone()
                     .ok_or(SystemBridgeError::NoPendingSnapshot)?;
-                if let Err(error) = self.session_mut()?.restore_snapshot(&snapshot) {
+                let preview = self.session_ref()?.preview_restore(&snapshot)?;
+                if let Err(error) = self.session_mut()?.commit_restore(
+                    &snapshot,
+                    &preview,
+                    RestoreApproval::approve(&preview),
+                ) {
                     self.pending_snapshot = None;
                     return Err(error.into());
                 }
@@ -704,7 +710,7 @@ fn push_runtime_session(
         monitor_state(read.status.monitor_state, read.status.build_current),
     );
     output.push_str(r#","online":"#);
-    push_bool(output, read.status.software_to_loaded.is_some());
+    push_bool(output, read.status.online);
     output.push_str(r#","probes":["#);
     push_probes(output, read);
     output.push_str(r#"],"runtimeControllerId":"#);

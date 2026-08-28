@@ -383,6 +383,63 @@ try {
   const runtimeScreenshot = path.join(evidenceDirectory, "workbench-runtime-commissioning.png");
   await page.screenshot({ fullPage: true, path: runtimeScreenshot });
 
+  await treeItem(page, "Function").click();
+  const faultingSource = "Result := TRUE;\nWHILE TRUE DO\n  CONTINUE;\nEND_WHILE;";
+  await page.getByLabel("SCL source").fill(faultingSource);
+  await page.getByRole("button", { name: "Apply SCL source" }).click();
+  await page.getByText("Build stale", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Build", exact: true }).click();
+  await waitForBuildCurrent(page);
+  await page.getByRole("button", { name: "Preview load", exact: true }).click();
+  const watchdogLoadPreview = page.getByRole("region", { name: "Virtual Download preview" });
+  await watchdogLoadPreview.waitFor();
+  const watchdogCandidateFingerprint = (await watchdogLoadPreview.locator("small").innerText()).trim();
+  if (watchdogCandidateFingerprint === candidateFingerprint) {
+    throw new Error("watchdog SCL edit did not change the canonical load-candidate fingerprint");
+  }
+  await page.getByRole("button", { name: "Commit load", exact: true }).click();
+  try {
+    await watchdogLoadPreview.waitFor({ state: "detached", timeout: 5_000 });
+  } catch (error) {
+    const alert = page.getByRole("alert");
+    const detail = await alert.count() > 0 ? await alert.innerText() : "no alert was rendered";
+    throw new Error(`rebuilt watchdog load did not commit: ${detail}; ${error.message}`);
+  }
+  const watchdogGoOnline = page.getByRole("button", { name: "Go online", exact: true });
+  if (await watchdogGoOnline.isEnabled()) {
+    await watchdogGoOnline.click();
+    await page.getByText("Online session active", { exact: true }).waitFor();
+  }
+  await waitForSoftwareMatch(page);
+  await page.getByRole("button", { name: "RUN", exact: true }).click();
+  await page.getByRole("button", { name: "Scan +1", exact: true }).click();
+  try {
+    const watchdogState = page.locator(".runtime-toolbar__identity strong");
+    await waitForCondition(
+      async () => (await watchdogState.innerText()).trim() === "Faulted",
+      "watchdog fault did not drive the virtual controller to FAULTED",
+      5_000,
+    );
+  } catch (error) {
+    const actualState = (await page.locator(".runtime-toolbar__identity strong").innerText()).trim();
+    const runtimeText = (await page.locator("body").innerText()).slice(0, 2_000);
+    throw new Error(`${error.message}; actual state=${actualState}; runtime=${runtimeText}`);
+  }
+  const watchdogDiagnostic = page
+    .locator(".runtime-diagnostic-row")
+    .filter({ hasText: "EDU-RTM-0004" });
+  await watchdogDiagnostic.waitFor();
+  if (await watchdogDiagnostic.getAttribute("aria-disabled") !== "false") {
+    throw new Error("the causal watchdog diagnostic did not expose semantic navigation");
+  }
+  await watchdogDiagnostic.click();
+  await page.getByRole("heading", { level: 1, name: "Function" }).waitFor();
+  if (await page.getByLabel("SCL source").inputValue() !== faultingSource) {
+    throw new Error("runtime fault navigation did not return to the exact authored SCL block");
+  }
+  const diagnosticScreenshot = path.join(evidenceDirectory, "workbench-causal-diagnostic.png");
+  await page.screenshot({ fullPage: true, path: diagnosticScreenshot });
+
   const receiptBeforeSave = (await page.locator(".runtime-toolbar__receipt").innerText()).trim();
   await page.locator('button[title="Save as"]').click();
   await page.getByRole("status", { name: "Saved", exact: true }).waitFor();
@@ -528,7 +585,7 @@ try {
       "redo",
       "rename",
       "build-power-preview-commit-online-run-scan",
-      "causal-io-monitor-modify-force-trace-snapshot",
+      "causal-io-monitor-modify-force-trace-snapshot-diagnose-navigate",
       "save-as-close-open-project-with-fresh-runtime",
     ],
     isolatedLoopbackArtifact: true,
@@ -543,6 +600,7 @@ try {
       fbdScreenshot,
       typeEditorScreenshot,
       runtimeScreenshot,
+      diagnosticScreenshot,
       reopenScreenshot,
       workbenchScreenshot,
       mobileScreenshot,
@@ -632,6 +690,20 @@ async function waitForScanSequence(page, expected) {
     async () => await readScanSequence(page) === expected,
     `scan sequence did not become ${expected}`,
   );
+}
+
+async function waitForSoftwareMatch(page) {
+  const software = page.locator(".runtime-summary dl > div").filter({ hasText: "Software" }).locator("dd");
+  const alert = page.getByRole("alert");
+  await waitForCondition(async () => {
+    if ((await software.innerText()).trim() === "Match") {
+      return true;
+    }
+    if (await alert.count() > 0 && await alert.isVisible()) {
+      throw new Error(`runtime load failed in the production UI: ${await alert.innerText()}`);
+    }
+    return false;
+  }, "loaded software did not match the rebuilt watchdog artifact");
 }
 
 async function waitForBuildCurrent(page) {

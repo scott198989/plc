@@ -5,8 +5,8 @@ use plc_commissioning::{
     CommissioningError, ConfiguredController, ControllerInstanceId, CreateInstanceCommand,
     ForceId as CommissioningForceId, ForceRegistryProjection, LoadExecution, LoadPreview,
     LoadRequest, LoadResult, MatchComparison, OfflineControllerId, OfflineEngineeringState,
-    OfflineSourceBuild, PostLoadMode, PreviewApproval, SessionCommandBinding, VirtualLoadPackage,
-    VirtualOnlineSessionId, VirtualUniverse,
+    OfflineSourceBuild, PostLoadMode, PreviewApproval, SessionCommandBinding, SessionState,
+    VirtualLoadPackage, VirtualOnlineSessionId, VirtualUniverse,
 };
 use plc_core::{Lifecycle, ObjectId, Project, Sha256Digest, Uuid, sha256};
 use plc_hardware::{
@@ -36,7 +36,7 @@ use plc_observability::{
 };
 use plc_runtime::{
     CanonicalValue, CommandId, ControllerSnapshot, CpuState, Hash32, InputCommand, InputReceipt,
-    RestartKind, RuntimeBoundaryCommand, RuntimeHardwareBoundaryCommand,
+    RestartKind, RunOutcome, RuntimeBoundaryCommand, RuntimeHardwareBoundaryCommand,
     RuntimeOutputDeliveryOverride, RuntimeScanCommand, RuntimeValueTarget, ValueType,
     VirtualControllerId, canonical_force_overlay_hash,
 };
@@ -102,6 +102,8 @@ pub struct EngineeringStatus {
     pub semantic_dirty: bool,
     pub build_current: bool,
     pub loaded: bool,
+    pub online: bool,
+    pub session_state: Option<SessionState>,
     pub cpu_state: CpuState,
     pub software_to_loaded: Option<MatchComparison>,
     pub hardware_to_loaded: Option<MatchComparison>,
@@ -603,18 +605,41 @@ impl EngineeringSession {
 
     pub fn go_online(&mut self) -> Result<(), SystemError> {
         let mut candidate = self.clone();
-        candidate
+        match candidate
             .universe
-            .begin_go_online(
-                candidate.ids.online,
-                candidate.ids.offline,
-                candidate.ids.controller,
-            )
-            .map_err(commissioning_error)?;
-        candidate
-            .universe
-            .complete_go_online(candidate.ids.online)
-            .map_err(commissioning_error)?;
+            .session(candidate.ids.online)
+            .map(plc_commissioning::VirtualOnlineSession::state)
+        {
+            None => {
+                candidate
+                    .universe
+                    .begin_go_online(
+                        candidate.ids.online,
+                        candidate.ids.offline,
+                        candidate.ids.controller,
+                    )
+                    .map_err(commissioning_error)?;
+                candidate
+                    .universe
+                    .complete_go_online(candidate.ids.online)
+                    .map_err(commissioning_error)?;
+            }
+            Some(SessionState::VirtualLinkLost | SessionState::VirtualUnavailable) => {
+                candidate
+                    .universe
+                    .begin_reconnect(candidate.ids.online)
+                    .map_err(commissioning_error)?;
+                candidate
+                    .universe
+                    .complete_reconnect(candidate.ids.online)
+                    .map_err(commissioning_error)?;
+            }
+            Some(state) => {
+                return Err(SystemError::Commissioning(format!(
+                    "session cannot go online from {state:?}"
+                )));
+            }
+        }
         candidate.synchronize_hardware_epoch()?;
         let boundary = u128::from(candidate.universe.event_sequence());
         candidate.project_actual_hardware_state(derived_identity(
@@ -1451,6 +1476,8 @@ impl EngineeringSession {
             semantic_dirty: self.project.is_semantic_dirty(),
             build_current,
             loaded,
+            online: session.is_some_and(|value| value.state() == SessionState::Online),
+            session_state: session.map(plc_commissioning::VirtualOnlineSession::state),
             cpu_state: instance.map_or(CpuState::PoweredOff, |value| value.runtime().cpu_state()),
             software_to_loaded: session.map(|value| {
                 if loaded && !build_current {
@@ -1923,18 +1950,29 @@ impl EngineeringSession {
                 .publish(context, &values)
                 .map_err(|error| SystemError::Monitoring(format!("{error:?}")))?;
         }
-        let runtime_publication =
-            TraceRuntimePublication::from_commissioned_scan_after_hardware_boundary(
-                context,
-                receipt,
-                hardware_receipt,
-            )
-            .map_err(|error| SystemError::Trace(format!("{error:?}")))?;
-        let captures = self
-            .traces
-            .publish_with_runtime(context, &values, &diagnostic_events, &runtime_publication)
-            .map_err(|error| SystemError::Trace(format!("{error:?}")))?;
+        let captures = match &receipt.runtime.outcome {
+            RunOutcome::Completed(_) => {
+                let runtime_publication =
+                    TraceRuntimePublication::from_commissioned_scan_after_hardware_boundary(
+                        context,
+                        receipt,
+                        hardware_receipt,
+                    )
+                    .map_err(|error| SystemError::Trace(format!("{error:?}")))?;
+                self.traces.publish_with_runtime(
+                    context,
+                    &values,
+                    &diagnostic_events,
+                    &runtime_publication,
+                )
+            }
+            RunOutcome::Faulted(_) => self.traces.publish(context, &values, &diagnostic_events),
+        }
+        .map_err(|error| SystemError::Trace(format!("{error:?}")))?;
         self.trace_capture_ids.extend(captures);
+        if !diagnostic_events.is_empty() {
+            self.rebuild_navigation()?;
+        }
         Ok(())
     }
 
@@ -2156,7 +2194,11 @@ impl EngineeringSession {
     }
 
     fn refresh_online_comparison(&mut self) -> Result<(), SystemError> {
-        if self.universe.session(self.ids.online).is_some() {
+        if self
+            .universe
+            .session(self.ids.online)
+            .is_some_and(|session| session.state() == SessionState::Online)
+        {
             self.universe
                 .observe_session(self.ids.online)
                 .map_err(commissioning_error)?;
@@ -2252,17 +2294,33 @@ impl EngineeringSession {
             }
         }
         let fallback = SemanticIdentity(object_u128(self.controller_object_id));
+        let resolve_runtime_source_identity = |candidate: u128| {
+            let direct = SemanticIdentity(candidate);
+            if known_identities.contains(&direct) {
+                return Some(direct);
+            }
+            let source = build.runtime_projection().source_for(candidate)?;
+            let mut owners = source
+                .anchors
+                .iter()
+                .filter_map(|anchor| build.software().block_origin(anchor.owner_object_id))
+                .map(|owner| SemanticIdentity(object_u128(owner)))
+                .filter(|identity| known_identities.contains(identity))
+                .collect::<BTreeSet<_>>()
+                .into_iter();
+            let owner = owners.next()?;
+            owners.next().is_none().then_some(owner)
+        };
         for event in self.diagnostics.retained_events() {
             let primary = event
                 .condition_key
-                .map(|key| SemanticIdentity(key.subject_identity))
-                .filter(|identity| known_identities.contains(identity))
+                .and_then(|key| resolve_runtime_source_identity(key.subject_identity))
                 .unwrap_or(fallback);
             let mut related = event
                 .related_identities
                 .iter()
                 .copied()
-                .map(SemanticIdentity)
+                .filter_map(resolve_runtime_source_identity)
                 .filter(|identity| *identity != primary && known_identities.contains(identity))
                 .collect::<Vec<_>>();
             related.sort_unstable();

@@ -10,7 +10,7 @@ use plc_core::{
 };
 use plc_hardware::{HardwareFaultAction, InstalledOccupant, ModuleId, TrainingProfile};
 use plc_observability::{Quality, StableTargetId};
-use plc_runtime::{CanonicalValue, CpuState, Hash32, ReplayEventKind};
+use plc_runtime::{CanonicalValue, CpuState, Hash32, ReplayEventKind, RunOutcome};
 use plc_system::{
     EngineeringSession, RestoreApproval, SystemBuildError, SystemCommandIdentity, SystemError,
     build_project_controller, project_hardware,
@@ -1123,6 +1123,66 @@ fn invalid_offline_edit_remains_visible_while_loaded_run_state_is_preserved() {
     session
         .run_scan(identity(30))
         .expect("loaded runtime keeps scanning");
+}
+
+#[test]
+fn online_rebuild_load_exposes_link_loss_then_reconnects_to_the_new_artifact() {
+    let mut fixture = Fixture::canonical_scl();
+    let mut session = loaded_session(&fixture);
+    assert!(session.status().online);
+    fixture.commit(
+        DomainCommand::SetSemanticField {
+            object_id: object_id(22),
+            key: "sourceText".to_owned(),
+            value: PayloadValue::from("Result := TRUE; WHILE TRUE DO CONTINUE; END_WHILE;"),
+        },
+        &[object_id(22)],
+    );
+    session
+        .refresh_project(fixture.engine.project().clone())
+        .expect("semantic refresh");
+    session.build().expect("rebuilt artifact");
+    let preview = session
+        .preview_load(PostLoadMode::Stop)
+        .expect("load preview");
+    session.commit_load(&preview).expect("replacement load");
+
+    let disconnected = session.status();
+    assert!(disconnected.loaded);
+    assert!(!disconnected.online);
+    assert_eq!(
+        disconnected.session_state,
+        Some(plc_commissioning::SessionState::VirtualLinkLost)
+    );
+    session.go_online().expect("deterministic reconnect");
+    let reconnected = session.status();
+    assert!(reconnected.online);
+    assert_eq!(
+        reconnected.session_state,
+        Some(plc_commissioning::SessionState::Online)
+    );
+    assert_eq!(
+        reconnected.software_to_loaded,
+        Some(plc_commissioning::MatchComparison::Match)
+    );
+    session.request_run().expect("run rebuilt artifact");
+    let receipt = session
+        .run_scan(identity(50))
+        .expect("faulting scan receipt");
+    assert!(matches!(receipt.runtime.outcome, RunOutcome::Faulted(_)));
+    let faulted = session.read_model().expect("faulted read model");
+    assert_eq!(faulted.cpu_state, CpuState::Faulted);
+    assert!(!faulted.diagnostics.active.is_empty());
+    let authored_block_identity = u128::from_be_bytes(object_id(22).0.into_bytes());
+    assert!(
+        faulted.diagnostics.navigation.iter().any(|(_, result)| {
+            result
+                .as_ref()
+                .is_some_and(|route| route.primary.identity.0 == authored_block_identity)
+        }),
+        "diagnostic navigation did not resolve the authored block: {:#?}",
+        faulted.diagnostics
+    );
 }
 
 #[test]
