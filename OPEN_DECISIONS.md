@@ -160,7 +160,7 @@ data retention remain blocked.
 
 | ID | Decision | Why open | Required no later than | Current affected-work state |
 |---|---|---|---|---|
-| `OQ-0001` | Initial supported operating systems and packaged classroom shell | Platform-neutral core does not choose a deployable artifact | Before product packaging work | `BLOCKED` for packaging and public artifact work; Phase 1 governance may continue |
+| `OQ-0001` | Initial supported operating systems and packaged classroom shell | Platform-neutral core does not choose a deployable artifact | Before product packaging work | `PARTIALLY UNBLOCKED` only for the Phase 2 Windows typed project-file shell in ADR-0005; final OS support, public packaging/distribution, installation, signing, updater, runtime servicing, and release work remain `BLOCKED` |
 | `OQ-0002` | Final public product name, logo, and compatibility language | Requires original design and trademark review | Before public branding | `BLOCKED` for public branding and comparative claims |
 | `OQ-0003` | Concrete fictional controller/module profile values | Research defines the model, not exact generic limits | Phase 2 hardware specification | `DEFERRED` to Phase 2 |
 | `OQ-0004` | Identifier grammar, case rules, scope/shadowing, and automatic address allocation | Observable semantics require precise rules | Phase 2 tag/type specification | `DEFERRED` to Phase 2 |
@@ -175,3 +175,4 @@ data retention remain blocked.
 
 - `DEC-0001` was resolved by `CR-0001` on 2026-08-27 for canonical source identity and separate phase-directive sequencing. The exact `PES-ACC-0005` status-text acceptance issue remains unresolved.
 - `DEC-0002` was partially resolved by `CR-0001` on 2026-08-27 for active checked-in CI configuration and the executable local closure gate only. Remote creation/publication/push, credentials, hosted execution, service terms, hosted logs, report upload, and retention remain blocked.
+- `P2-DEC-ISO-NATIVE-001` Option A was authorized by Scott on 2026-08-28 only for the Phase 2 Windows typed project-file broker and fixed-local-backing boundary recorded by ADR-0005. It does not broadly resolve `OQ-0001`, accept Phase 2, or authorize Phase 3.

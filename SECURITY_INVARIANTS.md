@@ -92,7 +92,7 @@ Development capability is not production capability. The following separation is
 
 Production dependency resolution must prove that dev-only packages, optional dependencies, aliases, native modules, test utilities, and dynamic imports are absent from the shipped graph. The packaged artifact, not merely source and lockfiles, is authoritative evidence (`PES-ISO-0012`, `PES-CI-0002`).
 
-The final desktop/classroom shell, supported operating systems, installation model, file permissions, code signing, background-network suppression, and updater separation remain BLOCKED by `PES-DEV-0009`, `PES-DEC-0002`, and OQ-0001. No document or implementation may silently choose them.
+ADR-0005 authorizes one Windows-first Phase 2 product-file boundary: a manifest-bound local WebView2 shell may expose only the immutable typed project-file broker V1 over opaque grants to an attested fixed-local Projects root. Browser pickers receive no production credit, and the renderer receives no raw path, arbitrary filesystem, shell, process, network, device, PLC, industrial-communication, or deployable-export capability. The final supported operating systems, public packaging/distribution, installation model, signing, updater/runtime servicing, and release support remain BLOCKED by `PES-DEV-0009`, `PES-DEC-0002`, and `OQ-0001`.
 
 ## 7. Content Security Policy and local resources
 

@@ -1,50 +1,68 @@
 const PROJECT_EXTENSION = ".vlabproj";
-const PROJECT_MIME_TYPE = "application/vnd.govs.virtual-plc-project";
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_PROJECT_NAME_CODE_UNITS = 255;
 
 const FORBIDDEN_FILE_NAME_CHARACTERS = /[<>:"/\\|?*\u0000-\u001f\u007f]/u;
 const FORBIDDEN_FILE_NAME_CHARACTERS_GLOBAL = /[<>:"/\\|?*\u0000-\u001f\u007f]/gu;
-const RESERVED_WINDOWS_FILE_STEM = /^(?:AUX|CON|NUL|PRN|COM[1-9¹²³]|LPT[1-9¹²³])$/iu;
+const RESERVED_WINDOWS_FILE_STEM = /^(?:AUX|CON|NUL|PRN|COM[1-9]|LPT[1-9])$/iu;
+const NATIVE_GRANT_ID = /^p2-native-v1:[0-9a-f]{16}$/u;
+const ATTESTATION_ID = /^fixed-local-v1:[0-9A-F]{8}:[0-9A-F]{16}$/u;
 
-type PickerAccept = Readonly<Record<string, readonly string[]>>;
+export const NATIVE_PROJECT_BROKER_CONTRACT = "govs.project-file-broker" as const;
+export const NATIVE_PROJECT_BROKER_VERSION = 1 as const;
+export const NATIVE_PROJECT_BROKER_GLOBAL = "govsProjectFileBrokerV1" as const;
 
-type ProjectFileHandle = Readonly<{
-  getFile: () => Promise<File>;
-  createWritable: () => Promise<{
-    abort: () => Promise<void>;
-    close: () => Promise<void>;
-    write: (data: Uint8Array<ArrayBuffer>) => Promise<void>;
-  }>;
-  kind: "file";
-  name: string;
+export type NativeFixedLocalAttestationV1 = Readonly<{
+  attestationId: string;
+  fixedDrive: true;
+  kind: "fixed-native-local-v1";
+  nativeLocal: true;
+  platform: "windows";
+  providerBacked: false;
+  redirected: false;
+  removable: false;
+  special: false;
 }>;
 
-type ProjectFileGrant = Readonly<{
+export type NativeOpenedProjectV1 = Readonly<{
+  attestationId: string;
+  bytes: Uint8Array<ArrayBuffer>;
   displayName: string;
-  handle: ProjectFileHandle;
+  grantId: string;
+  protocolVersion: 1;
 }>;
 
-type PickerWindow = Window &
-  typeof globalThis &
-  Readonly<{
-    showOpenFilePicker?: (options: Readonly<{
-      excludeAcceptAllOption: boolean;
-      multiple: false;
-      types: readonly Readonly<{
-        accept: PickerAccept;
-        description: string;
-      }>[];
-    }>) => Promise<readonly ProjectFileHandle[]>;
-    showSaveFilePicker?: (options: Readonly<{
-      excludeAcceptAllOption: boolean;
-      suggestedName: string;
-      types: readonly Readonly<{
-        accept: PickerAccept;
-        description: string;
-      }>[];
-    }>) => Promise<ProjectFileHandle>;
-  }>;
+export type NativeSavedProjectV1 = Readonly<{
+  attestationId: string;
+  displayName: string;
+  grantId: string;
+  protocolVersion: 1;
+  verifiedBytes: number;
+}>;
+
+export type NativeProjectFileBrokerV1 = Readonly<{
+  attestation: NativeFixedLocalAttestationV1;
+  contract: typeof NATIVE_PROJECT_BROKER_CONTRACT;
+  open: () => Promise<NativeOpenedProjectV1>;
+  protocolVersion: typeof NATIVE_PROJECT_BROKER_VERSION;
+  revoke: (grantId: string) => void;
+  save: (request: Readonly<{
+    bytes: Uint8Array<ArrayBuffer>;
+    grantId: string;
+    protocolVersion: 1;
+  }>) => Promise<NativeSavedProjectV1>;
+  saveAs: (request: Readonly<{
+    bytes: Uint8Array<ArrayBuffer>;
+    projectName: string;
+    protocolVersion: 1;
+  }>) => Promise<NativeSavedProjectV1>;
+}>;
+
+declare global {
+  interface Window {
+    readonly govsProjectFileBrokerV1?: NativeProjectFileBrokerV1;
+  }
+}
 
 export type OpenedProjectFile = Readonly<{
   bytes: Uint8Array<ArrayBuffer>;
@@ -58,13 +76,20 @@ export type SavedProjectFile = Readonly<{
   verifiedBytes: number;
 }>;
 
+type ActiveGrant = Readonly<{
+  attestationId: string;
+  displayName: string;
+}>;
+
 export class FileAccessError extends Error {
   public readonly code:
     | "ACCESS_CANCELLED"
     | "ACCESS_UNAVAILABLE"
+    | "ATTESTATION_FAILED"
     | "INVALID_EXTENSION"
     | "INVALID_FILE_NAME"
     | "PROJECT_TOO_LARGE"
+    | "PROTOCOL_MISMATCH"
     | "READ_FAILED"
     | "UNKNOWN_GRANT"
     | "WRITE_FAILED";
@@ -76,206 +101,323 @@ export class FileAccessError extends Error {
   }
 }
 
-const projectPickerType = {
-  accept: { [PROJECT_MIME_TYPE]: [PROJECT_EXTENSION] },
-  description: "Virtual PLC Lab project",
-} as const;
-
 /**
- * The only production boundary allowed to touch project files.
+ * Sole production adapter for project-file access.
  *
- * Handles remain private to this broker. The domain receives opaque grant IDs
- * and canonical bytes, never a path or a host capability.
+ * Ordinary web picker handles are intentionally ignored: their metadata cannot
+ * attest fixed native local backing. Only a pre-document, non-replaceable
+ * Windows shell bridge with the exact V1 surface can activate this boundary.
+ * The renderer receives typed bytes and opaque grants, never a path, generic
+ * host invocation method, native method name, or filesystem capability.
  */
 export class FileAccessBroker {
-  readonly #grants = new Map<string, ProjectFileGrant>();
+  readonly #grants = new Map<string, ActiveGrant>();
 
   public canOpen(): boolean {
-    return typeof (window as PickerWindow).showOpenFilePicker === "function";
+    return inspectNativeBridge() !== null;
   }
 
   public canSave(): boolean {
-    return typeof (window as PickerWindow).showSaveFilePicker === "function";
+    return inspectNativeBridge() !== null;
   }
 
   public async requestOpen(): Promise<OpenedProjectFile> {
-    const picker = (window as PickerWindow).showOpenFilePicker;
-    if (picker === undefined) {
-      throw new FileAccessError(
-        "ACCESS_UNAVAILABLE",
-        "This browser cannot grant project-file access.",
-      );
-    }
-
-    let handles: readonly ProjectFileHandle[];
+    const bridge = requireNativeBridge();
+    let opened: NativeOpenedProjectV1;
     try {
-      handles = await picker({
-        excludeAcceptAllOption: true,
-        multiple: false,
-        types: [projectPickerType],
-      });
+      opened = await bridge.open();
     } catch (error) {
-      throw normalizePickerError(error, "open");
+      throw normalizeNativeError(error, "open");
     }
-    const grant = inspectGrantedHandle(handles[0], "open");
-    const bytes = await readProjectBytes(grant.handle);
-    const grantId = crypto.randomUUID();
-    this.#grants.set(grantId, grant);
-    return { bytes, displayName: grant.displayName, grantId };
+    try {
+      assertExactKeys(opened, [
+        "attestationId",
+        "bytes",
+        "displayName",
+        "grantId",
+        "protocolVersion",
+      ], "READ_FAILED");
+      assertNativeResultIdentity(opened, bridge.attestation, "open");
+      assertProjectName(opened.displayName);
+      assertNativeGrantId(opened.grantId, "open");
+      if (!(opened.bytes instanceof Uint8Array)) {
+        throw boundaryFailure("open", "The native broker returned an invalid project payload.");
+      }
+      assertProjectSize(opened.bytes.byteLength);
+    } catch (error) {
+      revokeReturnedGrant(bridge, opened);
+      throw error;
+    }
+    const bytes = opened.bytes.slice();
+    this.#grants.set(opened.grantId, {
+      attestationId: opened.attestationId,
+      displayName: opened.displayName,
+    });
+    return {
+      bytes,
+      displayName: opened.displayName,
+      grantId: opened.grantId,
+    };
   }
 
   public async requestSaveAs(
     suggestedProjectName: string,
     bytes: Uint8Array<ArrayBuffer>,
   ): Promise<SavedProjectFile> {
-    const picker = (window as PickerWindow).showSaveFilePicker;
-    if (picker === undefined) {
-      throw new FileAccessError(
-        "ACCESS_UNAVAILABLE",
-        "This browser cannot grant project-file access.",
-      );
-    }
+    const bridge = requireNativeBridge();
     assertProjectSize(bytes.byteLength);
-
-    let handle: ProjectFileHandle;
+    let saved: NativeSavedProjectV1;
     try {
-      handle = await picker({
-        excludeAcceptAllOption: true,
-        suggestedName: normalizeSuggestedName(suggestedProjectName),
-        types: [projectPickerType],
-      });
+      saved = await bridge.saveAs(Object.freeze({
+        bytes: bytes.slice(),
+        projectName: normalizeSuggestedName(suggestedProjectName),
+        protocolVersion: NATIVE_PROJECT_BROKER_VERSION,
+      }));
     } catch (error) {
-      throw normalizePickerError(error, "save");
+      throw normalizeNativeError(error, "save");
     }
-    const grant = inspectGrantedHandle(handle, "save");
-    const grantId = crypto.randomUUID();
-    this.#grants.set(grantId, grant);
+    let result: SavedProjectFile;
     try {
-      return await this.writeAndVerify(grantId, bytes);
+      result = inspectSavedResult(saved, bridge.attestation, "save", bytes.byteLength);
     } catch (error) {
-      this.#grants.delete(grantId);
+      revokeReturnedGrant(bridge, saved);
       throw error;
     }
+    this.#grants.set(result.grantId, {
+      attestationId: saved.attestationId,
+      displayName: result.displayName,
+    });
+    return result;
   }
 
   public async save(
     grantId: string,
     bytes: Uint8Array<ArrayBuffer>,
   ): Promise<SavedProjectFile> {
+    const bridge = requireNativeBridge();
     assertProjectSize(bytes.byteLength);
-    return this.writeAndVerify(grantId, bytes);
+    const active = this.#grants.get(grantId);
+    if (active === undefined || active.attestationId !== bridge.attestation.attestationId) {
+      throw new FileAccessError("UNKNOWN_GRANT", "The native project file grant is no longer active.");
+    }
+    let saved: NativeSavedProjectV1;
+    try {
+      saved = await bridge.save(Object.freeze({
+        bytes: bytes.slice(),
+        grantId,
+        protocolVersion: NATIVE_PROJECT_BROKER_VERSION,
+      }));
+    } catch (error) {
+      const normalized = normalizeNativeError(error, "save");
+      if (normalized.code === "UNKNOWN_GRANT") {
+        this.#grants.delete(grantId);
+      }
+      throw normalized;
+    }
+    let result: SavedProjectFile;
+    try {
+      result = inspectSavedResult(saved, bridge.attestation, "save", bytes.byteLength);
+    } catch (error) {
+      revokeReturnedGrant(bridge, saved);
+      this.#grants.delete(grantId);
+      throw error;
+    }
+    if (result.grantId !== grantId || result.displayName !== active.displayName) {
+      this.#grants.delete(grantId);
+      throw boundaryFailure("save", "The native broker changed the active file grant identity.");
+    }
+    return result;
   }
 
   public revoke(grantId: string): void {
+    const active = this.#grants.get(grantId);
     this.#grants.delete(grantId);
-  }
-
-  private async writeAndVerify(
-    grantId: string,
-    bytes: Uint8Array<ArrayBuffer>,
-  ): Promise<SavedProjectFile> {
-    const grant = this.#grants.get(grantId);
-    if (grant === undefined) {
-      throw new FileAccessError("UNKNOWN_GRANT", "The project file grant is no longer active.");
+    if (active === undefined) {
+      return;
     }
-
-    let writable: Awaited<ReturnType<ProjectFileHandle["createWritable"]>> | undefined;
-    try {
-      writable = await grant.handle.createWritable();
-      await writable.write(bytes);
-      await writable.close();
-      writable = undefined;
-
-      const reopened = await grant.handle.getFile();
-      assertProjectSize(reopened.size);
-      const reopenedBytes = new Uint8Array(await reopened.arrayBuffer());
-      if (reopenedBytes.byteLength !== reopened.size || !equalBytes(bytes, reopenedBytes)) {
-        throw new Error("The reopened bytes differ from the save payload.");
-      }
-      return {
-        displayName: grant.displayName,
-        grantId,
-        verifiedBytes: reopenedBytes.byteLength,
-      };
-    } catch {
-      if (writable !== undefined) {
-        await writable.abort().catch(() => undefined);
-      }
-      throw new FileAccessError(
-        "WRITE_FAILED",
-        "The project was not saved because write-and-reopen verification failed.",
-      );
+    const bridge = inspectNativeBridge();
+    if (bridge !== null && bridge.attestation.attestationId === active.attestationId) {
+      bridge.revoke(grantId);
     }
   }
 }
 
-const normalizePickerError = (
+const inspectNativeBridge = (): NativeProjectFileBrokerV1 | null => {
+  if (typeof window !== "object" || window === null) {
+    return null;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(window, NATIVE_PROJECT_BROKER_GLOBAL);
+  if (
+    descriptor === undefined ||
+    descriptor.configurable !== false ||
+    descriptor.enumerable !== false ||
+    "get" in descriptor ||
+    descriptor.writable !== false ||
+    descriptor.value === null ||
+    typeof descriptor.value !== "object"
+  ) {
+    return null;
+  }
+  const candidate = descriptor.value as Partial<NativeProjectFileBrokerV1>;
+  try {
+    if (!isPlainFrozenObject(candidate)) {
+      return null;
+    }
+    assertExactKeys(candidate, [
+      "attestation",
+      "contract",
+      "open",
+      "protocolVersion",
+      "revoke",
+      "save",
+      "saveAs",
+    ], "ACCESS_UNAVAILABLE");
+    if (
+      candidate.contract !== NATIVE_PROJECT_BROKER_CONTRACT ||
+      candidate.protocolVersion !== NATIVE_PROJECT_BROKER_VERSION ||
+      typeof candidate.open !== "function" ||
+      typeof candidate.saveAs !== "function" ||
+      typeof candidate.save !== "function" ||
+      typeof candidate.revoke !== "function" ||
+      !isFixedLocalAttestation(candidate.attestation)
+    ) {
+      return null;
+    }
+    return candidate as NativeProjectFileBrokerV1;
+  } catch {
+    return null;
+  }
+};
+
+const requireNativeBridge = (): NativeProjectFileBrokerV1 => {
+  const bridge = inspectNativeBridge();
+  if (bridge === null) {
+    throw new FileAccessError(
+      "ACCESS_UNAVAILABLE",
+      "Project files require the approved Windows native fixed-local broker; browser file pickers are not accepted.",
+    );
+  }
+  return bridge;
+};
+
+const isFixedLocalAttestation = (
+  value: NativeFixedLocalAttestationV1 | undefined,
+): value is NativeFixedLocalAttestationV1 => {
+  if (value === undefined || value === null || typeof value !== "object") {
+    return false;
+  }
+  try {
+    if (!isPlainFrozenObject(value)) {
+      return false;
+    }
+    assertExactKeys(value, [
+      "attestationId",
+      "fixedDrive",
+      "kind",
+      "nativeLocal",
+      "platform",
+      "providerBacked",
+      "redirected",
+      "removable",
+      "special",
+    ], "ATTESTATION_FAILED");
+  } catch {
+    return false;
+  }
+  return value.kind === "fixed-native-local-v1"
+    && value.platform === "windows"
+    && value.fixedDrive === true
+    && value.nativeLocal === true
+    && value.providerBacked === false
+    && value.redirected === false
+    && value.removable === false
+    && value.special === false
+    && ATTESTATION_ID.test(value.attestationId);
+};
+
+const assertNativeResultIdentity = (
+  result: Readonly<{ attestationId: string; protocolVersion: number }>,
+  attestation: NativeFixedLocalAttestationV1,
+  operation: "open" | "save",
+): void => {
+  if (!isPlainFrozenObject(result)) {
+    throw boundaryFailure(operation, "The native broker result was not an immutable plain record.");
+  }
+  if (
+    result.protocolVersion !== NATIVE_PROJECT_BROKER_VERSION ||
+    result.attestationId !== attestation.attestationId
+  ) {
+    throw boundaryFailure(operation, "The native broker result does not match its fixed-local attestation.");
+  }
+};
+
+const inspectSavedResult = (
+  saved: NativeSavedProjectV1,
+  attestation: NativeFixedLocalAttestationV1,
+  operation: "save",
+  expectedBytes: number,
+): SavedProjectFile => {
+  assertExactKeys(saved, [
+    "attestationId",
+    "displayName",
+    "grantId",
+    "protocolVersion",
+    "verifiedBytes",
+  ], "WRITE_FAILED");
+  assertNativeResultIdentity(saved, attestation, operation);
+  assertProjectName(saved.displayName);
+  assertNativeGrantId(saved.grantId, operation);
+  assertProjectSize(saved.verifiedBytes);
+  if (saved.verifiedBytes !== expectedBytes) {
+    throw boundaryFailure(operation, "The native broker did not verify the complete save payload.");
+  }
+  return {
+    displayName: saved.displayName,
+    grantId: saved.grantId,
+    verifiedBytes: saved.verifiedBytes,
+  };
+};
+
+const assertNativeGrantId = (grantId: string, operation: "open" | "save"): void => {
+  if (!NATIVE_GRANT_ID.test(grantId)) {
+    throw boundaryFailure(operation, "The native broker returned an invalid opaque grant.");
+  }
+};
+
+const normalizeNativeError = (
   error: unknown,
   operation: "open" | "save",
 ): FileAccessError => {
-  if (error instanceof DOMException && error.name === "AbortError") {
-    return new FileAccessError("ACCESS_CANCELLED", `Project ${operation} was cancelled.`);
+  if (error instanceof FileAccessError) {
+    return error;
   }
-  return new FileAccessError(
-    operation === "open" ? "READ_FAILED" : "WRITE_FAILED",
+  if (error !== null && typeof error === "object") {
+    const descriptor = Object.getOwnPropertyDescriptor(error, "code");
+    const code = descriptor !== undefined && "value" in descriptor
+      ? String(descriptor.value)
+      : "";
+    if (code === "ACCESS_CANCELLED") {
+      return new FileAccessError("ACCESS_CANCELLED", `Project ${operation} was cancelled.`);
+    }
+    if (code === "ATTESTATION_FAILED") {
+      return new FileAccessError(
+        "ATTESTATION_FAILED",
+        "The selected target was rejected because fixed native local backing was not proven.",
+      );
+    }
+    if (code === "UNKNOWN_GRANT" || code === "STALE_GRANT") {
+      return new FileAccessError("UNKNOWN_GRANT", "The native project file grant is no longer active.");
+    }
+  }
+  return boundaryFailure(
+    operation,
     operation === "open"
-      ? "The selected project could not be read."
-      : "The project file could not be created.",
+      ? "The native broker did not open the project."
+      : "The native broker did not save and reverify the project.",
   );
 };
 
-/**
- * Inspect only the two side-effect-free metadata fields exposed by the web
- * File System Access contract before the broker performs selected-byte I/O.
- *
- * This deliberately does not claim that `kind` and `name` attest a fixed,
- * native, non-provider, non-removable backing volume. The browser API exposes
- * no such attestation, so VER-ISO-0004 remains blocked on an approved host
- * architecture even though path-shaped and device-shaped names fail closed.
- */
-const inspectGrantedHandle = (
-  handle: ProjectFileHandle | undefined,
-  operation: "open" | "save",
-): ProjectFileGrant => {
-  if (handle === undefined || handle === null || typeof handle !== "object") {
-    throw fileBoundaryFailure(operation, "No project file was granted.");
-  }
-
-  let kind: unknown;
-  let name: unknown;
-  try {
-    kind = handle.kind;
-    name = handle.name;
-  } catch {
-    throw fileBoundaryFailure(operation, "The granted file metadata could not be inspected.");
-  }
-  if (kind !== "file" || typeof name !== "string") {
-    throw fileBoundaryFailure(operation, "The granted object is not a project file.");
-  }
-  assertProjectName(name);
-  return { displayName: name, handle };
-};
-
-const readProjectBytes = async (
-  handle: ProjectFileHandle,
-): Promise<Uint8Array<ArrayBuffer>> => {
-  try {
-    const file = await handle.getFile();
-    assertProjectSize(file.size);
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    if (bytes.byteLength !== file.size) {
-      throw new Error("The selected file changed while it was being read.");
-    }
-    return bytes;
-  } catch (error) {
-    if (error instanceof FileAccessError) {
-      throw error;
-    }
-    throw new FileAccessError("READ_FAILED", "The selected project could not be read.");
-  }
-};
-
-const fileBoundaryFailure = (
+const boundaryFailure = (
   operation: "open" | "save",
   message: string,
 ): FileAccessError => new FileAccessError(
@@ -291,6 +433,7 @@ const assertProjectName = (name: string): void => {
     );
   }
   if (
+    !/^[\x20-\x7e]+$/u.test(name) ||
     name.length > MAX_PROJECT_NAME_CODE_UNITS ||
     name !== name.trim() ||
     name.endsWith(".") ||
@@ -298,7 +441,7 @@ const assertProjectName = (name: string): void => {
   ) {
     throw new FileAccessError(
       "INVALID_FILE_NAME",
-      "Project files must use one bounded file name, not a path, endpoint, device, pipe, or print target.",
+      "Project files must use one bounded ASCII file name, not a path, endpoint, device, pipe, or print target.",
     );
   }
   const stem = name.slice(0, -PROJECT_EXTENSION.length);
@@ -308,11 +451,12 @@ const assertProjectName = (name: string): void => {
     stem.endsWith(".") ||
     stem === "." ||
     stem === ".." ||
+    !/^[A-Za-z0-9 _().-]+$/u.test(stem) ||
     isReservedProjectStem(stem)
   ) {
     throw new FileAccessError(
       "INVALID_FILE_NAME",
-      "The selected project file name is reserved or empty.",
+      "The selected project file name is reserved, unsafe, or empty.",
     );
   }
 };
@@ -332,16 +476,15 @@ const normalizeSuggestedName = (name: string): string => {
     : name;
   const normalized = withoutExtension
     .replaceAll(FORBIDDEN_FILE_NAME_CHARACTERS_GLOBAL, " ")
+    .replace(/[^A-Za-z0-9 _().-]/gu, " ")
+    .replace(/\s+/gu, " ")
     .trim()
     .replace(/[. ]+$/u, "");
   const admissible = normalized.length > 0 && !isReservedProjectStem(normalized)
     ? normalized
     : "Untitled project";
   const maximumStemLength = MAX_PROJECT_NAME_CODE_UNITS - PROJECT_EXTENSION.length;
-  const bounded = admissible
-    .slice(0, maximumStemLength)
-    .replace(/[\ud800-\udbff]$/u, "")
-    .replace(/[. ]+$/u, "");
+  const bounded = admissible.slice(0, maximumStemLength).replace(/[. ]+$/u, "");
   return `${bounded || "Untitled project"}${PROJECT_EXTENSION}`;
 };
 
@@ -350,14 +493,45 @@ const isReservedProjectStem = (stem: string): boolean => {
   return RESERVED_WINDOWS_FILE_STEM.test(candidate);
 };
 
-const equalBytes = (left: Uint8Array, right: Uint8Array): boolean => {
-  if (left.byteLength !== right.byteLength) {
-    return false;
+const assertExactKeys = (
+  value: object,
+  expected: readonly string[],
+  code: "ACCESS_UNAVAILABLE" | "ATTESTATION_FAILED" | "READ_FAILED" | "WRITE_FAILED",
+): void => {
+  const ownKeys = Reflect.ownKeys(value);
+  if (ownKeys.some((key) => typeof key !== "string")) {
+    throw new FileAccessError(code, "The native project broker exposed a symbol capability.");
   }
-  for (let index = 0; index < left.byteLength; index += 1) {
-    if (left[index] !== right[index]) {
-      return false;
-    }
+  const actual = (ownKeys as string[]).sort();
+  const required = [...expected].sort();
+  if (actual.length !== required.length || actual.some((key, index) => key !== required[index])) {
+    throw new FileAccessError(code, "The native project broker exposed an unexpected capability surface.");
   }
-  return true;
+};
+
+const isPlainFrozenObject = (value: object): boolean =>
+  Object.getPrototypeOf(value) === Object.prototype && Object.isFrozen(value);
+
+const revokeReturnedGrant = (
+  bridge: NativeProjectFileBrokerV1,
+  result: unknown,
+): void => {
+  if (result === null || typeof result !== "object") {
+    return;
+  }
+  const descriptor = Object.getOwnPropertyDescriptor(result, "grantId");
+  if (
+    descriptor === undefined ||
+    !("value" in descriptor) ||
+    typeof descriptor.value !== "string" ||
+    !NATIVE_GRANT_ID.test(descriptor.value)
+  ) {
+    return;
+  }
+  try {
+    bridge.revoke(descriptor.value);
+  } catch {
+    // The native shell terminates its broker if revoke is not acknowledged.
+    // Preserve the original result-validation failure at this boundary.
+  }
 };

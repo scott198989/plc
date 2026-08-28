@@ -116,6 +116,15 @@ the directive change ledger.
 - **Evidence:** `evidence/phase2/P2-00_ENTRY_GATE.json` records exact commands, hashes, state, and results.
 - **Scope effect:** Phase 2 product implementation is authorized. Phase 3 and Phase 4 remain unauthorized.
 
+### P2-LOG-0002 - Windows typed project-file isolation boundary authorized
+
+- **Date:** 2026-08-28
+- **Type:** Narrow Phase 2 implementation decision
+- **Authority:** Scott's exact Option A approval for `P2-DEC-ISO-NATIVE-001`, recorded verbatim in ADR-0005; exact UTF-8 visible-text SHA-256, including the Markdown code delimiters around the decision ID, `3560A0912241FD04101DF57E8810252D6622C03FC8006BD821C39D7D426ED9DA`.
+- **Decision:** A Windows-first local WebView2 shell may expose only the versioned typed project-file broker and fixed-local-backing attestation required for bounded `.vlabproj` create, host-selected open, conditional replace, and revoke operations. It must fail closed for provider-backed, remote, removable, hotplug, virtual/file-backed, special, redirected, reparse, hard-linked, unsafe, or unverifiable targets and expose no generic filesystem, path, shell, network, device, PLC, industrial-communication, plugin, executable-content, or deployable-export capability.
+- **Evidence effect:** Browser-only pickers and injected mocks receive no production-path credit. The real packaged renderer-to-helper path, exact candidate/runtime identity, negative corpus, and independently observed zero-attempt evidence remain mandatory before any Phase 2 acceptance claim.
+- **Scope boundary:** This partially unblocks only the Phase 2 Windows project-file isolation work. It does not broadly resolve `OQ-0001`, authorize public packaging/distribution, installation, signing, updater/runtime servicing, Phase 3, or Phase 4, and it does not declare Phase 2 accepted.
+
 ## Directive change ledger
 
 ### CR-0001 - Phase 1 corrective closure and trusted-baseline reconciliation

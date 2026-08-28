@@ -31,6 +31,16 @@ TYPESCRIPT_ROOTS = (
 )
 TYPESCRIPT_SUFFIXES = {".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"}
 RUST_SUFFIXES = {".rs"}
+WINDOWS_SHELL_ROOT = "apps/windows-shell/src"
+WINDOWS_SHELL_SOURCES = {
+    f"{WINDOWS_SHELL_ROOT}/main.cpp",
+    f"{WINDOWS_SHELL_ROOT}/broker_client.cpp",
+    f"{WINDOWS_SHELL_ROOT}/broker_client.h",
+    f"{WINDOWS_SHELL_ROOT}/bridge_protocol.cpp",
+    f"{WINDOWS_SHELL_ROOT}/bridge_protocol.h",
+}
+WINDOWS_SHELL_BUILD_PATH = "tools/phase2/build_windows_shell.mjs"
+WINDOWS_SHELL_TEXT_PATHS = WINDOWS_SHELL_SOURCES | {WINDOWS_SHELL_BUILD_PATH}
 
 # These are capability-bearing production dependencies, not merely strings
 # which happen to resemble a virtual address.  Address-like strings are valid
@@ -148,6 +158,86 @@ RUST_PATTERNS = (
     ),
 )
 
+WINDOWS_PROJECT_BROKER = "crates/windows-project-broker"
+WINDOWS_PROJECT_BROKER_ABI_PATH = f"{WINDOWS_PROJECT_BROKER}/src/windows.rs"
+WINDOWS_PROJECT_BROKER_SOURCES = {
+    f"{WINDOWS_PROJECT_BROKER}/src/lib.rs",
+    f"{WINDOWS_PROJECT_BROKER}/src/main.rs",
+    f"{WINDOWS_PROJECT_BROKER}/src/protocol.rs",
+    f"{WINDOWS_PROJECT_BROKER}/src/sha256.rs",
+    WINDOWS_PROJECT_BROKER_ABI_PATH,
+}
+WINDOWS_PROJECT_BROKER_ABI = {
+    "kernel32": {
+        "GetDriveTypeW",
+        "GetWindowsDirectoryW",
+        "DeviceIoControl",
+        "GetFileInformationByHandle",
+        "GetFileInformationByHandleEx",
+        "GetFinalPathNameByHandleW",
+        "GetVolumeInformationW",
+        "MoveFileExW",
+        "ReplaceFileW",
+    },
+    "ole32": {"CoTaskMemFree"},
+    "shell32": {"SHGetKnownFolderPath"},
+}
+WINDOWS_PROJECT_BROKER_STD_MODULES = {
+    "env",
+    "ffi",
+    "fs",
+    "io",
+    "iter",
+    "mem",
+    "os",
+    "path",
+    "ptr",
+    "slice",
+    "sync",
+}
+WINDOWS_PROJECT_BROKER_FORBIDDEN_APIS = re.compile(
+    r"\b(?:CreateFileW|DnsQuery|GetAddrInfo|GetProcAddress|"
+    r"InternetOpen|LoadLibrary|OpenPrinter|ReadFile|RegOpenKey|ShellExecute|"
+    r"WSAStartup|WriteFile|WritePrinter)\b",
+    re.IGNORECASE,
+)
+WINDOWS_SHELL_FORBIDDEN_APIS = re.compile(
+    r"\b(?:WinHttpOpen|InternetOpenW|InternetConnectW|URLDownloadToFileW|"
+    r"WSAStartup|DnsQuery_W|"
+    r"ShellExecuteW|CreateServiceW|RegOpenKeyExW|LoadLibraryW|GetProcAddress|"
+    r"SetupDiGetClassDevsW|BluetoothFindFirstRadio|HidD_GetAttributes|"
+    r"WinUsb_Initialize)\s*\(",
+)
+WINDOWS_SHELL_BUILD_LIBRARIES = (
+    "WebView2LoaderStatic.lib",
+    "user32.lib",
+    "gdi32.lib",
+    "ole32.lib",
+    "shell32.lib",
+    "bcrypt.lib",
+    "runtimeobject.lib",
+    "advapi32.lib",
+)
+WINDOWS_SHELL_BUILD_FLAGS = (
+    "/GS",
+    "/sdl",
+    "/guard:cf",
+    "/Brepro",
+    "/DYNAMICBASE",
+    "/NXCOMPAT",
+    "/HIGHENTROPYVA",
+    "/CETCOMPAT",
+)
+PER_LANGUAGE_RUNTIME_PATH = re.compile(
+    r"(?:^|/)(?:lad|fbd|scl)(?:[-_](?:runtime|engine|executor|interpreter))?(?:/|\.rs$)",
+    re.IGNORECASE,
+)
+PER_LANGUAGE_RUNTIME_IDENTIFIER = re.compile(
+    r"\b(?:Lad|Fbd|Scl)(?:Runtime|Engine|Executor|Interpreter)\b|"
+    r"\b(?:lad|fbd|scl)_(?:runtime|engine|executor|interpreter)\b",
+)
+VIRTUAL_DOWNLOAD_ENDPOINT_IDENTIFIER = re.compile(r"\bendpoint\b", re.IGNORECASE)
+
 
 @dataclass(frozen=True)
 class Finding:
@@ -230,6 +320,10 @@ def production_paths(
             path == root or path.startswith(root + "/") for root in TYPESCRIPT_ROOTS
         ):
             selected.add(path)
+        if path.startswith(WINDOWS_SHELL_ROOT + "/") and suffix in {".cpp", ".h"}:
+            selected.add(path)
+    if WINDOWS_SHELL_BUILD_PATH in paths:
+        selected.add(WINDOWS_SHELL_BUILD_PATH)
     discovered_crate_roots = {
         "/".join(PurePosixPath(path).parts[:2])
         for path in paths
@@ -303,6 +397,223 @@ def _scan_cargo_manifest(path: str, source: str, findings: list[Finding]) -> Non
         for name in dependencies:
             if name.casefold() in BANNED_CARGO_PACKAGES:
                 findings.append(Finding(path, 1, f"forbidden {section} capability", name))
+    if path == f"{WINDOWS_PROJECT_BROKER}/Cargo.toml":
+        for section, dependencies in _cargo_dependency_sections(parsed):
+            for name in dependencies:
+                findings.append(
+                    Finding(
+                        path,
+                        1,
+                        "native project broker must be dependency-free",
+                        f"{section}:{name}",
+                    )
+                )
+
+
+def _scan_windows_project_broker_abi(
+    path: str, source: str, findings: list[Finding]
+) -> None:
+    link_matches = list(
+        re.finditer(
+            r'#\s*\[\s*link\s*\(\s*name\s*=\s*"([^"]+)"\s*\)\s*\]',
+            source,
+        )
+    )
+    observed_links = [match.group(1) for match in link_matches]
+    if observed_links != ["kernel32", "shell32", "ole32"]:
+        findings.append(
+            Finding(
+                path,
+                1,
+                "native project broker ABI link order changed",
+                ",".join(observed_links) or "missing",
+            )
+        )
+
+    blocks = list(
+        re.finditer(r'unsafe\s+extern\s+"system"\s*\{(?P<body>.*?)\}', source, re.DOTALL)
+    )
+    if len(blocks) != len(link_matches):
+        findings.append(
+            Finding(
+                path,
+                1,
+                "native project broker ABI link/block count changed",
+                str(len(blocks)),
+            )
+        )
+    else:
+        covered_ranges: list[tuple[int, int]] = []
+        for link, block in zip(link_matches, blocks, strict=True):
+            library = link.group(1)
+            covered_ranges.append((link.start(), block.end()))
+            expected_imports = WINDOWS_PROJECT_BROKER_ABI.get(library, set())
+            imports = {
+                match.group(1)
+                for match in re.finditer(
+                    r"(?m)^\s*fn\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(",
+                    block.group("body"),
+                )
+            }
+            missing = sorted(expected_imports - imports)
+            extra = sorted(imports - expected_imports)
+            if missing or extra:
+                findings.append(
+                    Finding(
+                        path,
+                        _line_number(source, block.start()),
+                        "native project broker ABI import set changed",
+                        f"library={library};missing={missing};extra={extra}",
+                    )
+                )
+        outside_parts: list[str] = []
+        offset = 0
+        for start, end in covered_ranges:
+            outside_parts.append(source[offset:start])
+            offset = end
+        outside_parts.append(source[offset:])
+        outside = "".join(outside_parts)
+        match = re.search(r'\bextern\s+"system"', outside)
+        if match:
+            findings.append(
+                Finding(
+                    path,
+                    1,
+                    "unreviewed native project broker ABI declaration",
+                    match.group(0),
+                )
+            )
+
+    for match in re.finditer(r"\bstd::([A-Za-z_][A-Za-z0-9_]*)", source):
+        if match.group(1) not in WINDOWS_PROJECT_BROKER_STD_MODULES:
+            findings.append(
+                Finding(
+                    path,
+                    _line_number(source, match.start()),
+                    "native project broker std module is not allowlisted",
+                    match.group(0),
+                )
+            )
+    for match in WINDOWS_PROJECT_BROKER_FORBIDDEN_APIS.finditer(source):
+        findings.append(
+            Finding(
+                path,
+                _line_number(source, match.start()),
+                "native project broker forbidden host capability",
+                match.group(0),
+            )
+        )
+
+
+def _scan_windows_shell_source(path: str, source: str, findings: list[Finding]) -> None:
+    for match in WINDOWS_SHELL_FORBIDDEN_APIS.finditer(source):
+        findings.append(
+            Finding(
+                path,
+                _line_number(source, match.start()),
+                "Windows shell forbidden host capability",
+                match.group(0),
+            )
+        )
+    if "CreateProcessW(" in source and path != f"{WINDOWS_SHELL_ROOT}/broker_client.cpp":
+        findings.append(
+            Finding(path, 1, "Windows shell helper launch escaped fixed broker client", path)
+        )
+    if path == f"{WINDOWS_SHELL_ROOT}/broker_client.cpp":
+        required = (
+            "CREATE_SUSPENDED",
+            "JOB_OBJECT_LIMIT_ACTIVE_PROCESS",
+            "JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE",
+            "ResumeThread(process.hThread)",
+            "GOVS_BROKER_SHA256",
+            "GOVS_APP_SHA256",
+            "GOVS_PACKAGE_CONTRACT_SHA256",
+            "BusTypeNvme",
+            "IOCTL_STORAGE_GET_HOTPLUG_INFO",
+            "authoritative_known_folder(FOLDERID_LocalAppData)",
+            "authoritative_known_folder(FOLDERID_Profile)",
+        )
+        for token in required:
+            if token not in source:
+                findings.append(
+                    Finding(path, 1, "Windows shell fail-closed invariant missing", token)
+                )
+        if source.count("CreateProcessW(") != 1 or source.count("DeviceIoControl(") != 2:
+            findings.append(
+                Finding(
+                    path,
+                    1,
+                    "Windows shell reviewed process/storage ABI count changed",
+                    f"CreateProcessW={source.count('CreateProcessW(')};DeviceIoControl={source.count('DeviceIoControl(')}",
+                )
+            )
+    if path == f"{WINDOWS_SHELL_ROOT}/main.cpp":
+        for token in (
+            "put_AllowExternalDrop(FALSE)",
+            "request->get_Method(&raw_method)",
+            "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS",
+            "SetEnvironmentVariableW(",
+            "add_FrameNavigationStarting",
+            "runtimeReplaySha256",
+            "verifiedReplayEventCount",
+            "verifiedReplayBoundaryCount",
+            'message == L"P2REVKF1"',
+        ):
+            if token not in source:
+                findings.append(Finding(path, 1, "Windows shell browser denial missing", token))
+    if path == f"{WINDOWS_SHELL_ROOT}/bridge_protocol.cpp":
+        for token in (
+            'if (window !== window.top) return;',
+            '"showOpenFilePicker"',
+            '"showSaveFilePicker"',
+            '"showDirectoryPicker"',
+            '"print"',
+            'buttonWithText("Verify replay")',
+            'aria-label="Replay verification receipt"',
+            "P2VEFY1|${runtimeReplayHash}|${verifiedReplay.fingerprint}",
+            'channel.postMessage("P2REVKF1")',
+            'request("revoke", [grantField(grantId)], 5000)',
+        ):
+            if token not in source:
+                findings.append(Finding(path, 1, "Windows shell renderer denial missing", token))
+
+
+def _scan_windows_shell_build(path: str, source: str, findings: list[Finding]) -> None:
+    source_match = re.search(r"const sources = \[(?P<body>.*?)\];", source, re.DOTALL)
+    observed_sources = (
+        re.findall(r'"([A-Za-z0-9_.-]+\.cpp)"', source_match.group("body"))
+        if source_match
+        else []
+    )
+    if observed_sources != ["main.cpp", "broker_client.cpp", "bridge_protocol.cpp"]:
+        findings.append(
+            Finding(path, 1, "Windows shell compilation unit inventory changed", str(observed_sources))
+        )
+    library_match = re.search(r"const libraries = \[(?P<body>.*?)\];", source, re.DOTALL)
+    observed_libraries = (
+        tuple(re.findall(r'"([A-Za-z0-9_.-]+\.lib)"', library_match.group("body")))
+        if library_match
+        else ()
+    )
+    if observed_libraries != WINDOWS_SHELL_BUILD_LIBRARIES:
+        findings.append(
+            Finding(path, 1, "Windows shell link library inventory changed", str(observed_libraries))
+        )
+    for flag in WINDOWS_SHELL_BUILD_FLAGS:
+        if flag not in source:
+            findings.append(Finding(path, 1, "Windows shell hardening flag missing", flag))
+    for token in (
+        '"1.0.4129.50"',
+        "D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2",
+        "482F24196B20E784C4D29B752EA760946CB54E22C2532A29699EF538D2D5C28C",
+        "assertSortedUniqueRows(sourceInputs",
+        "verifyRows(packageRows, packageRoot)",
+        "reviewedRequirementMappingSha256",
+        "requirements/phase2-reviewed-requirement-mapping.json",
+        "...candidateSourceFiles, ...vendorFiles",
+    ):
+        if token not in source:
+            findings.append(Finding(path, 1, "Windows shell exact package binding missing", token))
 
 
 def _scan_cargo_lock(path: str, source: str, findings: list[Finding]) -> None:
@@ -367,17 +678,95 @@ def scan_source_map(
         if not crate_sources:
             findings.append(Finding(crate, 1, "workspace crate production source missing", crate))
 
+    if WINDOWS_PROJECT_BROKER in set(crates) | discovered_crates:
+        observed_broker_sources = {
+            path
+            for path in selected
+            if path.startswith(f"{WINDOWS_PROJECT_BROKER}/src/") and path.endswith(".rs")
+        }
+        missing = sorted(WINDOWS_PROJECT_BROKER_SOURCES - observed_broker_sources)
+        extra = sorted(observed_broker_sources - WINDOWS_PROJECT_BROKER_SOURCES)
+        if missing or extra:
+            findings.append(
+                Finding(
+                    WINDOWS_PROJECT_BROKER,
+                    1,
+                    "native project broker production source inventory changed",
+                    f"missing={missing};extra={extra}",
+                )
+            )
+
+    observed_windows_shell = {
+        path for path in selected if path.startswith(WINDOWS_SHELL_ROOT + "/")
+    }
+    if observed_windows_shell or WINDOWS_SHELL_BUILD_PATH in selected:
+        expected = WINDOWS_SHELL_TEXT_PATHS
+        observed = observed_windows_shell | (
+            {WINDOWS_SHELL_BUILD_PATH} if WINDOWS_SHELL_BUILD_PATH in selected else set()
+        )
+        missing = sorted(expected - observed)
+        extra = sorted(observed - expected)
+        if missing or extra:
+            findings.append(
+                Finding(
+                    WINDOWS_SHELL_ROOT,
+                    1,
+                    "Windows shell production text-source inventory changed",
+                    f"missing={missing};extra={extra}",
+                )
+            )
+
     for path in selected:
         source = normalized_sources.get(path)
         if source is None:
             findings.append(Finding(path, 1, "declared production source missing", path))
             continue
         suffix = PurePosixPath(path).suffix.lower()
-        patterns = TS_PATTERNS if suffix in TYPESCRIPT_SUFFIXES else RUST_PATTERNS
+        patterns = (
+            TS_PATTERNS
+            if suffix in TYPESCRIPT_SUFFIXES and any(
+                path == root or path.startswith(root + "/") for root in TYPESCRIPT_ROOTS
+            )
+            else RUST_PATTERNS if suffix in RUST_SUFFIXES else ()
+        )
+        if path == WINDOWS_PROJECT_BROKER_ABI_PATH:
+            patterns = tuple(
+                (rule, pattern)
+                for rule, pattern in patterns
+                if rule not in {"native system ABI capability", "foreign-function import block"}
+            )
         for rule, pattern in patterns:
             for match in pattern.finditer(source):
                 findings.append(
                     Finding(path, _line_number(source, match.start()), rule, match.group(0)[:160])
+                )
+        if path == WINDOWS_PROJECT_BROKER_ABI_PATH:
+            _scan_windows_project_broker_abi(path, source, findings)
+        if path.startswith(WINDOWS_SHELL_ROOT + "/"):
+            _scan_windows_shell_source(path, source, findings)
+        elif path == WINDOWS_SHELL_BUILD_PATH:
+            _scan_windows_shell_build(path, source, findings)
+        if path.startswith("crates/plc-runtime/src/"):
+            if PER_LANGUAGE_RUNTIME_PATH.search(path):
+                findings.append(Finding(path, 1, "per-language production runtime path", path))
+            for match in PER_LANGUAGE_RUNTIME_IDENTIFIER.finditer(source):
+                findings.append(
+                    Finding(
+                        path,
+                        _line_number(source, match.start()),
+                        "per-language production runtime identifier",
+                        match.group(0),
+                    )
+                )
+        if path == "apps/foundation-shell/src/runtime-wire.ts":
+            for match in VIRTUAL_DOWNLOAD_ENDPOINT_IDENTIFIER.finditer(source):
+                findings.append(
+                    Finding(
+                        path,
+                        _line_number(source, match.start()),
+                        "endpoint-like Virtual Download target capability",
+                        match.group(0),
+                    )
                 )
         if path.endswith("package.json"):
             _scan_package_json(path, source, findings)
@@ -407,6 +796,13 @@ def load_worktree_sources(root: Path) -> tuple[dict[str, str], tuple[str, ...]]:
         directory = root / PurePosixPath(relative_root)
         if directory.is_dir():
             candidates.update(path for path in directory.rglob("*") if path.is_file())
+    windows_shell = root / PurePosixPath(WINDOWS_SHELL_ROOT)
+    if windows_shell.is_dir():
+        candidates.update(
+            path for path in windows_shell.rglob("*")
+            if path.is_file() and path.suffix.lower() in {".cpp", ".h"}
+        )
+        candidates.add(root / PurePosixPath(WINDOWS_SHELL_BUILD_PATH))
     for family in ("apps", "packages"):
         directory = root / family
         if directory.is_dir():

@@ -47,7 +47,7 @@ This list is illustrative; the category-wide ban controls renamed, wrapped, tran
 
 Development and CI may acquire dependencies, run compilers, invoke build processes, and use development-only test servers. Those capabilities must remain outside production dependency graphs, shipped bundles, runtime permissions, examples, and user-reachable paths. Production runs without a local server, loads all assets locally, and enforces a default-deny CSP including `connect-src 'none'`.
 
-The eventual desktop/classroom shell remains a BLOCKED product decision under `PES-DEV-0009`. No packaging choice is accepted until background networking, update separation, file permissions, signing, and process-scoped offline verification are approved.
+ADR-0005 later authorizes only the Phase 2 Windows typed project-file and fixed-local-backing shell boundary. Final OS support, public packaging/distribution, installation, update separation, file permissions, signing, runtime servicing, and release acceptance remain blocked under `PES-DEV-0009` and `OQ-0001`; this narrow authorization does not weaken the physical-isolation decision here.
 
 ### Immutability of this decision
 

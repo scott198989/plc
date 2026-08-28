@@ -111,3 +111,7 @@ dependencies = [
 [[package]]
 name = "plc-types"
 version = "0.1.0"
+
+[[package]]
+name = "windows-project-broker"
+version = "0.1.0"

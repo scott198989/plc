@@ -137,6 +137,26 @@ The third-party icon dependency evaluated during implementation was removed.
 The shipped shell uses no font, icon, image, media, or other asset file, so the
 zero-entry truth statement in `ASSET_PROVENANCE.json` remains accurate.
 
+### 5.3 Phase 2 Windows native-isolation input
+
+ADR-0005 and Scott's exact Option A approval authorize acquisition and use of
+only the following native production input for the Phase 2 Windows typed
+project-file boundary. This is scope authorization, not public-release,
+redistribution, legal, signing, updater, or long-term runtime-servicing
+approval; those parts of `OQ-0001` remain blocked.
+
+| Dependency | Class and exact resolution | Purpose and admitted reachability | Integrity and provenance | Current disposition |
+|---|---|---|---|---|
+| `Microsoft.Web.WebView2` | Direct native shell SDK/static-loader input `1.0.4129.50`; retained subset is two headers, x64 static loader, NuGet metadata, license, notice, provenance, and exact file manifest | Host the packaged local workbench and create the WebView2 environment. No SDK object is exposed to the renderer; renderer file access is only the frozen typed broker V1. The static loader is linked into `GovsPLC.exe`; no runtime download is performed. | Official NuGet package URL and package SHA-256 `D3934F482D484B89FB4825DF720C710664E1143A1E90F7B3A60794EF33F473D2`; static-loader SHA-256 `482F24196B20E784C4D29B752EA760946CB54E22C2532A29699EF538D2D5C28C`; complete retained-byte hashes and license/notice are under `vendor/microsoft-webview2/1.0.4129.50/` | `PHASE2_SCOPE_AUTHORIZED_RELEASE_UNREVIEWED`; exact candidate, ABI/import, license, runtime identity, background-attempt, and packaged-path evidence remain release-blocking |
+
+The installed Evergreen WebView2 Runtime is a supported-platform prerequisite,
+not a vendored or silently downloaded artifact. Every credited native run must
+record normalized product identity `microsoft-edge-webview2`, runtime version,
+and the exact browser executable SHA-256. Runtime drift invalidates prior
+evidence. The first-party `windows-project-broker` remains dependency-free and
+uses an exact reviewed Windows system-ABI inventory; the shell link library set
+is similarly closed and mutation-tested.
+
 ## 6. License disposition
 
 No license name creates automatic approval. The intended distribution model, jurisdictions, combination/linking method, modifications, shipped artifacts, and notice/source obligations must be reviewed.
@@ -180,7 +200,7 @@ These controls support PES-DEV-0006, PES-DEV-0007, PES-CRM-0024, and PES-CI-0002
 Native code has two distinct scopes that must not be conflated:
 
 1. **Trusted core and application dependencies:** a native module, native add-on, FFI binding, arbitrary dynamic-library loader, executable plugin, or native bridge reachable by the semantic core or application is categorically forbidden. It cannot be approved through an ordinary dependency exception. The trusted core remains Rust compiled to capability-limited WebAssembly under PES-ISO-0009 and PES-DEV-0008.
-2. **Eventual desktop packaging shell:** the separately decided desktop shell may itself be implemented with native platform code only after OQ-0001 and PES-DEV-0009 are resolved through the required product, security, legal, and architecture review. Any approved shell must be capability-minimized, must preserve the immutable VirtualUniverse wall, and must expose no networking, device, process, shell, FFI, arbitrary library-loading, plugin, or endpoint-bearing API to application or semantic-core code. This narrow packaging possibility is not a native-module exception and must not be represented by a placeholder transport, plugin, or bridge seam while the decision remains blocked.
+2. **Phase 2 Windows project-file shell:** ADR-0005 authorizes only a capability-minimized Windows WebView2 host, the dependency-free `windows-project-broker`, and the exact pinned `Microsoft.Web.WebView2` `1.0.4129.50` SDK/static loader needed for the typed project-file broker V1 and fixed-local-backing attestation. The renderer receives opaque grants and bounded `.vlabproj` bytes, never raw paths or a generic native API. Exact source, ABI/import, vendor-byte, license, package, runtime-identity, and candidate hashes are mandatory. This narrow authorization is not a native-module exception for the semantic core or application and does not authorize arbitrary networking, device, process, shell, FFI, dynamic library loading, plugins, endpoints, public packaging, signing, updater, or Phase 3 work.
 
 All other proposed production native code triggers a mandatory stop. A configuration flag, wrapper, sandbox claim, or unused path cannot make a forbidden native capability admissible.
 

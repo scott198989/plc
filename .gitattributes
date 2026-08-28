@@ -23,3 +23,7 @@ evidence/phase1-closure/pre-remediation/adversarial-scratch/** -text !eol whites
 *.jpg -text
 *.png -text
 *.webp -text
+
+# The reviewed WebView2 SDK/loader input is pinned to exact official NuGet
+# bytes; line-ending normalization would invalidate its recorded SHA-256.
+vendor/microsoft-webview2/1.0.4129.50/** -text !eol whitespace=-trailing-space,-blank-at-eof

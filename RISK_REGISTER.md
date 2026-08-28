@@ -17,7 +17,7 @@ Risk acceptance, closure, or material control changes require traceable evidence
 | `RSK-0007` | Scaffolding is presented as progress | Truth states, zero credit for scaffolding, milestone Definition of Done | `OPEN`; the matrix and CI guardrails are implemented, but remain `IMPLEMENTED_UNVERIFIED`/`PARTIAL`, and no product milestone evidence exists |
 | `RSK-0008` | New research silently moves the target | Frozen baseline and approved evidence/change records | `OPEN`; baseline hash verified, filename discrepancy remains in `DEC-0001` |
 | `RSK-0009` | Safety education is mistaken for safety engineering | No safety-rated claims or feature set without separate addendum | `OPEN`; scope prohibition recorded, release/public-claim enforcement not yet verified |
-| `RSK-0010` | Browser or desktop shell background activity violates zero egress | Packaging decision gate, bundled assets, CSP, process-scoped syscall/packet tests | `OPEN`; packaging is blocked by `OQ-0001`, and isolation evidence is not yet available |
+| `RSK-0010` | Browser or desktop shell background activity violates zero egress | Packaging decision gate, bundled assets, CSP, process-scoped syscall/packet tests | `OPEN`; ADR-0005 authorizes only the Phase 2 Windows typed project-file shell boundary, whose exact-candidate external zero-attempt evidence must still pass; broader `OQ-0001` packaging/release work remains blocked |
 
 ## Review triggers
 
