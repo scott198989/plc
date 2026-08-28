@@ -10,8 +10,8 @@ use crate::hash::Sha256Digest;
 use crate::model::{
     CommandEnvelope, CommandOutcome, DependencyEdge, DependencyReason, Diagnostic, DomainCommand,
     DomainCommandResult, DomainEvent, Lifecycle, ObjectId, Project, ProjectObject,
-    ProjectValidationError, ReferenceEdge, ReferenceKind, ResolutionState, TransactionId,
-    UndoToken, Uuid,
+    ProjectObjectKind, ProjectValidationError, ReferenceEdge, ReferenceKind, ResolutionState,
+    TransactionId, UndoToken, Uuid,
 };
 
 const MAX_HISTORY: usize = 256;
@@ -962,7 +962,12 @@ fn planned_copy_root_names(
         if occupied.contains(&(source.kind, candidate.clone())) {
             let mut ordinal = 1_u32;
             loop {
-                let suffix = if ordinal == 1 {
+                let identifier_name = copy_name_requires_identifier(source.kind);
+                let suffix = if ordinal == 1 && identifier_name {
+                    "_copy".to_owned()
+                } else if identifier_name {
+                    format!("_copy_{ordinal}")
+                } else if ordinal == 1 {
                     " copy".to_owned()
                 } else {
                     format!(" copy {ordinal}")
@@ -978,6 +983,16 @@ fn planned_copy_root_names(
         names.insert(*root, candidate);
     }
     names
+}
+
+const fn copy_name_requires_identifier(kind: ProjectObjectKind) -> bool {
+    matches!(
+        kind,
+        ProjectObjectKind::Tag
+            | ProjectObjectKind::TypeDefinition
+            | ProjectObjectKind::ProgramBlock
+            | ProjectObjectKind::DataBlock
+    )
 }
 
 fn append_bounded_suffix(base: &str, suffix: &str) -> String {
@@ -1679,6 +1694,64 @@ mod tests {
                     can_mutate: true,
                 },
                 command,
+            });
+            assert_eq!(result.outcome, CommandOutcome::Committed);
+            assert_eq!(
+                engine.project().object(copy).expect("copy").display_name,
+                expected_name
+            );
+        }
+    }
+
+    #[test]
+    fn copied_code_objects_receive_identifier_safe_names() {
+        let (project, root) = fixture();
+        let mut engine = Engine::new(project).expect("engine");
+        let source = ObjectId(id(70));
+        let create = envelope(
+            engine.project(),
+            DomainCommand::Create(NewObject {
+                id: source,
+                kind: ProjectObjectKind::ProgramBlock,
+                parent_id: root,
+                display_name: "MainCycle".to_owned(),
+                payload_schema: "edu.program-block/1".to_owned(),
+                payload: Payload::default(),
+            }),
+            70,
+        );
+        assert_eq!(engine.execute(&create).outcome, CommandOutcome::Committed);
+
+        for (ordinal, expected_name) in [(71_u64, "MainCycle_copy"), (72_u64, "MainCycle_copy_2")] {
+            let copy = ObjectId(id(ordinal));
+            let expected_object_revisions = BTreeMap::from([
+                (
+                    root,
+                    engine.project().object(root).expect("root").object_revision,
+                ),
+                (
+                    source,
+                    engine
+                        .project()
+                        .object(source)
+                        .expect("source")
+                        .object_revision,
+                ),
+            ]);
+            let result = engine.execute(&CommandEnvelope {
+                command_id: id(ordinal + 100),
+                transaction_id: TransactionId(id(ordinal + 200)),
+                expected_document_revision: engine.project().document_revision(),
+                expected_object_revisions,
+                context: CommandContext {
+                    actor_id: "test".to_owned(),
+                    can_mutate: true,
+                },
+                command: DomainCommand::CopyClosure {
+                    roots: vec![source],
+                    id_map: BTreeMap::from([(source, copy)]),
+                    destination_parent: root,
+                },
             });
             assert_eq!(result.outcome, CommandOutcome::Committed);
             assert_eq!(
