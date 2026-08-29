@@ -704,7 +704,7 @@ class TraceSession {
     properties->MaximumFileSize = 2048;
     properties->FlushTimer = 1;
     properties->LogFileMode = EVENT_TRACE_FILE_MODE_SEQUENTIAL |
-                              EVENT_TRACE_REAL_TIME_MODE | EVENT_TRACE_USE_PAGED_MEMORY |
+                              EVENT_TRACE_REAL_TIME_MODE |
                               EVENT_TRACE_SYSTEM_LOGGER_MODE;
     properties->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
     properties->LogFileNameOffset = sizeof(EVENT_TRACE_PROPERTIES) +
@@ -717,7 +717,9 @@ class TraceSession {
                 (etl_text.size() + 1) * sizeof(wchar_t));
     const ULONG status = StartTraceW(&handle_, kSessionName, properties);
     if (status == ERROR_ALREADY_EXISTS) fail("The fixed ETW observer session already exists; it was not modified.");
-    if (status != ERROR_SUCCESS) fail("The fixed ETW observer session could not start.");
+    if (status != ERROR_SUCCESS) {
+      fail("The fixed ETW observer session could not start; win32=" + std::to_string(status) + ".");
+    }
   }
 
   TraceSession(const TraceSession&) = delete;

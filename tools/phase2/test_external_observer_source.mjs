@@ -34,6 +34,17 @@ test("external observer source verifier rejects missing provider, stop, and zero
   }
 });
 
+test("external observer source verifier rejects paged system-logger buffers and missing diagnostics", () => {
+  assert.throws(() => verifyExternalObserverSources({
+    ...sources,
+    source: sources.source.replace("EVENT_TRACE_SYSTEM_LOGGER_MODE", "EVENT_TRACE_USE_PAGED_MEMORY"),
+  }), /invariant|nonpaged/u);
+  assert.throws(() => verifyExternalObserverSources({
+    ...sources,
+    source: sources.source.replace("could not start; win32=", "could not start"),
+  }), /Win32 status/u);
+});
+
 test("external observer source verifier rejects network, shell, device, and industrial capabilities", () => {
   for (const injected of [
     "WinHttpOpen();",

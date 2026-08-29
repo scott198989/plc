@@ -52,6 +52,12 @@ export function verifyExternalObserverSources({ analyzer, build, finalizer, sour
   for (const token of REQUIRED_PROVIDER_COMPONENTS) {
     if (!source.includes(token)) throw new Error(`External observer provider missing: ${token}`);
   }
+  if (source.includes("EVENT_TRACE_USE_PAGED_MEMORY")) {
+    throw new Error("External observer system logger must use nonpaged ETW buffers.");
+  }
+  if (!source.includes("could not start; win32=")) {
+    throw new Error("External observer StartTrace failure must retain the Win32 status.");
+  }
   for (const pattern of FORBIDDEN_SOURCE) {
     const match = pattern.exec(source);
     if (match) throw new Error(`External observer forbidden capability: ${match[0]}`);
