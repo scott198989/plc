@@ -204,6 +204,7 @@ for (const directory of [
   path.join(root, "packages", "plc-contract", "src"),
 ]) {
   for (const file of await walkFiles(directory, (candidate) =>
+    !candidate.startsWith(path.join(root, "apps", "foundation-shell", "src", "generated") + path.sep) &&
     [".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(path.extname(candidate).toLowerCase()))) {
     candidateSourceFiles.add(file);
   }
