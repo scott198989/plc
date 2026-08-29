@@ -1044,18 +1044,36 @@ LaunchedProcess create_fixed_launcher(const std::filesystem::path& launcher) {
   std::wstring desktop = L"winsta0\\default";
   startup.lpDesktop = desktop.data();
   PROCESS_INFORMATION process{};
+  const DWORD creation_flags = CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW;
   if (CreateProcessWithTokenW(
           standard_token.value,
           LOGON_WITH_PROFILE,
           launcher.c_str(),
           command.data(),
-          CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+          creation_flags,
           nullptr,
           launcher.parent_path().c_str(),
           &startup,
           &process) == 0) {
-    fail("The fixed exact-candidate launcher could not be created as the interactive standard user; win32=" +
-         std::to_string(GetLastError()) + ".");
+    const DWORD token_status = GetLastError();
+    if (token_status != ERROR_ACCESS_DENIED ||
+        CreateProcessAsUserW(
+            standard_token.value,
+            launcher.c_str(),
+            command.data(),
+            nullptr,
+            nullptr,
+            FALSE,
+            creation_flags,
+            nullptr,
+            launcher.parent_path().c_str(),
+            &startup,
+            &process) == 0) {
+      const DWORD fallback_status = GetLastError();
+      fail("The fixed exact-candidate launcher could not be created as the interactive standard user; "
+           "createProcessWithTokenWin32=" + std::to_string(token_status) +
+           ", createProcessAsUserWin32=" + std::to_string(fallback_status) + ".");
+    }
   }
   UniqueHandle process_handle(process.hProcess);
   UniqueHandle thread_handle(process.hThread);

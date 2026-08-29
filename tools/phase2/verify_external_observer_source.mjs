@@ -24,6 +24,8 @@ const REQUIRED_SOURCE_TOKENS = Object.freeze([
   "GetShellWindow()",
   "DuplicateTokenEx(",
   "CreateProcessWithTokenW(",
+  "CreateProcessAsUserW(",
+  "ERROR_ACCESS_DENIED",
   "LOGON_WITH_PROFILE",
   "winsta0\\\\default",
   "~TraceSession() noexcept",
