@@ -682,6 +682,20 @@ class ApplicationHost final {
       fail_async(L"The native grant revocation acknowledgement failed closed.");
       return S_OK;
     }
+    if (verification_mode_ && message.starts_with(L"P2VEFY0|")) {
+      try {
+        const auto detail = narrow_ascii(std::wstring_view(message).substr(
+            std::wstring_view(L"P2VEFY0|").size()));
+        if (detail.empty() || detail.size() > 512) {
+          throw std::runtime_error("The verification UI failure receipt was malformed.");
+        }
+        write_verification_manifest("FAIL", detail);
+      } catch (const std::exception& error) {
+        write_verification_manifest("FAIL", error.what());
+      }
+      SetTimer(window_, kVerificationCloseTimer, 50, nullptr);
+      return S_OK;
+    }
     if (verification_mode_ && message.starts_with(L"P2VEFY1|")) {
       try {
         auto remaining = std::wstring_view(message).substr(

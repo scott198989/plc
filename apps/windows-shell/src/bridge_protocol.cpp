@@ -580,7 +580,12 @@ std::wstring bridge_bootstrap_script(
       await waitFor(() => verificationResponses >= 3, "native replace response");
       if (verificationGrant === null) throw new Error("verification grant unavailable");
       bridge.revoke(verificationGrant);
-    } catch { /* native host records the fail-closed result */ }
+    } catch (error) {
+      const detail = String(error instanceof Error ? error.message : "verification UI failure")
+        .replace(/[^A-Za-z0-9 .:_-]/g, "?")
+        .slice(0, 512);
+      try { channel.postMessage(`P2VEFY0|${detail || "verification UI failure"}`); } catch { /* host timeout remains fail-closed */ }
+    }
   }, { once: true });
 )JS";
   }
