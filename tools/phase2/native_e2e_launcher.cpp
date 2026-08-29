@@ -297,13 +297,23 @@ HeldHandle open_attested_path(
       nullptr));
   if (!authority.valid()) fail("A fixed-local authority path could not be opened.");
   BY_HANDLE_FILE_INFORMATION information{};
-  if (GetFileInformationByHandle(authority.get(), &information) == 0 ||
-      information.dwVolumeSerialNumber != expected_serial ||
-      (information.dwFileAttributes & kUnsafeBackingAttributes) != 0 ||
-      ((information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) != directory ||
-      (!directory && information.nNumberOfLinks != 1) ||
-      final_path(authority.get()) != normalized_path(path.wstring())) {
-    fail("A fixed-local authority path failed identity attestation.");
+  if (GetFileInformationByHandle(authority.get(), &information) == 0) {
+    fail("A fixed-local authority path has no handle identity.");
+  }
+  if (information.dwVolumeSerialNumber != expected_serial) {
+    fail("A fixed-local authority path has a different volume identity.");
+  }
+  if ((information.dwFileAttributes & kUnsafeBackingAttributes) != 0) {
+    fail("A fixed-local authority path has unsafe backing attributes.");
+  }
+  if (((information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) != directory) {
+    fail("A fixed-local authority path has the wrong object type.");
+  }
+  if (!directory && information.nNumberOfLinks != 1) {
+    fail("A fixed-local authority file is not single-link.");
+  }
+  if (final_path(authority.get()) != normalized_path(path.wstring())) {
+    fail("A fixed-local authority path canonical identity changed.");
   }
   FILE_REMOTE_PROTOCOL_INFO remote{};
   SetLastError(ERROR_SUCCESS);
