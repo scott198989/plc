@@ -20,3 +20,22 @@ test("a new direct call to an otherwise approved API fails the exact inventory",
     /approved CreateFileW inventory/u,
   );
 });
+
+test("native replacement closes the verified temp and uses supported ReplaceFileW flags", async () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const source = await readFile(
+    path.join(root, "crates", "windows-project-broker", "src", "windows.rs"),
+    "utf8",
+  );
+  const overwriteStart = source.indexOf("fn overwrite_attested(");
+  const overwriteEnd = source.indexOf("\n    }\n}\n\nfn authoritative_local_app_data", overwriteStart);
+  assert.notEqual(overwriteStart, -1);
+  assert.notEqual(overwriteEnd, -1);
+  const overwrite = source.slice(overwriteStart, overwriteEnd);
+  const closeIndex = overwrite.indexOf("drop(temp_handle);");
+  const replaceIndex = overwrite.indexOf("ReplaceFileW(");
+  assert.ok(closeIndex >= 0 && closeIndex < replaceIndex);
+  assert.match(overwrite, /ReplaceFileW\([\s\S]*?backup_wide\.as_ptr\(\),\s*0,/u);
+  assert.match(overwrite, /file\.token == temp_token/u);
+  assert.doesNotMatch(source, /REPLACEFILE_WRITE_THROUGH/u);
+});

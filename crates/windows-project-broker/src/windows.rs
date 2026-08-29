@@ -44,7 +44,6 @@ const ERROR_INVALID_FUNCTION: i32 = 1;
 const ERROR_NOT_SUPPORTED: i32 = 50;
 const ERROR_INVALID_PARAMETER: i32 = 87;
 const MOVEFILE_WRITE_THROUGH: u32 = 0x0000_0008;
-const REPLACEFILE_WRITE_THROUGH: u32 = 0x0000_0001;
 const FILE_NAME_NORMALIZED: u32 = 0;
 const VOLUME_NAME_DOS: u32 = 0;
 const IOCTL_STORAGE_QUERY_PROPERTY: u32 = 0x002d_1400;
@@ -391,25 +390,28 @@ impl WindowsProjectStorage {
         let target_wide = null_terminated(path.as_os_str());
         let temp_wide = null_terminated(temp.as_os_str());
         let backup_wide = null_terminated(backup.as_os_str());
+        // The Windows replacement routine opens the replacement with no sharing mode, so every
+        // handle to the verified temp must be closed before the call. The
+        // content-bound token is retained and checked against the committed
+        // target immediately after replacement.
+        drop(temp_handle);
         let replaced = unsafe {
             ReplaceFileW(
                 target_wide.as_ptr(),
                 temp_wide.as_ptr(),
                 backup_wide.as_ptr(),
-                REPLACEFILE_WRITE_THROUGH,
+                0,
                 std::ptr::null_mut(),
                 std::ptr::null_mut(),
             )
         };
         if replaced == 0 {
-            drop(temp_handle);
             let _ = fs::remove_file(temp);
             return Err(write_failed());
         }
         let mut displaced_handle = match open_for_read(&backup) {
             Ok(handle) => handle,
             Err(_) => {
-                drop(temp_handle);
                 self.recover_held_original_after_replace(&handle, &path, &current, &backup)?;
                 return Err(BrokerError::new(
                     BrokerErrorCode::StaleGrant,
@@ -421,7 +423,6 @@ impl WindowsProjectStorage {
             Ok((_, token)) => token,
             Err(_) => {
                 drop(displaced_handle);
-                drop(temp_handle);
                 self.recover_held_original_after_replace(&handle, &path, &current, &backup)?;
                 return Err(BrokerError::new(
                     BrokerErrorCode::StaleGrant,
@@ -433,33 +434,21 @@ impl WindowsProjectStorage {
             == ReplaceReconciliation::RestoreHeldOriginal
         {
             drop(displaced_handle);
-            drop(temp_handle);
             self.recover_held_original_after_replace(&handle, &path, &current, &backup)?;
             return Err(BrokerError::new(
                 BrokerErrorCode::StaleGrant,
                 "A different target identity was atomically displaced; the held original was restored.",
             ));
         }
-        let committed_token = attest_open_handle(
-            &temp_handle,
-            &path,
-            self.volume_serial,
-            ExpectedKind::RegularFile,
-        )
-        .map(|token| bind_content(token, bytes));
         let final_file = self.inspect_content(name);
         let valid = matches!(
-            (&committed_token, &final_file),
-            (Ok(committed), Ok(file))
-                if committed == &temp_token
-                    && file.token == temp_token
-                    && file.size == bytes.len()
+            &final_file,
+            Ok(file) if file.token == temp_token && file.size == bytes.len()
         );
         if plan_replace_reconciliation(Some(&displaced_token), &current, valid)
             == ReplaceReconciliation::RestoreHeldOriginal
         {
             drop(displaced_handle);
-            drop(temp_handle);
             // ReplaceFileW names its backup by path. Restore through the
             // exact original file object held across commit, never via that
             // attacker-displaceable backup path.
@@ -467,7 +456,6 @@ impl WindowsProjectStorage {
             return Err(write_failed());
         }
         drop(displaced_handle);
-        drop(temp_handle);
         let _ = fs::remove_file(&backup);
         let final_file = final_file.map_err(|_| write_failed())?;
         let reopened = self
