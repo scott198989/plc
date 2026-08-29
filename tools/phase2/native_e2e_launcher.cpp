@@ -1420,12 +1420,20 @@ std::string iso_utc_now() {
 std::vector<std::uint8_t> read_file_bytes(
     const std::filesystem::path& path,
     std::uint64_t maximum = 256ULL * 1024ULL * 1024ULL) {
-  HeldHandle file(CreateFileW(
-      path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
-      FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+  HeldHandle file;
+  DWORD open_status = ERROR_SUCCESS;
+  for (unsigned attempt = 0; attempt < 21; ++attempt) {
+    file.reset(CreateFileW(
+        path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+        FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+    if (file.valid()) break;
+    open_status = GetLastError();
+    if (open_status != ERROR_SHARING_VIOLATION || attempt == 20) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(250));
+  }
   if (!file.valid()) {
     throw std::runtime_error("A required native evidence file could not be opened; path=" +
-        path.string() + ", win32=" + std::to_string(GetLastError()) + ".");
+        path.string() + ", win32=" + std::to_string(open_status) + ".");
   }
   const auto size = file_bytes(file.get());
   if (size == 0 || size > maximum ||
