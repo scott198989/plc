@@ -219,7 +219,9 @@ std::wstring sha256_file(const std::filesystem::path& file) {
     BCryptCloseAlgorithmProvider(algorithm, 0);
     fail("Windows SHA-256 hash creation failed.");
   }
-  std::array<BYTE, 1U << 20U> buffer{};
+  // The Windows GUI entrypoint has a small default stack. Keep the streaming
+  // hash buffer on the heap so fixed-input admission cannot overflow it.
+  std::vector<BYTE> buffer(1U << 20U);
   for (;;) {
     DWORD read = 0;
     if (ReadFile(input.value, buffer.data(), static_cast<DWORD>(buffer.size()), &read, nullptr) == 0) {
