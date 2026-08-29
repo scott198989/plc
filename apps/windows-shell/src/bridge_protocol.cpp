@@ -477,7 +477,16 @@ std::wstring bridge_bootstrap_script(
         throw new Error(`verification UI timeout: ${label}`);
       };
       const buttonWithText = text => [...document.querySelectorAll("button")]
-        .find(button => button.textContent?.trim() === text && !button.disabled);
+        .find(button => {
+          const directText = [...button.childNodes]
+            .filter(node => node.nodeType === Node.TEXT_NODE)
+            .map(node => node.textContent?.trim() ?? "")
+            .filter(Boolean)
+            .join(" ");
+          return !button.disabled &&
+            (button.getAttribute("aria-label")?.trim() === text || directText === text ||
+              button.textContent?.trim() === text);
+        });
       const settled = predicate => !document.querySelector(".status-segment--busy") && predicate();
       const cpuIs = state => document.querySelector(`.runtime-summary__state[data-state="${state}"]`) !== null;
       const scanSequenceIs = value => [...document.querySelectorAll(".runtime-summary dl > div")]

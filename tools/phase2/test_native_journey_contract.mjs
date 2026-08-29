@@ -30,6 +30,8 @@ test("native verification journey authors minimum runnable hardware before persi
   assert.match(source, /diagnostics settled/u);
   assert.match(source, /verification UI alert during/u);
   assert.match(source, /input\.labels/u);
+  assert.match(source, /button\.childNodes/u);
+  assert.match(source, /button\.getAttribute\("aria-label"\)/u);
   assert.match(source, /settled\(buildIsCurrent\)/u);
   assert.match(source, /cpuIs\("STOP"\).*buttonWithText\("Power off"\)/u);
   assert.match(source, /scanSequenceIs\(1\)/u);
