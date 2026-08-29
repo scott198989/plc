@@ -57,6 +57,9 @@ test("external observer source requires opcode classification and a validated li
     "CreateProcessWithTokenW(",
     "CreateProcessAsUserW(",
     "ERROR_ACCESS_DENIED",
+    "AdjustTokenPrivileges(",
+    "SE_ASSIGNPRIMARYTOKEN_NAME",
+    "SE_INCREASE_QUOTA_NAME",
     "~TraceSession() noexcept",
     "failed after its trace was preserved",
   ]) {

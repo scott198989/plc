@@ -980,6 +980,37 @@ UniqueHandle open_token(HANDLE process, DWORD access) {
   return UniqueHandle(token);
 }
 
+class ScopedPrivilege final {
+ public:
+  explicit ScopedPrivilege(const wchar_t* name) {
+    token_ = open_token(GetCurrentProcess(), TOKEN_ADJUST_PRIVILEGES | TOKEN_QUERY);
+    if (LookupPrivilegeValueW(nullptr, name, &luid_) == 0) {
+      fail("A fixed launcher privilege could not be resolved; win32=" + std::to_string(GetLastError()) + ".");
+    }
+    TOKEN_PRIVILEGES requested{};
+    requested.PrivilegeCount = 1;
+    requested.Privileges[0].Luid = luid_;
+    requested.Privileges[0].Attributes = SE_PRIVILEGE_ENABLED;
+    DWORD prior_bytes = 0;
+    SetLastError(ERROR_SUCCESS);
+    if (AdjustTokenPrivileges(token_.value, FALSE, &requested, sizeof(prior_),
+                              reinterpret_cast<TOKEN_PRIVILEGES*>(prior_.data()), &prior_bytes) == 0 ||
+        GetLastError() == ERROR_NOT_ALL_ASSIGNED || prior_bytes == 0 || prior_bytes > prior_.size()) {
+      fail("A required fixed launcher privilege is unavailable; win32=" + std::to_string(GetLastError()) + ".");
+    }
+    prior_bytes_ = prior_bytes;
+  }
+  ~ScopedPrivilege() noexcept {
+    if (prior_bytes_ != 0) AdjustTokenPrivileges(token_.value, FALSE,
+        reinterpret_cast<TOKEN_PRIVILEGES*>(prior_.data()), 0, nullptr, nullptr);
+  }
+ private:
+  UniqueHandle token_;
+  LUID luid_{};
+  std::array<BYTE, sizeof(TOKEN_PRIVILEGES) + sizeof(LUID_AND_ATTRIBUTES)> prior_{};
+  DWORD prior_bytes_{0};
+};
+
 UniqueHandle interactive_shell_token(DWORD access = TOKEN_QUERY) {
   const HWND shell = GetShellWindow();
   DWORD process_id = 0;
@@ -1056,6 +1087,12 @@ LaunchedProcess create_fixed_launcher(const std::filesystem::path& launcher) {
           &startup,
           &process) == 0) {
     const DWORD token_status = GetLastError();
+    std::optional<ScopedPrivilege> assign_primary;
+    std::optional<ScopedPrivilege> increase_quota;
+    if (token_status == ERROR_ACCESS_DENIED) {
+      assign_primary.emplace(SE_ASSIGNPRIMARYTOKEN_NAME);
+      increase_quota.emplace(SE_INCREASE_QUOTA_NAME);
+    }
     if (token_status != ERROR_ACCESS_DENIED ||
         CreateProcessAsUserW(
             standard_token.value,
