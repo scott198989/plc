@@ -873,12 +873,19 @@ std::vector<BYTE> token_information(
 
 template <typename Value>
 Value token_scalar(HANDLE token, TOKEN_INFORMATION_CLASS information_class) {
-  const auto bytes = token_information(token, information_class);
-  if (bytes.size() < sizeof(Value)) {
-    fail("A fixed launcher token scalar is malformed.");
-  }
   Value value{};
-  std::memcpy(&value, bytes.data(), sizeof(value));
+  DWORD bytes = 0;
+  if (GetTokenInformation(
+          token,
+          information_class,
+          &value,
+          sizeof(value),
+          &bytes) == 0 ||
+      bytes != sizeof(value)) {
+    fail("A fixed launcher token scalar could not be read; class=" +
+         std::to_string(static_cast<int>(information_class)) +
+         ", win32=" + std::to_string(GetLastError()) + ".");
+  }
   return value;
 }
 
