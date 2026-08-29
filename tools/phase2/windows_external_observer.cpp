@@ -939,7 +939,7 @@ void require_same_token_identity(HANDLE left, HANDLE right) {
   }
 }
 
-void require_standard_interactive_token(HANDLE token) {
+void require_standard_interactive_token(HANDLE token, bool require_primary = true) {
   const auto type = token_scalar<TOKEN_TYPE>(token, TokenType);
   const auto elevation_type =
       token_scalar<TOKEN_ELEVATION_TYPE>(token, TokenElevationType);
@@ -958,10 +958,17 @@ void require_standard_interactive_token(HANDLE token) {
   }
   const DWORD integrity_rid =
       *GetSidSubAuthority(integrity->Label.Sid, static_cast<DWORD>(*count - 1));
-  if (type != TokenPrimary || elevation_type != TokenElevationTypeLimited ||
+  const bool type_allowed = require_primary ? type == TokenPrimary :
+      (type == TokenPrimary || type == TokenImpersonation);
+  if (!type_allowed || elevation_type != TokenElevationTypeLimited ||
       elevation.TokenIsElevated != 0 || app_container != 0 || ui_access != 0 ||
       integrity_rid != SECURITY_MANDATORY_MEDIUM_RID) {
-    fail("The fixed launcher token is not a standard medium-integrity desktop token.");
+    fail("The fixed launcher token is not a standard medium-integrity desktop token; type=" +
+         std::to_string(static_cast<int>(type)) + ", elevationType=" +
+         std::to_string(static_cast<int>(elevation_type)) + ", elevated=" +
+         std::to_string(elevation.TokenIsElevated) + ", appContainer=" +
+         std::to_string(app_container) + ", uiAccess=" + std::to_string(ui_access) +
+         ", integrityRid=" + std::to_string(integrity_rid) + ".");
   }
 }
 
@@ -1005,7 +1012,7 @@ UniqueHandle linked_standard_user_token() {
   }
   UniqueHandle linked_token(linked.LinkedToken);
   if (!linked_token.valid()) fail("The linked standard-user token is unavailable.");
-  require_standard_interactive_token(linked_token.value);
+  require_standard_interactive_token(linked_token.value, false);
   require_same_token_identity(elevated.value, linked_token.value);
 
   auto shell_token = interactive_shell_token();
