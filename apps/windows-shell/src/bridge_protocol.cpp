@@ -487,7 +487,8 @@ std::wstring bridge_bootstrap_script(
         .some(segment => segment.textContent?.trim() === "Build current");
       const name = await waitFor(
         () => [...document.querySelectorAll("input")]
-          .find(input => input.previousElementSibling?.textContent?.trim() === "Project name" && !input.disabled),
+          .find(input => [...(input.labels ?? [])]
+            .some(label => label.textContent?.trim() === "Project name") && !input.disabled),
         "new-project name",
       );
       const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
