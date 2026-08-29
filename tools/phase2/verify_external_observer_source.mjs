@@ -5,6 +5,7 @@ const REQUIRED_SOURCE_TOKENS = Object.freeze([
   "EVENT_TRACE_CONTROL_STOP",
   "PROCESS_TRACE_MODE_REAL_TIME",
   "PROCESS_TRACE_MODE_RAW_TIMESTAMP",
+  "EVENT_TRACE_SYSTEM_LOGGER_MODE",
   "TdhEnumerateProviders(",
   "TdhEnumerateManifestProviderEvents(",
   "TdhGetManifestEventInformation(",
@@ -98,4 +99,3 @@ export function forbiddenExternalObserverImport(dumpbinText) {
   const match = /\b(?:WS2_32|WINHTTP|WININET|URLMON|DNSAPI|IPHLPAPI|SETUPAPI|BLUETOOTHAPIS|HID|WINUSB)\.dll\b/iu.exec(dumpbinText);
   return match?.[0] ?? null;
 }
-

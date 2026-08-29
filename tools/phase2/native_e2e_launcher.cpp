@@ -609,7 +609,10 @@ StagedCandidate stage_candidate(
 bool valid_verification_project_name(std::string_view value);
 void capture_external_observation(
     HANDLE process_job,
+    HANDLE completion_port,
+    HANDLE root_handle,
     DWORD root_process,
+    DWORD notification_wait_milliseconds,
     std::uint32_t system_volume_serial,
     ExternalObservation& observation);
 std::string iso_utc_now();
@@ -653,6 +656,7 @@ std::string manifest_json(
 
 struct LaunchedProcess final {
   HeldHandle job;
+  HeldHandle completion_port;
   HeldHandle process;
   DWORD process_id{};
 };
@@ -668,6 +672,21 @@ LaunchedProcess launch_exact_shell(const StagedCandidate& staged) {
 
   HeldHandle job(CreateJobObjectW(nullptr, nullptr));
   if (!job.valid()) fail("The native verification process job could not be created.");
+  HeldHandle completion_port(CreateIoCompletionPort(
+      INVALID_HANDLE_VALUE, nullptr, 0, 1));
+  if (!completion_port.valid()) {
+    fail("The native verification process notification port could not be created.");
+  }
+  JOBOBJECT_ASSOCIATE_COMPLETION_PORT association{};
+  association.CompletionKey = job.get();
+  association.CompletionPort = completion_port.get();
+  if (SetInformationJobObject(
+          job.get(),
+          JobObjectAssociateCompletionPortInformation,
+          &association,
+          sizeof(association)) == 0) {
+    fail("The native verification process notification port failed closed.");
+  }
   JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
   limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
   if (SetInformationJobObject(
@@ -709,7 +728,12 @@ LaunchedProcess launch_exact_shell(const StagedCandidate& staged) {
     fail("The exact staged shell could not be resumed.");
   }
   thread_handle.reset();
-  return {std::move(job), std::move(process_handle), process.dwProcessId};
+  return {
+      std::move(job),
+      std::move(completion_port),
+      std::move(process_handle),
+      process.dwProcessId,
+  };
 }
 
 void clear_fixed_evidence_outputs(const std::filesystem::path& evidence_root) {
@@ -818,8 +842,9 @@ int run_native_e2e() {
     DWORD wait_status = WAIT_TIMEOUT;
     while (GetTickCount64() < deadline) {
       capture_external_observation(
-          launched.job.get(), launched.process_id, staged->volume.serial, observation);
-      wait_status = WaitForSingleObject(launched.process.get(), 50);
+          launched.job.get(), launched.completion_port.get(), launched.process.get(),
+          launched.process_id, 50, staged->volume.serial, observation);
+      wait_status = WaitForSingleObject(launched.process.get(), 0);
       if (wait_status == WAIT_OBJECT_0) break;
       if (wait_status != WAIT_TIMEOUT) {
         TerminateJobObject(launched.job.get(), 1);
@@ -1875,60 +1900,132 @@ void capture_endpoints(
   }
 }
 
+void capture_process_identity(
+    DWORD process_id,
+    DWORD parent_process_id,
+    std::wstring_view image_name,
+    const std::filesystem::path& image_path,
+    std::uint32_t system_volume_serial,
+    ExternalObservation& observation) {
+  std::string digest;
+  if (!image_path.empty()) digest = narrow_ascii(sha256_file(image_path));
+  const auto name = lowercase_ascii(image_name);
+  const auto existing = observation.processes.find(process_id);
+  const bool new_runtime_identity =
+      name == "msedgewebview2.exe" && !image_path.empty() &&
+      (existing == observation.processes.end() ||
+       existing->second.executable_sha256.empty());
+  const auto [stored, inserted] = observation.processes.try_emplace(
+      process_id,
+      ObservedProcess{process_id, parent_process_id, name, digest});
+  if (!inserted) {
+    if ((!stored->second.image_name.empty() && !name.empty() &&
+         stored->second.image_name != name) ||
+        (!stored->second.executable_sha256.empty() && !digest.empty() &&
+         stored->second.executable_sha256 != digest)) {
+      fail("A scoped process identity changed during observation.");
+    }
+    if (stored->second.parent_process_id == 0 && parent_process_id != 0) {
+      stored->second.parent_process_id = parent_process_id;
+    }
+    if (stored->second.image_name.empty()) stored->second.image_name = name;
+    if (stored->second.executable_sha256.empty()) {
+      stored->second.executable_sha256 = digest;
+    }
+  }
+  if (name != "msedgewebview2.exe" || image_path.empty()) return;
+  if (new_runtime_identity) ++observation.runtime_process_count;
+  std::wstring runtime_digest;
+  if (observation.runtime_authorities.empty()) {
+    observation.runtime_authorities =
+        attest_path_chain(image_path.parent_path(), system_volume_serial);
+    observation.runtime_authorities.push_back(
+        open_attested_path(image_path, false, system_volume_serial));
+    runtime_digest = sha256_handle(observation.runtime_authorities.back().get());
+  } else {
+    if (normalized_path(observation.runtime_path.wstring()) !=
+        normalized_path(image_path.wstring())) {
+      fail("More than one WebView2 runtime path identity was observed.");
+    }
+    runtime_digest = sha256_handle(observation.runtime_authorities.back().get());
+  }
+  const auto version = file_version(image_path);
+  if (!observation.runtime_path.empty() &&
+      (observation.runtime_sha256 != runtime_digest ||
+       observation.runtime_version != version)) {
+    fail("More than one WebView2 runtime identity was observed.");
+  }
+  observation.runtime_path = image_path;
+  observation.runtime_sha256 = runtime_digest;
+  observation.runtime_version = version;
+}
+
+void capture_job_notifications(
+    HANDLE process_job,
+    HANDLE completion_port,
+    DWORD initial_wait_milliseconds,
+    std::uint32_t system_volume_serial,
+    ExternalObservation& observation) {
+  DWORD wait_milliseconds = initial_wait_milliseconds;
+  while (true) {
+    DWORD message = 0;
+    ULONG_PTR key = 0;
+    OVERLAPPED* value = nullptr;
+    if (GetQueuedCompletionStatus(
+            completion_port, &message, &key, &value, wait_milliseconds) == 0) {
+      if (GetLastError() == WAIT_TIMEOUT) return;
+      fail("The scoped process notification stream failed closed.");
+    }
+    wait_milliseconds = 0;
+    if (key != reinterpret_cast<ULONG_PTR>(process_job)) {
+      fail("The scoped process notification key changed.");
+    }
+    if (message != JOB_OBJECT_MSG_NEW_PROCESS || value == nullptr) continue;
+    const auto process_id = reinterpret_cast<ULONG_PTR>(value);
+    if (process_id == 0 || process_id > MAXDWORD) {
+      fail("The scoped process notification returned an invalid identity.");
+    }
+    const auto image_path = process_image_path(static_cast<DWORD>(process_id));
+    if (image_path.empty()) continue;
+    capture_process_identity(
+        static_cast<DWORD>(process_id),
+        0,
+        image_path.filename().wstring(),
+        image_path,
+        system_volume_serial,
+        observation);
+  }
+}
+
 void capture_external_observation(
     HANDLE process_job,
+    HANDLE completion_port,
+    HANDLE root_handle,
     DWORD root_process,
+    DWORD notification_wait_milliseconds,
     std::uint32_t system_volume_serial,
     ExternalObservation& observation) {
   ++observation.snapshot_count;
+  capture_job_notifications(
+      process_job, completion_port, notification_wait_milliseconds,
+      system_volume_serial, observation);
   const auto snapshot = process_snapshot();
   const auto admitted = job_processes(process_job);
   if (!admitted.contains(root_process)) {
+    if (WaitForSingleObject(root_handle, 0) == WAIT_OBJECT_0) return;
     fail("The exact staged shell left its scoped process job before exit.");
   }
   capture_endpoints(admitted, observation.endpoints);
   for (const auto& process : snapshot) {
     if (!admitted.contains(process.process_id)) continue;
     const auto image_path = process_image_path(process.process_id);
-    std::string digest;
-    if (!image_path.empty()) digest = narrow_ascii(sha256_file(image_path));
-    const auto name = lowercase_ascii(process.image_name);
-    const auto [stored, inserted] = observation.processes.try_emplace(
+    capture_process_identity(
         process.process_id,
-        ObservedProcess{
-            process.process_id,
-            process.parent_process_id,
-            name,
-            digest,
-        });
-    (void)stored;
-    if (name == "msedgewebview2.exe") {
-      if (image_path.empty()) continue;
-      if (inserted) ++observation.runtime_process_count;
-      std::wstring runtime_digest;
-      if (observation.runtime_authorities.empty()) {
-        observation.runtime_authorities =
-            attest_path_chain(image_path.parent_path(), system_volume_serial);
-        observation.runtime_authorities.push_back(
-            open_attested_path(image_path, false, system_volume_serial));
-        runtime_digest = sha256_handle(observation.runtime_authorities.back().get());
-      } else {
-        if (normalized_path(observation.runtime_path.wstring()) !=
-            normalized_path(image_path.wstring())) {
-          fail("More than one WebView2 runtime path identity was observed.");
-        }
-        runtime_digest = sha256_handle(observation.runtime_authorities.back().get());
-      }
-      const auto version = file_version(image_path);
-      if (!observation.runtime_path.empty() &&
-          (observation.runtime_sha256 != runtime_digest ||
-           observation.runtime_version != version)) {
-        fail("More than one WebView2 runtime identity was observed.");
-      }
-      observation.runtime_path = image_path;
-      observation.runtime_sha256 = runtime_digest;
-      observation.runtime_version = version;
-    }
+        process.parent_process_id,
+        process.image_name,
+        image_path,
+        system_volume_serial,
+        observation);
   }
 }
 

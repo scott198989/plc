@@ -704,7 +704,8 @@ class TraceSession {
     properties->MaximumFileSize = 2048;
     properties->FlushTimer = 1;
     properties->LogFileMode = EVENT_TRACE_FILE_MODE_SEQUENTIAL |
-                              EVENT_TRACE_REAL_TIME_MODE | EVENT_TRACE_USE_PAGED_MEMORY;
+                              EVENT_TRACE_REAL_TIME_MODE | EVENT_TRACE_USE_PAGED_MEMORY |
+                              EVENT_TRACE_SYSTEM_LOGGER_MODE;
     properties->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
     properties->LogFileNameOffset = sizeof(EVENT_TRACE_PROPERTIES) +
         static_cast<ULONG>((std::wcslen(kSessionName) + 1) * sizeof(wchar_t));

@@ -55,6 +55,10 @@ test("native verification journey authors minimum runnable hardware before persi
 test("native launcher attributes WebView2 through exact job membership", async () => {
   const source = await readFile(path.join(root, "tools/phase2/native_e2e_launcher.cpp"), "utf8");
   assert.match(source, /QueryInformationJobObject\([\s\S]*?JobObjectBasicProcessIdList/u);
+  assert.match(source, /CreateIoCompletionPort\(/u);
+  assert.match(source, /JobObjectAssociateCompletionPortInformation/u);
+  assert.match(source, /GetQueuedCompletionStatus\(/u);
+  assert.match(source, /JOB_OBJECT_MSG_NEW_PROCESS/u);
   assert.match(source, /const auto admitted = job_processes\(process_job\);/u);
   assert.match(source, /admitted\.contains\(root_process\)/u);
   const capture = source.slice(source.indexOf("void capture_external_observation(\n    HANDLE process_job"));
