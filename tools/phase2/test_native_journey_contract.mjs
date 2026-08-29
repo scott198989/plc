@@ -51,3 +51,12 @@ test("native verification journey authors minimum runnable hardware before persi
     assert.ok(runtimeOffset > 0, `runtime journey must use ${step} in order`);
   }
 });
+
+test("native launcher attributes WebView2 through exact job membership", async () => {
+  const source = await readFile(path.join(root, "tools/phase2/native_e2e_launcher.cpp"), "utf8");
+  assert.match(source, /QueryInformationJobObject\([\s\S]*?JobObjectBasicProcessIdList/u);
+  assert.match(source, /const auto admitted = job_processes\(process_job\);/u);
+  assert.match(source, /admitted\.contains\(root_process\)/u);
+  const capture = source.slice(source.indexOf("void capture_external_observation(\n    HANDLE process_job"));
+  assert.doesNotMatch(capture.slice(0, capture.indexOf("\n}\n\n}  // namespace")), /descendant_processes\(root_process/u);
+});

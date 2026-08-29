@@ -608,6 +608,7 @@ StagedCandidate stage_candidate(
     std::vector<std::string>& transcript);
 bool valid_verification_project_name(std::string_view value);
 void capture_external_observation(
+    HANDLE process_job,
     DWORD root_process,
     std::uint32_t system_volume_serial,
     ExternalObservation& observation);
@@ -817,7 +818,7 @@ int run_native_e2e() {
     DWORD wait_status = WAIT_TIMEOUT;
     while (GetTickCount64() < deadline) {
       capture_external_observation(
-          launched.process_id, staged->volume.serial, observation);
+          launched.job.get(), launched.process_id, staged->volume.serial, observation);
       wait_status = WaitForSingleObject(launched.process.get(), 50);
       if (wait_status == WAIT_OBJECT_0) break;
       if (wait_status != WAIT_TIMEOUT) {
@@ -1642,22 +1643,43 @@ std::vector<SnapshotProcess> process_snapshot() {
   return result;
 }
 
-std::set<DWORD> descendant_processes(
-    DWORD root,
-    const std::vector<SnapshotProcess>& snapshot) {
-  std::set<DWORD> result{root};
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    for (const auto& process : snapshot) {
-      if (result.contains(process.parent_process_id) &&
-          !result.contains(process.process_id)) {
-        result.insert(process.process_id);
-        changed = true;
-      }
+std::set<DWORD> job_processes(HANDLE process_job) {
+  constexpr std::size_t maximum_processes = 4'096;
+  std::size_t capacity = 32;
+  while (capacity <= maximum_processes) {
+    const auto bytes = offsetof(JOBOBJECT_BASIC_PROCESS_ID_LIST, ProcessIdList) +
+        capacity * sizeof(ULONG_PTR);
+    std::vector<ULONG_PTR> storage(
+        (bytes + sizeof(ULONG_PTR) - 1) / sizeof(ULONG_PTR));
+    auto* list = reinterpret_cast<JOBOBJECT_BASIC_PROCESS_ID_LIST*>(storage.data());
+    SetLastError(ERROR_SUCCESS);
+    const BOOL queried = QueryInformationJobObject(
+        process_job,
+        JobObjectBasicProcessIdList,
+        list,
+        static_cast<DWORD>(bytes),
+        nullptr);
+    const DWORD error = queried == 0 ? GetLastError() : ERROR_SUCCESS;
+    if (queried == 0 && error != ERROR_MORE_DATA) {
+      fail("The scoped process job membership could not be observed.");
     }
+    if (list->NumberOfProcessIdsInList < list->NumberOfAssignedProcesses) {
+      capacity = std::max<std::size_t>(
+          capacity * 2,
+          list->NumberOfAssignedProcesses);
+      continue;
+    }
+    std::set<DWORD> result;
+    for (DWORD index = 0; index < list->NumberOfProcessIdsInList; ++index) {
+      const ULONG_PTR process_id = list->ProcessIdList[index];
+      if (process_id == 0 || process_id > MAXDWORD) {
+        fail("The scoped process job returned an invalid process identity.");
+      }
+      result.insert(static_cast<DWORD>(process_id));
+    }
+    return result;
   }
-  return result;
+  fail("The scoped process job membership exceeded its fixed bound.");
 }
 
 std::string lowercase_ascii(std::wstring_view value) {
@@ -1854,12 +1876,16 @@ void capture_endpoints(
 }
 
 void capture_external_observation(
+    HANDLE process_job,
     DWORD root_process,
     std::uint32_t system_volume_serial,
     ExternalObservation& observation) {
   ++observation.snapshot_count;
   const auto snapshot = process_snapshot();
-  const auto admitted = descendant_processes(root_process, snapshot);
+  const auto admitted = job_processes(process_job);
+  if (!admitted.contains(root_process)) {
+    fail("The exact staged shell left its scoped process job before exit.");
+  }
   capture_endpoints(admitted, observation.endpoints);
   for (const auto& process : snapshot) {
     if (!admitted.contains(process.process_id)) continue;
