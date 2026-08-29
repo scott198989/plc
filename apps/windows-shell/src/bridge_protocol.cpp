@@ -487,6 +487,8 @@ std::wstring bridge_bootstrap_script(
             (button.getAttribute("aria-label")?.trim() === text || directText === text ||
               button.textContent?.trim() === text);
         });
+      const tabWithText = text => [...document.querySelectorAll('[role="tab"]')]
+        .find(tab => tab.textContent?.trim() === text);
       const settled = predicate => !document.querySelector(".status-segment--busy") && predicate();
       const cpuIs = state => document.querySelector(`.runtime-summary__state[data-state="${state}"]`) !== null;
       const scanSequenceIs = value => [...document.querySelectorAll(".runtime-summary dl > div")]
@@ -543,6 +545,8 @@ std::wstring bridge_bootstrap_script(
       (await waitFor(() => buttonWithText("Close"), "close after create")).click();
       (await waitFor(() => buttonWithText("Choose project file"), "open project")).click();
        await waitFor(() => verificationResponses >= 2, "native open response");
+       (await waitFor(() => tabWithText("Runtime & commissioning"), "runtime tab")).click();
+       await waitFor(() => document.querySelector(".runtime-summary"), "runtime summary");
        (await waitFor(() => buttonWithText("Build"), "runtime build")).click();
        await waitFor(() => settled(buildIsCurrent), "Build current");
        (await waitFor(() => buttonWithText("Power on"), "runtime power on")).click();
