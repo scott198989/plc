@@ -980,7 +980,7 @@ UniqueHandle open_token(HANDLE process, DWORD access) {
   return UniqueHandle(token);
 }
 
-UniqueHandle interactive_shell_token() {
+UniqueHandle interactive_shell_token(DWORD access = TOKEN_QUERY) {
   const HWND shell = GetShellWindow();
   DWORD process_id = 0;
   if (shell == nullptr || GetWindowThreadProcessId(shell, &process_id) == 0 ||
@@ -989,7 +989,7 @@ UniqueHandle interactive_shell_token() {
   }
   UniqueHandle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id));
   if (!process.valid()) fail("The interactive Windows shell could not be attested.");
-  return open_token(process.value, TOKEN_QUERY);
+  return open_token(process.value, access);
 }
 
 UniqueHandle linked_standard_user_token() {
@@ -1015,19 +1015,20 @@ UniqueHandle linked_standard_user_token() {
   require_standard_interactive_token(linked_token.value, false);
   require_same_token_identity(elevated.value, linked_token.value);
 
-  auto shell_token = interactive_shell_token();
+  auto shell_token = interactive_shell_token(TOKEN_QUERY | TOKEN_DUPLICATE);
   require_standard_interactive_token(shell_token.value);
   require_same_token_identity(linked_token.value, shell_token.value);
 
   HANDLE primary = INVALID_HANDLE_VALUE;
   if (DuplicateTokenEx(
-          linked_token.value,
+          shell_token.value,
           TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY,
           nullptr,
           SecurityImpersonation,
           TokenPrimary,
           &primary) == 0) {
-    fail("The linked standard-user primary token could not be created.");
+    fail("The attested interactive standard-user primary token could not be created; win32=" +
+         std::to_string(GetLastError()) + ".");
   }
   UniqueHandle result(primary);
   require_standard_interactive_token(result.value);
