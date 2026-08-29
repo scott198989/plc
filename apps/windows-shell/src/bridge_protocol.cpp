@@ -585,9 +585,8 @@ std::wstring bridge_bootstrap_script(
           : null;
       }, "verified replay receipt");
       const runtimeReplayHash = await waitFor(() => {
-        const receipt = [...document.querySelectorAll(".runtime-toolbar__receipt")]
-          .find(candidate => !candidate.hasAttribute("aria-label") && /^e[0-9]+ · s[0-9]+$/.test(candidate.textContent?.trim() ?? ""));
-        const hash = receipt?.getAttribute("title") ?? "";
+        const receipt = document.querySelector('[data-runtime-replay-hash]');
+        const hash = receipt?.getAttribute("data-runtime-replay-hash") ?? "";
         return /^[0-9A-F]{64}$/.test(hash) ? hash : null;
       }, "canonical runtime replay");
       channel.postMessage(

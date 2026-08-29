@@ -144,6 +144,7 @@ describe("runtime workbench presentation", () => {
     expect(toolbar).toContain("Replay verified · 4 events");
     expect(toolbar).toContain('data-event-count="4"');
     expect(toolbar).toContain(`data-fingerprint="${"A".repeat(64)}"`);
+    expect(toolbar).toContain('data-runtime-replay-hash="CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC"');
     expect(inspector).toContain('data-state="RUN"');
     expect(inspector).toContain('data-boundary-count="1"');
     expect(inspector).toContain('data-event-count="4"');

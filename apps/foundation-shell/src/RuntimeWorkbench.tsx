@@ -129,7 +129,11 @@ export const RuntimeToolbar = ({
           Replay verified · {replayReceipt.eventCount} events
         </span>
       )}
-      <span className="runtime-toolbar__receipt" title={session?.runtimeReplayHash ?? undefined}>
+      <span
+        className="runtime-toolbar__receipt"
+        data-runtime-replay-hash={session?.runtimeReplayHash}
+        title={session?.runtimeReplayHash ?? undefined}
+      >
         {session === null ? "Awaiting configuration" : `e${session.controllerEpoch} · s${session.scanSequence}`}
       </span>
     </div>

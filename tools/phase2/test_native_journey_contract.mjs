@@ -42,6 +42,7 @@ test("native verification journey authors minimum runnable hardware before persi
   assert.match(source, /getAttribute\("data-fingerprint"\)/u);
   assert.match(source, /getAttribute\("data-event-count"\)/u);
   assert.match(source, /getAttribute\("data-boundary-count"\)/u);
+  assert.match(source, /getAttribute\("data-runtime-replay-hash"\)/u);
   assert.match(source, /govs-p2-native-verification-uuid-v1/u);
   const runtimeSteps = ["Build", "Power on", "Preview load", "Commit load", "Go online", "RUN", "Scan +1", "STOP", "Capture snapshot"];
   let runtimeOffset = source.indexOf('verificationResponses >= 2');
