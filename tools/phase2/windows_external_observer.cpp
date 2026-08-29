@@ -852,15 +852,20 @@ std::vector<BYTE> token_information(
   DWORD bytes = 0;
   SetLastError(ERROR_SUCCESS);
   const BOOL sized = GetTokenInformation(token, information_class, nullptr, 0, &bytes);
-  if (sized != 0 || GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
+  const DWORD size_status = GetLastError();
+  if (sized != 0 || size_status != ERROR_INSUFFICIENT_BUFFER ||
       bytes == 0 || bytes > 1024U * 1024U) {
-    fail("A fixed launcher token identity size failed closed.");
+    fail("A fixed launcher token identity size failed closed; class=" +
+         std::to_string(static_cast<int>(information_class)) +
+         ", win32=" + std::to_string(size_status) + ".");
   }
   std::vector<BYTE> result(bytes);
   if (GetTokenInformation(
-          token, information_class, result.data(), bytes, &bytes) == 0 ||
+      token, information_class, result.data(), bytes, &bytes) == 0 ||
       bytes == 0 || bytes > result.size()) {
-    fail("A fixed launcher token identity could not be read.");
+    fail("A fixed launcher token identity could not be read; class=" +
+         std::to_string(static_cast<int>(information_class)) +
+         ", win32=" + std::to_string(GetLastError()) + ".");
   }
   result.resize(bytes);
   return result;
@@ -979,9 +984,19 @@ UniqueHandle linked_standard_user_token() {
       TokenElevationTypeFull) {
     fail("The ETW observer does not hold a full UAC token.");
   }
-  const auto linked_bytes = token_information(elevated.value, TokenLinkedToken);
-  const auto* linked = reinterpret_cast<const TOKEN_LINKED_TOKEN*>(linked_bytes.data());
-  UniqueHandle linked_token(linked->LinkedToken);
+  TOKEN_LINKED_TOKEN linked{};
+  DWORD linked_bytes = 0;
+  if (GetTokenInformation(
+          elevated.value,
+          TokenLinkedToken,
+          &linked,
+          sizeof(linked),
+          &linked_bytes) == 0 ||
+      linked_bytes != sizeof(linked)) {
+    fail("The linked standard-user token could not be read; win32=" +
+         std::to_string(GetLastError()) + ".");
+  }
+  UniqueHandle linked_token(linked.LinkedToken);
   if (!linked_token.valid()) fail("The linked standard-user token is unavailable.");
   require_standard_interactive_token(linked_token.value);
   require_same_token_identity(elevated.value, linked_token.value);
