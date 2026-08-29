@@ -6,6 +6,7 @@ import {
   analyzeBoundNetLogObject,
   analyzeProcessEvidence,
   parseBoundNetLogText,
+  validateExternalObserverAnalysis,
   validateIndependentExternalCapture,
   validateEvidenceRows,
   validateRawHostManifest,
@@ -178,6 +179,45 @@ test("typed external capture inputs are validated but do not trust self-reported
   assert.throws(
     () => validateIndependentExternalCapture({ ...capture, coverage: { ...capture.coverage, gapFree: false } }, eventBytes, rawHash, projectHash, replay),
     /Independent gap-free/u,
+  );
+});
+
+test("tracked ETW observer analysis is required to be gap-free and zero-attempt", () => {
+  const eventBytes = Buffer.from('{"event":"etw"}\n', "utf8");
+  const candidate = {
+    candidateCommit: "c".repeat(40),
+    candidateTree: "d".repeat(40),
+    candidateManifestSha256: "E".repeat(64),
+  };
+  const analysis = {
+    accountedNetworkEventCount: 1,
+    analyzerSourceSha256: "A".repeat(64),
+    ...candidate,
+    coverage: { dnsClient: true, endpointSocket: true, gapFree: true, packet: true, processAncestry: true, resolverApi: true },
+    eventInterval: { startedAtUtc: "2026-08-28T12:00:00.000Z", endedAtUtc: "2026-08-28T12:00:01.000Z", eventCount: 1, eventStreamSha256: sha256(eventBytes) },
+    evidenceKind: "WINDOWS_PHASE2_ETW_EXTERNAL_OBSERVER_ANALYSIS",
+    externalAttemptCount: 0,
+    externalAttempts: [],
+    finalizerSourceSha256: "B".repeat(64),
+    observerExecutableSha256: "C".repeat(64),
+    observerVersion: "govs-p2-windows-etw-observer-v1",
+    processAncestry: [{ imageSha256: "D".repeat(64), parentProcessId: 1, processId: 2 }],
+    providerCoverage: [],
+    rawEtlSha256: "F".repeat(64),
+    rawObserverManifestSha256: "0".repeat(64),
+    result: "PASS",
+    rootProcessId: 2,
+    schemaVersion: "1.0",
+    sourceVerifierSha256: "1".repeat(64),
+    traceStatistics: { buffersWritten: 1, eventsLost: 0, logBuffersLost: 0, realTimeBuffersLost: 0 },
+    unknownEventCount: 0,
+    unknownEvents: [],
+    zeroExternalAttempts: true,
+  };
+  assert.equal(validateExternalObserverAnalysis(analysis, eventBytes, candidate), true);
+  assert.throws(
+    () => validateExternalObserverAnalysis({ ...analysis, unknownEventCount: 1 }, eventBytes, candidate),
+    /external-observer analysis/u,
   );
 });
 

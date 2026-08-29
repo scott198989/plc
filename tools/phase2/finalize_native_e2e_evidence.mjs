@@ -19,7 +19,7 @@ const evidenceRoot = path.join(root, ".phase2-verification", "native-e2e");
 const observerPath = path.join(evidenceRoot, "native-platform-observer-manifest.json");
 const finalPath = path.join(evidenceRoot, "native-platform-evidence-manifest.json");
 const networkAnalysisPath = path.join(evidenceRoot, "native-network-analysis.json");
-const externalCapturePath = path.join(evidenceRoot, "native-gap-free-external-capture.json");
+const externalObserverAnalysisPath = path.join(evidenceRoot, "native-gap-free-external-observer-analysis.json");
 const committedProjectPath = path.join(evidenceRoot, "native-committed-project.vlabproj");
 const sha256 = (bytes) => createHash("sha256").update(bytes).digest("hex").toUpperCase();
 const stableJson = (value) => `${JSON.stringify(value, null, 2)}\n`;
@@ -161,6 +161,48 @@ export function validateIndependentExternalCapture(capture, eventBytes, rawHostM
     capture.replayVerification.verifiedReplayEventCount === replay.verifiedReplayEventCount &&
     capture.replayVerification.verifiedReplayBoundaryCount === replay.verifiedReplayBoundaryCount,
     "Independent gap-free external capture or replay recomputation is incomplete",
+  );
+  return true;
+}
+
+export function validateExternalObserverAnalysis(analysis, eventBytes, candidate) {
+  requireCondition(
+    exactKeys(analysis, [
+      "accountedNetworkEventCount", "analyzerSourceSha256", "candidateCommit", "candidateManifestSha256",
+      "candidateTree", "coverage", "eventInterval", "evidenceKind", "externalAttemptCount",
+      "externalAttempts", "finalizerSourceSha256", "observerExecutableSha256", "observerVersion",
+      "processAncestry", "providerCoverage", "rawEtlSha256", "rawObserverManifestSha256", "result",
+      "rootProcessId", "schemaVersion", "sourceVerifierSha256", "traceStatistics", "unknownEventCount",
+      "unknownEvents", "zeroExternalAttempts",
+    ]) && analysis.schemaVersion === "1.0" &&
+    analysis.evidenceKind === "WINDOWS_PHASE2_ETW_EXTERNAL_OBSERVER_ANALYSIS" &&
+    analysis.result === "PASS" && analysis.zeroExternalAttempts === true &&
+    analysis.candidateCommit === candidate.candidateCommit && analysis.candidateTree === candidate.candidateTree &&
+    analysis.candidateManifestSha256 === candidate.candidateManifestSha256 &&
+    exactKeys(analysis.eventInterval, ["endedAtUtc", "eventCount", "eventStreamSha256", "startedAtUtc"]) &&
+    ISO_UTC.test(analysis.eventInterval.startedAtUtc) && ISO_UTC.test(analysis.eventInterval.endedAtUtc) &&
+    analysis.eventInterval.startedAtUtc < analysis.eventInterval.endedAtUtc &&
+    Number.isSafeInteger(analysis.eventInterval.eventCount) && analysis.eventInterval.eventCount > 0 &&
+    analysis.eventInterval.eventStreamSha256 === sha256(eventBytes) &&
+    exactKeys(analysis.coverage, ["dnsClient", "endpointSocket", "gapFree", "packet", "processAncestry", "resolverApi"]) &&
+    Object.values(analysis.coverage).every((value) => value === true) &&
+    Array.isArray(analysis.processAncestry) && analysis.processAncestry.length > 0 &&
+    analysis.processAncestry.every((row) => exactKeys(row, ["imageSha256", "parentProcessId", "processId"]) &&
+      Number.isSafeInteger(row.processId) && row.processId > 0 &&
+      Number.isSafeInteger(row.parentProcessId) && row.parentProcessId >= 0 &&
+      (row.imageSha256 === null || SHA256.test(row.imageSha256))) &&
+    Number.isSafeInteger(analysis.rootProcessId) && analysis.rootProcessId > 0 &&
+    analysis.processAncestry.some((row) => row.processId === analysis.rootProcessId && SHA256.test(row.imageSha256)) &&
+    Number.isSafeInteger(analysis.externalAttemptCount) && analysis.externalAttemptCount === 0 &&
+    Array.isArray(analysis.externalAttempts) && analysis.externalAttempts.length === 0 &&
+    Number.isSafeInteger(analysis.unknownEventCount) && analysis.unknownEventCount === 0 &&
+    Array.isArray(analysis.unknownEvents) && analysis.unknownEvents.length === 0 &&
+    exactKeys(analysis.traceStatistics, ["buffersWritten", "eventsLost", "logBuffersLost", "realTimeBuffersLost"]) &&
+    analysis.traceStatistics.eventsLost === 0 && analysis.traceStatistics.logBuffersLost === 0 &&
+    analysis.traceStatistics.realTimeBuffersLost === 0 &&
+    ["analyzerSourceSha256", "finalizerSourceSha256", "observerExecutableSha256", "rawEtlSha256",
+      "rawObserverManifestSha256", "sourceVerifierSha256"].every((key) => SHA256.test(analysis[key])),
+    "The tracked ETW external-observer analysis is incomplete, drifted, or non-credit.",
   );
   return true;
 }
@@ -429,14 +471,14 @@ async function main() {
   const raw = JSON.parse(files.get("native-run-raw.json").toString("utf8"));
   const replay = validateRawHostManifest(raw);
   const committedProject = await readBoundedRegularFile(committedProjectPath, 32 * 1024 * 1024);
-  const externalCaptureBytes = await readBoundedRegularFile(externalCapturePath, 32 * 1024 * 1024);
+  const externalObserverAnalysisBytes = await readBoundedRegularFile(externalObserverAnalysisPath, 32 * 1024 * 1024);
   const externalEvents = await readBoundedRegularFile(
     path.join(evidenceRoot, "native-gap-free-external-events.jsonl"), 256 * 1024 * 1024,
   );
   files.set("native-committed-project.vlabproj", committedProject);
-  files.set("native-gap-free-external-capture.json", externalCaptureBytes);
+  files.set("native-gap-free-external-observer-analysis.json", externalObserverAnalysisBytes);
   files.set("native-gap-free-external-events.jsonl", externalEvents);
-  const externalCapture = JSON.parse(externalCaptureBytes.toString("utf8"));
+  const externalObserverAnalysis = JSON.parse(externalObserverAnalysisBytes.toString("utf8"));
   requireCondition(
     sha256(files.get("native-run-raw.json")) === observer.rawHostManifestSha256 &&
     sha256(files.get("native-netlog.json")) === observer.chromiumNetLogSha256 &&
@@ -450,19 +492,7 @@ async function main() {
     replay.verifiedReplayBoundaryCount === observer.verifiedReplayBoundaryCount,
     "The immutable observer is not bound to its raw host and verified replay evidence",
   );
-  validateIndependentExternalCapture(
-    externalCapture,
-    externalEvents,
-    sha256(files.get("native-run-raw.json")),
-    sha256(committedProject),
-    replay,
-  );
-  requireCondition(
-    externalCapture.candidateCommit === observer.candidateCommit &&
-    externalCapture.candidateTree === observer.candidateTree &&
-    externalCapture.candidateManifestSha256 === observer.candidateManifestSha256,
-    "Independent external capture is not bound to the exact candidate",
-  );
+  validateExternalObserverAnalysis(externalObserverAnalysis, externalEvents, observer);
   const netLogAnalysis = parseBoundNetLogText(files.get("native-netlog.json").toString("utf8"));
   const processEvidence = JSON.parse(files.get("native-process-endpoints.json").toString("utf8"));
   const processAnalysis = analyzeProcessEvidence(processEvidence, observer.browserExecutableSha256);
@@ -471,11 +501,7 @@ async function main() {
     ...processAnalysis.externalEndpoints.map((target) => ({ channel: "windows-process-endpoint", ...target })),
   ];
   const unknownTargets = netLogAnalysis.unknownTargets;
-  // No tracked ETW/WFP/packet collector and no tracked independent replay
-  // executor exist yet. Shape-valid external sidecars are retained only as
-  // operator input; they cannot upgrade raw DOM or polling diagnostics into
-  // a PASS until a concrete producer/parser and verifier are implemented.
-  const instrumentationComplete = false;
+  const instrumentationComplete = externalObserverAnalysis.result === "PASS";
   const zeroExternalAttempts =
     instrumentationComplete && externalAttempts.length === 0 && unknownTargets.length === 0;
   const networkAnalysis = {
@@ -501,7 +527,9 @@ async function main() {
     analyzerSourceSha256: sha256(scriptBytes),
     isolationAnalysisLibrarySha256: sha256(libraryBytes),
     instrumentationComplete,
-    instrumentationStatus: "BLOCKED_REQUIRES_TRACKED_GAP_FREE_COLLECTOR_AND_INDEPENDENT_REPLAY_EXECUTOR",
+    instrumentationStatus: instrumentationComplete
+      ? "TRACKED_GAP_FREE_ETW_EXTERNAL_OBSERVER"
+      : "FAILED_TRACKED_GAP_FREE_ETW_EXTERNAL_OBSERVER",
     netLog: netLogAnalysis,
     processEndpoints: processAnalysis,
     externalAttemptCount: externalAttempts.length,
@@ -517,7 +545,7 @@ async function main() {
     "native-netlog.json",
     "native-network-analysis.json",
     "native-platform-observer-manifest.json",
-    "native-gap-free-external-capture.json",
+    "native-gap-free-external-observer-analysis.json",
     "native-gap-free-external-events.jsonl",
     "native-committed-project.vlabproj",
     "native-process-endpoints.json",
