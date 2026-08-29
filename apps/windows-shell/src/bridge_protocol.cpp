@@ -568,15 +568,18 @@ std::wstring bridge_bootstrap_script(
       (await waitFor(() => buttonWithText("Verify replay"), "closed replay verification")).click();
       const verifiedReplay = await waitFor(() => {
         const receipt = document.querySelector('[aria-label="Replay verified"]');
-        const summary = document.querySelector('[aria-label="Replay verification receipt"] span');
-        const fingerprint = receipt?.getAttribute("title") ?? "";
-        const toolbarMatch = /^Replay verified · ([1-9][0-9]*) events$/.exec(receipt?.textContent?.trim() ?? "");
-        const summaryMatch = /^([1-9][0-9]*) events · ([1-9][0-9]*) boundary$/.exec(summary?.textContent?.trim() ?? "");
-        return /^[0-9A-F]{64}$/.test(fingerprint) && toolbarMatch && summaryMatch &&
-          toolbarMatch[1] === summaryMatch[1]
+        const summary = document.querySelector('[aria-label="Replay verification receipt"]');
+        const fingerprint = receipt?.getAttribute("data-fingerprint") ?? "";
+        const summaryFingerprint = summary?.getAttribute("data-fingerprint") ?? "";
+        const toolbarEvents = receipt?.getAttribute("data-event-count") ?? "";
+        const summaryEvents = summary?.getAttribute("data-event-count") ?? "";
+        const boundaryCount = summary?.getAttribute("data-boundary-count") ?? "";
+        return /^[0-9A-F]{64}$/.test(fingerprint) && summaryFingerprint === fingerprint &&
+          /^[1-9][0-9]*$/.test(toolbarEvents) && summaryEvents === toolbarEvents &&
+          /^[1-9][0-9]*$/.test(boundaryCount)
           ? Object.freeze({
-              boundaryCount: summaryMatch[2],
-              eventCount: summaryMatch[1],
+              boundaryCount,
+              eventCount: toolbarEvents,
               fingerprint,
             })
           : null;

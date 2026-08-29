@@ -142,7 +142,12 @@ describe("runtime workbench presentation", () => {
     expect(toolbar).toContain("Commit load");
     expect(toolbar).toContain("e12 · s41");
     expect(toolbar).toContain("Replay verified · 4 events");
+    expect(toolbar).toContain('data-event-count="4"');
+    expect(toolbar).toContain(`data-fingerprint="${"A".repeat(64)}"`);
     expect(inspector).toContain('data-state="RUN"');
+    expect(inspector).toContain('data-boundary-count="1"');
+    expect(inspector).toContain('data-event-count="4"');
+    expect(inspector).toContain(`data-fingerprint="${"A".repeat(64)}"`);
     expect(inspector).toContain('data-forced="true"');
     expect(inspector).toContain("FORCED");
     expect(inspector).toContain("Approval boundary");

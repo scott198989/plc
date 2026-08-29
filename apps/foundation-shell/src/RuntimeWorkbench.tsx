@@ -122,6 +122,8 @@ export const RuntimeToolbar = ({
         <span
           aria-label="Replay verified"
           className="runtime-toolbar__receipt"
+          data-event-count={replayReceipt.eventCount}
+          data-fingerprint={replayReceipt.contentFingerprint}
           title={replayReceipt.contentFingerprint}
         >
           Replay verified · {replayReceipt.eventCount} events
@@ -313,7 +315,13 @@ const RuntimeSummary = ({
       >Restore snapshot</button>
     </div>
     {replayReceipt !== null && (
-      <output aria-label="Replay verification receipt" className="runtime-summary__replay">
+      <output
+        aria-label="Replay verification receipt"
+        className="runtime-summary__replay"
+        data-boundary-count={replayReceipt.observedBoundaryCount}
+        data-event-count={replayReceipt.eventCount}
+        data-fingerprint={replayReceipt.contentFingerprint}
+      >
         <strong>Deterministic replay verified</strong>
         <span>{replayReceipt.eventCount} events · {replayReceipt.observedBoundaryCount} boundary</span>
         <code>{shortHash(replayReceipt.contentFingerprint)}</code>
