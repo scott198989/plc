@@ -529,9 +529,9 @@ std::wstring bridge_bootstrap_script(
        await createChild("Controller", "Controller");
        await createChild("Rack", "Local rack");
        await selectTreeItem("Local rack");
-       await createChild("VDI16", "VDI16");
+       await createChild("Digital input module", "VDI16");
        await selectTreeItem("Local rack");
-       await createChild("VDO16", "VDO16");
+       await createChild("Digital output module", "VDO16");
        await selectTreeItem("Controller");
        await createChild("Organization block", "Main_cycle");
        (await waitFor(
