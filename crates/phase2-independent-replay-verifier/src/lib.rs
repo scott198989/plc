@@ -217,8 +217,6 @@ impl IndependentReplayResult {
         );
         output.push_str(",\"expectedScanCount\":");
         write!(output, "{}", self.expected_scan_count).expect("write to String");
-        output.push_str(",\"verifiedReplayBoundaryCount\":");
-        write!(output, "{}", self.observed_replay_boundary_count).expect("write to String");
         push_string_field(&mut output, "projectSha256", &self.project_sha256);
         push_string_field(
             &mut output,
@@ -230,8 +228,6 @@ impl IndependentReplayResult {
             "projectTemplateVersion",
             PROJECT_TEMPLATE_VERSION,
         );
-        output.push_str(",\"verifiedReplayEventCount\":");
-        write!(output, "{}", self.replay_event_count).expect("write to String");
         push_string_field(&mut output, "replayLogSha256", &self.replay_log_sha256);
         push_string_field(
             &mut output,
@@ -252,12 +248,16 @@ impl IndependentReplayResult {
         );
         push_string_field(&mut output, "toolIdentity", TOOL_IDENTITY);
         push_string_field(&mut output, "toolchainIdentity", &self.toolchain_identity);
-        output.push_str(",\"verified\":true");
         push_string_field(
             &mut output,
             "verificationUuidVersion",
             VERIFICATION_UUID_VERSION,
         );
+        output.push_str(",\"verified\":true");
+        output.push_str(",\"verifiedReplayBoundaryCount\":");
+        write!(output, "{}", self.observed_replay_boundary_count).expect("write to String");
+        output.push_str(",\"verifiedReplayEventCount\":");
+        write!(output, "{}", self.replay_event_count).expect("write to String");
         push_string_field(
             &mut output,
             "workflowIdentitySha256",
@@ -1153,6 +1153,39 @@ mod tests {
         let result =
             verify_project_bytes(&Fixture::runnable().bytes()).expect("independent replay");
         let canonical = result.to_canonical_json();
+        let text = std::str::from_utf8(&canonical).expect("canonical UTF-8");
+        let ordered_keys = [
+            "actualScanCount",
+            "canonicalReplaySha256",
+            "controlledInputSha256",
+            "deterministicOutputSha256",
+            "expectedScanCount",
+            "projectSha256",
+            "projectTemplateIdentitySha256",
+            "projectTemplateVersion",
+            "replayLogSha256",
+            "replayPackageSha256",
+            "result",
+            "runtimeReplaySha256",
+            "schemaVersion",
+            "sourceIdentitySha256",
+            "toolIdentity",
+            "toolchainIdentity",
+            "verificationUuidVersion",
+            "verified",
+            "verifiedReplayBoundaryCount",
+            "verifiedReplayEventCount",
+            "workflowIdentitySha256",
+            "workflowVersion",
+        ];
+        let mut previous = 0;
+        for key in ordered_keys {
+            let offset = text
+                .find(&format!("\"{key}\":"))
+                .expect("declared canonical result key");
+            assert!(offset >= previous, "result keys are not canonical");
+            previous = offset;
+        }
         result.verify_exact_claim(&canonical).expect("exact claim");
         let mut tampered = canonical.clone();
         let offset = tampered
