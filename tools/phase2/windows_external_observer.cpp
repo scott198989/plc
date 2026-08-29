@@ -1,5 +1,7 @@
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 
 #include <windows.h>
 #include <bcrypt.h>
@@ -399,8 +401,29 @@ std::string ipv6_value(const BYTE* bytes) {
   return output.str();
 }
 
-std::string property_value(USHORT type, const std::vector<BYTE>& bytes) {
+std::string property_value(USHORT type, USHORT out_type, const std::vector<BYTE>& bytes) {
   if (bytes.empty()) return {};
+  if (out_type == TDH_OUTTYPE_IPV4) {
+    if (bytes.size() < 4) return {};
+    return std::to_string(bytes[0]) + "." + std::to_string(bytes[1]) + "." +
+           std::to_string(bytes[2]) + "." + std::to_string(bytes[3]);
+  }
+  if (out_type == TDH_OUTTYPE_IPV6) return bytes.size() >= 16 ? ipv6_value(bytes.data()) : std::string{};
+  if (out_type == TDH_OUTTYPE_SOCKETADDRESS) {
+    if (bytes.size() < 4) return {};
+    std::uint16_t family = 0;
+    std::memcpy(&family, bytes.data(), sizeof(family));
+    const unsigned port = (static_cast<unsigned>(bytes[2]) << 8U) | bytes[3];
+    if (family == 2 && bytes.size() >= 8) {
+      return std::to_string(bytes[4]) + "." + std::to_string(bytes[5]) + "." +
+             std::to_string(bytes[6]) + "." + std::to_string(bytes[7]) + ":" +
+             std::to_string(port);
+    }
+    if (family == 23 && bytes.size() >= 24) {
+      return "[" + ipv6_value(bytes.data() + 8) + "]:" + std::to_string(port);
+    }
+    return {};
+  }
   switch (type) {
     case TDH_INTYPE_UNICODESTRING: {
       const auto* value = reinterpret_cast<const wchar_t*>(bytes.data());
@@ -426,28 +449,6 @@ std::string property_value(USHORT type, const std::vector<BYTE>& bytes) {
     case TDH_INTYPE_INT64: return integer_value<std::int64_t>(bytes);
     case TDH_INTYPE_UINT64:
     case TDH_INTYPE_HEXINT64: return integer_value<std::uint64_t>(bytes);
-    case TDH_INTYPE_IPV4:
-      if (bytes.size() >= 4) {
-        return std::to_string(bytes[0]) + "." + std::to_string(bytes[1]) + "." +
-               std::to_string(bytes[2]) + "." + std::to_string(bytes[3]);
-      }
-      return {};
-    case TDH_INTYPE_IPV6: return bytes.size() >= 16 ? ipv6_value(bytes.data()) : std::string{};
-    case TDH_INTYPE_SOCKETADDRESS: {
-      if (bytes.size() < 4) return {};
-      std::uint16_t family = 0;
-      std::memcpy(&family, bytes.data(), sizeof(family));
-      const unsigned port = (static_cast<unsigned>(bytes[2]) << 8U) | bytes[3];
-      if (family == 2 && bytes.size() >= 8) {
-        return std::to_string(bytes[4]) + "." + std::to_string(bytes[5]) + "." +
-               std::to_string(bytes[6]) + "." + std::to_string(bytes[7]) + ":" +
-               std::to_string(port);
-      }
-      if (family == 23 && bytes.size() >= 24) {
-        return "[" + ipv6_value(bytes.data() + 8) + "]:" + std::to_string(port);
-      }
-      return {};
-    }
     default: return hex_bytes(bytes.data(), bytes.size());
   }
 }
@@ -477,7 +478,8 @@ std::vector<Property> event_properties(PEVENT_RECORD record, const TRACE_EVENT_I
     std::vector<BYTE> bytes(size);
     status = TdhGetProperty(record, 0, nullptr, 1, &descriptor, size, bytes.data());
     if (status != ERROR_SUCCESS) continue;
-    std::string value = property_value(property.nonStructType.InType, bytes);
+    std::string value = property_value(
+        property.nonStructType.InType, property.nonStructType.OutType, bytes);
     if (!value.empty() && value.size() <= 8192) output.push_back({name, std::move(value)});
   }
   return output;
@@ -1058,4 +1060,3 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command_line, int) {
     return 1;
   }
 }
-
