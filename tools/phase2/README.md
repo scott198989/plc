@@ -104,6 +104,40 @@ Run the dependency-free regression suite:
 pnpm test:phase2:gate
 ```
 
+### Exact-candidate execution collection
+
+`collect_phase2_evidence.py` runs only against a clean, already-committed exact
+candidate. Its `core` stage executes the complete local Phase 2 regression,
+native-host, browser, closure, and source-policy suite, then runs all eight
+named Journey H mutations in disposable Git archives. Records and transcripts
+are written only below the ignored `.phase2-verification/` directory and are
+bound to the candidate commit, tree, source manifests, registries, and pinned
+directive hash.
+
+```powershell
+node tools/phase2/run_pinned_python.mjs -B `
+  tools/phase2/collect_phase2_evidence.py `
+  --root . --candidate-ref HEAD --mode core
+```
+
+The isolation harness is deliberately separate because it requires real
+Windows platform/configuration runs. Once a strict exact-candidate isolation
+directory exists, assemble the reusable core records and strict isolation
+record into the finalizer input:
+
+```powershell
+node tools/phase2/run_pinned_python.mjs -B `
+  tools/phase2/collect_phase2_evidence.py `
+  --root . --candidate-ref HEAD --mode assemble --reuse `
+  --isolation-dir .phase2-verification/<strict-isolation-run>
+```
+
+Collection never declares requirement truth, Scott acceptance, or a Phase 2
+verdict. `finalize_phase2_status.py` consumes the execution index, and
+`verify_phase2.py` remains the terminal fail-closed gate. A missing native
+host run, adapters-off run, controlled live-LAN pair, artifact hash, or exact
+candidate binding is a blocker rather than partial credit.
+
 `governance_audit.py` independently checks the canonical directive hash,
 authority hierarchy, all 937 normative requirement rows, Appendix H inventory,
 clarification ledger, open decisions, exclusions, phase reservations, and the

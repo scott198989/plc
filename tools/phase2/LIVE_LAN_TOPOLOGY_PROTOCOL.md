@@ -80,10 +80,15 @@ pnpm collect:phase2:live-lan -- assemble-scenario --scenario-id A `
 Repeat the three capture steps for B after a genuine operator-controlled LAN
 change and a second native E2E run. The scenario assembler recomputes the
 canonical fingerprint from both snapshots, verifies the collector's actual
-source SHA-256, and re-hashes the seven finalized native-bundle files. It
-rejects changed pre/post topology, a reused final evidence manifest or raw host
-receipt across A/B, missing files, symlinks, or mismatched bytes. It does not
-copy, delete, or modify a finalized bundle.
+source SHA-256, and derives the complete native-evidence inventory from the
+finalized manifest instead of relying on a fixed file count. Before publishing
+the scenario record, it copies the pre/post snapshots, collector source, final
+manifest, and every manifest-listed native evidence file into a bounded
+content-addressed sidecar. Closure assembly re-hashes that sidecar and requires
+the record's native inventory to match the finalized manifest exactly. It
+rejects changed topology, duplicate/unsafe/missing inventory rows, a reused
+final evidence manifest or raw host receipt across A/B, symlinks, or mismatched
+bytes. It never deletes or modifies the finalized source bundle.
 
 ## Separate adapters-off configuration
 

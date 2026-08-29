@@ -51,7 +51,9 @@ test("scenario evidence without an emitted sidecar cannot receive runtime credit
 
 test("fixed producer exposes no caller-authored command seam and test output is non-credit", () => {
   assert.ok(fixedCommandDescriptors().every((descriptor) => descriptor.executable && descriptor.args.length > 0));
-  const seam = nonCreditTestSeamProof("PHASE2_BOUNDARY_FUZZ_RUNTIME_EVIDENCE", candidate);
+  const seam = nonCreditTestSeamProof(candidate);
+  assert.equal(seam.candidateCommit, candidate.commit);
+  assert.equal(seam.candidateTree, candidate.tree);
   assert.equal(seam.result, "NON_CREDIT_TEST_SEAM");
   assert.equal(seam.completeLogs, false);
   const invalid = {
