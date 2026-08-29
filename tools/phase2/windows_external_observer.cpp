@@ -170,7 +170,8 @@ void delete_fixed_file(const std::filesystem::path& file) {
   if (DeleteFileW(file.c_str()) == 0) {
     const DWORD error = GetLastError();
     if (error != ERROR_FILE_NOT_FOUND && error != ERROR_PATH_NOT_FOUND) {
-      fail("A stale fixed external-observer evidence file could not be removed.");
+      fail("A stale fixed external-observer evidence file could not be removed: path=" +
+           utf8(file.wstring()) + " win32=" + std::to_string(error));
     }
   }
 }
@@ -987,6 +988,12 @@ int run() {
   const auto verification_root = native_build.parent_path();
   const auto root = verification_root.parent_path();
   verify_build_bindings(native_build, root);
+  UniqueHandle singleton(CreateMutexW(
+      nullptr, TRUE, L"Local\\GovsPLC-Phase2-External-Observer-Run-v1"));
+  if (!singleton.valid()) fail("The fixed external-observer run lock is unavailable.");
+  if (GetLastError() == ERROR_ALREADY_EXISTS) {
+    fail("Another fixed external-observer run is still active.");
+  }
   const auto evidence_root = verification_root / L"native-e2e";
   std::error_code error;
   std::filesystem::create_directories(evidence_root, error);

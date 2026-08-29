@@ -839,14 +839,27 @@ int run_native_e2e() {
     launched.job.reset();
     transcript.push_back("shell process exited and the scoped descendant job was terminated");
 
+    const auto raw_source = staged->package_root / L"native-run-raw.json";
+    if (GetFileAttributesW(raw_source.c_str()) != INVALID_FILE_ATTRIBUTES) {
+      const auto diagnostic_raw = read_text_file(raw_source);
+      if (json_string_value(diagnostic_raw, "result") == "FAIL") {
+        const auto detail = json_string_value(diagnostic_raw, "error");
+        throw std::runtime_error(
+            "The exact staged shell failed closed before verification completed: " + detail);
+      }
+    }
+
     if (observation.runtime_path.empty() || observation.runtime_sha256.size() != 64 ||
         observation.runtime_version.empty()) {
-      fail("No complete Microsoft Edge WebView2 runtime identity was observed.");
+      throw std::runtime_error(
+          "No complete Microsoft Edge WebView2 runtime identity was observed; shellExitCode=" +
+          std::to_string(shell_exit_code) +
+          " observedProcessCount=" + std::to_string(observation.processes.size()) +
+          " snapshotCount=" + std::to_string(observation.snapshot_count));
     }
     const auto external_attempt_count = static_cast<std::size_t>(std::ranges::count_if(
         observation.endpoints, [](const auto& entry) { return entry.second.external; }));
 
-    const auto raw_source = staged->package_root / L"native-run-raw.json";
     const auto netlog_source = staged->package_root / L"native-netlog.json";
     const auto raw = read_text_file(raw_source);
     const auto replay = validate_raw_manifest(raw);

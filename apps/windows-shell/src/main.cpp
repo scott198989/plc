@@ -516,6 +516,10 @@ class ApplicationHost final {
     return verification_passed_;
   }
 
+  void record_initialization_failure(const std::exception& error) {
+    if (verification_mode_) write_verification_manifest("FAIL", error.what());
+  }
+
  private:
   void configure_webview() {
     ComPtr<ICoreWebView2Settings> settings;
@@ -1022,7 +1026,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command_line, int show_
   g_host = &host;
   try {
     host.initialize();
-  } catch (const std::exception&) {
+  } catch (const std::exception& error) {
+    host.record_initialization_failure(error);
     MessageBoxW(
         window,
         L"The fixed-local Windows shell could not establish its approved native boundary.",
