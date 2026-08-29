@@ -312,8 +312,13 @@ HeldHandle open_attested_path(
   if (!directory && information.nNumberOfLinks != 1) {
     fail("A fixed-local authority file is not single-link.");
   }
-  if (final_path(authority.get()) != normalized_path(path.wstring())) {
-    fail("A fixed-local authority path canonical identity changed.");
+  const auto observed_identity = final_path(authority.get());
+  const auto expected_identity = normalized_path(path.wstring());
+  if (observed_identity != expected_identity) {
+    throw std::runtime_error(
+        "A fixed-local authority path canonical identity changed: expected=" +
+        std::filesystem::path(expected_identity).string() + " observed=" +
+        std::filesystem::path(observed_identity).string());
   }
   FILE_REMOTE_PROTOCOL_INFO remote{};
   SetLastError(ERROR_SUCCESS);
