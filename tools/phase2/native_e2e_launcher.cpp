@@ -1424,8 +1424,8 @@ std::vector<std::uint8_t> read_file_bytes(
       path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
       FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
   if (!file.valid()) {
-    fail("A required native evidence file could not be opened; path=" +
-         path.string() + ", win32=" + std::to_string(GetLastError()) + ".");
+    throw std::runtime_error("A required native evidence file could not be opened; path=" +
+        path.string() + ", win32=" + std::to_string(GetLastError()) + ".");
   }
   const auto size = file_bytes(file.get());
   if (size == 0 || size > maximum ||
