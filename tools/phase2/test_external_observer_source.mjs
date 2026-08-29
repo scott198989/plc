@@ -28,6 +28,7 @@ test("external observer source verifier rejects missing provider, stop, and zero
     ["build", "process.argv.slice(2).length !== 0"],
     ["finalizer", "flag: \"wx\""],
     ["analyzer", "eventsLost === 0"],
+    ["analyzer", "ParentProcessSequenceNumber"],
   ]) {
     const changed = { ...sources, [field]: sources[field].replaceAll(token, "") };
     assert.throws(() => verifyExternalObserverSources(changed), /invariant|provider/u);
@@ -43,6 +44,29 @@ test("external observer source verifier rejects paged system-logger buffers and 
     ...sources,
     source: sources.source.replace("could not start; win32=", "could not start"),
   }), /Win32 status/u);
+});
+
+test("external observer source requires opcode classification and a validated linked standard-user token", () => {
+  for (const token of [
+    "EVENT_TRACE_TYPE_STOP",
+    "record->EventHeader.EventDescriptor.Opcode",
+    "EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING",
+    "TokenLinkedToken",
+    "TokenElevationTypeLimited",
+    "GetShellWindow()",
+    "CreateProcessWithTokenW(",
+    "~TraceSession() noexcept",
+    "failed after its trace was preserved",
+  ]) {
+    assert.throws(() => verifyExternalObserverSources({
+      ...sources,
+      source: sources.source.replaceAll(token, ""),
+    }), /invariant/u);
+  }
+  assert.throws(() => verifyExternalObserverSources({
+    ...sources,
+    source: `${sources.source}\nCreateProcessW();`,
+  }), /elevated process token/u);
 });
 
 test("external observer source verifier rejects network, shell, device, and industrial capabilities", () => {

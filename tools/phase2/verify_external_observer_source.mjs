@@ -6,11 +6,28 @@ const REQUIRED_SOURCE_TOKENS = Object.freeze([
   "PROCESS_TRACE_MODE_REAL_TIME",
   "PROCESS_TRACE_MODE_RAW_TIMESTAMP",
   "EVENT_TRACE_SYSTEM_LOGGER_MODE",
+  "EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING",
+  "EVENT_TRACE_TYPE_START",
+  "EVENT_TRACE_TYPE_STOP",
+  "record->EventHeader.EventDescriptor.Opcode",
   "TdhEnumerateProviders(",
   "TdhEnumerateManifestProviderEvents(",
   "TdhGetManifestEventInformation(",
   "TdhGetEventInformation(",
   "TdhGetProperty(",
+  "TokenLinkedToken",
+  "TokenElevationTypeFull",
+  "TokenElevationTypeLimited",
+  "TokenIntegrityLevel",
+  "TokenIsAppContainer",
+  "TokenUIAccess",
+  "GetShellWindow()",
+  "DuplicateTokenEx(",
+  "CreateProcessWithTokenW(",
+  "LOGON_WITH_PROFILE",
+  "winsta0\\\\default",
+  "~TraceSession() noexcept",
+  "failed after its trace was preserved",
   "CREATE_SUSPENDED",
   "Run-Native-E2E.exe",
   "native-gap-free-external-events.etl",
@@ -58,6 +75,9 @@ export function verifyExternalObserverSources({ analyzer, build, finalizer, sour
   if (!source.includes("could not start; win32=")) {
     throw new Error("External observer StartTrace failure must retain the Win32 status.");
   }
+  if (source.includes("CreateProcessW(")) {
+    throw new Error("External observer must not fall back to the elevated process token.");
+  }
   for (const pattern of FORBIDDEN_SOURCE) {
     const match = pattern.exec(source);
     if (match) throw new Error(`External observer forbidden capability: ${match[0]}`);
@@ -91,6 +111,9 @@ export function verifyExternalObserverSources({ analyzer, build, finalizer, sour
     "logBuffersLost === 0",
     "realTimeBuffersLost === 0",
     "Candidate process ${row.processId} lacks a covered teardown event.",
+    "ProcessSequenceNumber",
+    "ParentProcessSequenceNumber",
+    "ambiguous candidate process lifetime attribution",
     "unclassified-candidate-network-event",
     "resolver-api-invocation",
     "non-loopback-network-attempt",

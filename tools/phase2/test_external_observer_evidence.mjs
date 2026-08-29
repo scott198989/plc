@@ -19,6 +19,7 @@ const PROCESS = "22FB2CD6-0E7B-422B-A0C7-2FAD1FD0E716";
 const AFD = "E53C6823-7BB8-44BB-90DC-3F86090D48A6";
 const NAMES = fixedObserverFileNames();
 const WINDOWS_TO_UNIX_EPOCH_100NS = 116444736000000000n;
+const EVENT_TIME_BASE = BigInt(fileTimeForUtc("2026-08-28T03:00:01.000Z"));
 
 function fileTimeForUtc(utc) {
   return (BigInt(Date.parse(utc)) * 10_000n + WINDOWS_TO_UNIX_EPOCH_100NS).toString();
@@ -36,7 +37,7 @@ function event(sequence, providerId, kind, properties, timestamp = BigInt(fileTi
     keyword: "0x0000000000000010",
     kind,
     level: 5,
-    opcode: 1,
+    opcode: kind === "PROCESS_STOP" ? 2 : kind === "PROCESS_START" ? 1 : 0,
     opcodeName: kind,
     properties,
     providerId,
@@ -46,6 +47,16 @@ function event(sequence, providerId, kind, properties, timestamp = BigInt(fileTi
     timestampFileTime: String(timestamp + BigInt(sequence)),
     version: 0,
   };
+}
+
+function resequenceEvents(events) {
+  return events.map((row, index) => ({
+    ...row,
+    sequence: index + 1,
+    timestampFileTime: String(index === 0
+      ? EVENT_TIME_BASE - 10_000n
+      : EVENT_TIME_BASE + BigInt(index)),
+  }));
 }
 
 function descriptor() {
@@ -90,19 +101,32 @@ function fixture() {
   const candidateManifestBytes = jsonBytes(candidateManifest);
   const events = [
     event(1, PROCESS, "PROCESS_START", [
+      property("ObserverProcessId", 50), property("ObserverParentProcessId", 40),
+      property("ProcessSequenceNumber", 500), property("ParentProcessSequenceNumber", 400),
+    ], BigInt(fileTimeForUtc("2026-08-28T03:00:00.999Z"))),
+    event(2, PROCESS, "PROCESS_START", [
       property("ObserverProcessId", 100), property("ObserverParentProcessId", 50),
+      property("ProcessSequenceNumber", 1000), property("ParentProcessSequenceNumber", 500),
       property("ObserverImageSha256", candidateImageSha256),
     ]),
-    event(2, PROCESS, "PROCESS_START", [
+    event(3, PROCESS, "PROCESS_START", [
       property("ObserverProcessId", 101), property("ObserverParentProcessId", 100),
+      property("ProcessSequenceNumber", 1001), property("ParentProcessSequenceNumber", 1000),
       property("ObserverImageSha256", B),
     ]),
-    event(3, AFD, "SOCKET", [
+    event(4, AFD, "SOCKET", [
       property("ObserverProcessId", 101), property("ObserverDirection", "outbound"),
       property("ObserverTargetAddress", "127.0.0.1:43100"),
     ]),
-    event(4, PROCESS, "PROCESS_STOP", [property("ObserverProcessId", 101)]),
-    event(5, PROCESS, "PROCESS_STOP", [property("ObserverProcessId", 100)]),
+    event(5, PROCESS, "PROCESS_STOP", [
+      property("ObserverProcessId", 101), property("ProcessSequenceNumber", 1001),
+    ]),
+    event(6, PROCESS, "PROCESS_STOP", [
+      property("ObserverProcessId", 100), property("ProcessSequenceNumber", 1000),
+    ]),
+    event(7, PROCESS, "PROCESS_STOP", [
+      property("ObserverProcessId", 50), property("ProcessSequenceNumber", 500),
+    ]),
   ];
   const counts = new Map(REQUIRED_ETW_PROVIDERS.map(({ providerId }) => [providerId, 0]));
   events.forEach(({ providerId }) => counts.set(providerId, counts.get(providerId) + 1));
@@ -141,8 +165,8 @@ function fixture() {
     interval: {
       launcherExitedAtFileTime: fileTimeForUtc("2026-08-28T03:00:08.000Z"),
       launcherExitedAtUtc: "2026-08-28T03:00:08.000Z",
-      launcherStartedAtFileTime: fileTimeForUtc("2026-08-28T03:00:00.900Z"),
-      launcherStartedAtUtc: "2026-08-28T03:00:00.900Z",
+      launcherStartedAtFileTime: fileTimeForUtc("2026-08-28T03:00:01.000Z"),
+      launcherStartedAtUtc: "2026-08-28T03:00:01.000Z",
       providersEnabledAtFileTime: fileTimeForUtc("2026-08-28T03:00:00.500Z"),
       providersEnabledAtUtc: "2026-08-28T03:00:00.500Z",
       startedAtFileTime: fileTimeForUtc("2026-08-28T03:00:00.000Z"),
@@ -274,7 +298,7 @@ test("rejects raw ETL, source, executable, and manifest identity drift", () => {
   }
 });
 
-test("rejects truncated event streams, PID reuse, and missing descendant teardown", () => {
+test("rejects truncated streams, duplicate process instances, and missing descendant teardown", () => {
   const truncated = fixture();
   truncated.files.set(NAMES.events, Buffer.from("{}", "utf8"));
   truncated.raw.files.events = { bytes: 2, path: NAMES.events, sha256: hashExternalObserverBytes(truncated.files.get(NAMES.events)) };
@@ -288,7 +312,7 @@ test("rejects truncated event streams, PID reuse, and missing descendant teardow
   const rows = [...reused.events.slice(0, 4), duplicate, ...reused.events.slice(4)]
     .map((row, index) => ({ ...row, sequence: index + 1 }));
   replaceEvents(reused, rows);
-  assert.throws(() => analyzeExternalObserverEvidence(reused), /reused/u);
+  assert.throws(() => analyzeExternalObserverEvidence(reused), /duplicate start evidence/u);
 
   const teardown = fixture();
   replaceEvents(teardown, teardown.events.filter((row) =>
@@ -299,7 +323,7 @@ test("rejects truncated event streams, PID reuse, and missing descendant teardow
 
 test("rejects conflicting network PID attribution", () => {
   const input = fixture();
-  input.events[2].headerProcessId = 100;
+  input.events[3].headerProcessId = 100;
   replaceEvents(input, input.events);
   assert.throws(() => analyzeExternalObserverEvidence(input), /conflicting/u);
 });
@@ -312,7 +336,7 @@ test("reports resolver, non-loopback socket, and unknown candidate network event
   ];
   for (const row of cases) {
     const input = fixture();
-    input.events[2] = event(3, row.providerId, row.kind, row.properties);
+    input.events[3] = event(4, row.providerId, row.kind, row.properties);
     replaceEvents(input, input.events);
     const result = analyzeExternalObserverEvidence(input);
     assert.equal(result.result, "FAIL");
@@ -328,7 +352,128 @@ test("rejects an extra raw field and a normalized kind outside the provider role
   assert.throws(() => analyzeExternalObserverEvidence(extra), /unrecognized fields/u);
 
   const wrongKind = fixture();
-  wrongKind.events[2].kind = "PROCESS_START";
+  wrongKind.events[3].kind = "PROCESS_START";
   replaceEvents(wrongKind, wrongKind.events);
   assert.throws(() => analyzeExternalObserverEvidence(wrongKind), /provider role/u);
+});
+
+test("allows unrelated PID reuse and excludes network events outside the candidate instance lifetime", () => {
+  const input = fixture();
+  const reusedStart = event(1, PROCESS, "PROCESS_START", [
+    property("ObserverProcessId", 101), property("ObserverParentProcessId", 900),
+    property("ProcessSequenceNumber", 2001), property("ParentProcessSequenceNumber", 9000),
+  ]);
+  const unrelatedNetwork = event(1, AFD, "SOCKET", [
+    property("ObserverProcessId", 101), property("ObserverDirection", "outbound"),
+    property("ObserverTargetAddress", "192.0.2.10:502"),
+  ]);
+  const reusedStop = event(1, PROCESS, "PROCESS_STOP", [
+    property("ObserverProcessId", 101), property("ProcessSequenceNumber", 2001),
+  ]);
+  replaceEvents(input, resequenceEvents([
+    ...input.events.slice(0, 5),
+    reusedStart,
+    unrelatedNetwork,
+    reusedStop,
+    ...input.events.slice(5),
+  ]));
+
+  const result = analyzeExternalObserverEvidence(input);
+  assert.equal(result.result, "PASS");
+  assert.equal(result.externalAttemptCount, 0);
+  assert.equal(result.accountedNetworkEventCount, 1);
+  assert.deepEqual(result.processAncestry.map(({ processId }) => processId), [100, 101]);
+});
+
+test("rejects overlapping PID instances and conflicting candidate parent sequence evidence", () => {
+  const overlapping = fixture();
+  const overlappingStart = event(1, PROCESS, "PROCESS_START", [
+    property("ObserverProcessId", 101), property("ObserverParentProcessId", 900),
+    property("ProcessSequenceNumber", 2001), property("ParentProcessSequenceNumber", 9000),
+  ]);
+  replaceEvents(overlapping, resequenceEvents([
+    ...overlapping.events.slice(0, 4), overlappingStart, ...overlapping.events.slice(4),
+  ]));
+  assert.throws(() => analyzeExternalObserverEvidence(overlapping), /overlapping process instances/u);
+
+  const conflictingParent = fixture();
+  const parentSequence = conflictingParent.events[2].properties
+    .find(({ name }) => name === "ParentProcessSequenceNumber");
+  parentSequence.value = "9999";
+  replaceEvents(conflictingParent, conflictingParent.events);
+  assert.throws(() => analyzeExternalObserverEvidence(conflictingParent), /conflicting parent sequence/u);
+});
+
+test("rejects missing process-sequence evidence and ambiguous lifetime-bound network attribution", () => {
+  const missing = fixture();
+  missing.events[1].properties = missing.events[1].properties
+    .filter(({ name }) => name !== "ProcessSequenceNumber");
+  replaceEvents(missing, missing.events);
+  assert.throws(() => analyzeExternalObserverEvidence(missing), /sequence number is missing or malformed/u);
+
+  const ambiguous = fixture();
+  const firstStop = ambiguous.events[4];
+  const reusedStart = event(1, PROCESS, "PROCESS_START", [
+    property("ObserverProcessId", 101), property("ObserverParentProcessId", 100),
+    property("ProcessSequenceNumber", 2001), property("ParentProcessSequenceNumber", 1000),
+    property("ObserverImageSha256", B),
+  ]);
+  const boundaryNetwork = event(1, AFD, "SOCKET", [
+    property("ObserverProcessId", 101), property("ObserverDirection", "outbound"),
+    property("ObserverTargetAddress", "127.0.0.1:43100"),
+  ]);
+  const reusedStop = event(1, PROCESS, "PROCESS_STOP", [
+    property("ObserverProcessId", 101), property("ProcessSequenceNumber", 2001),
+  ]);
+  const rows = resequenceEvents([
+    ...ambiguous.events.slice(0, 5), reusedStart, boundaryNetwork, reusedStop, ...ambiguous.events.slice(5),
+  ]);
+  const sharedBoundary = firstStop.timestampFileTime;
+  rows[4].timestampFileTime = sharedBoundary;
+  rows[5].timestampFileTime = sharedBoundary;
+  rows[6].timestampFileTime = sharedBoundary;
+  replaceEvents(ambiguous, rows);
+  assert.throws(() => analyzeExternalObserverEvidence(ambiguous), /ambiguous candidate process lifetime/u);
+});
+
+test("rejects conflicting stop sequences and ancestry outside the parent process lifetime", () => {
+  const conflictingStop = fixture();
+  const wrongStop = event(1, PROCESS, "PROCESS_STOP", [
+    property("ObserverProcessId", 101), property("ProcessSequenceNumber", 9999),
+  ]);
+  replaceEvents(conflictingStop, resequenceEvents([
+    ...conflictingStop.events.slice(0, 4), wrongStop, ...conflictingStop.events.slice(4),
+  ]));
+  assert.throws(() => analyzeExternalObserverEvidence(conflictingStop), /stop sequence conflicts/u);
+
+  const outsideParent = fixture();
+  replaceEvents(outsideParent, resequenceEvents([
+    outsideParent.events[0],
+    outsideParent.events[1],
+    outsideParent.events[5],
+    outsideParent.events[2],
+    outsideParent.events[4],
+    outsideParent.events[6],
+  ]));
+  assert.throws(() => analyzeExternalObserverEvidence(outsideParent), /outside its parent process lifetime/u);
+});
+
+test("fails closed for unordered or tied process lifecycle evidence", () => {
+  const unordered = fixture();
+  const deliveryOrder = [
+    unordered.events[0],
+    unordered.events[5],
+    unordered.events[1],
+    unordered.events[2],
+    unordered.events[3],
+    unordered.events[4],
+    unordered.events[6],
+  ].map((row, index) => ({ ...row, sequence: index + 1 }));
+  replaceEvents(unordered, deliveryOrder);
+  assert.throws(() => analyzeExternalObserverEvidence(unordered), /started after stop evidence/u);
+
+  const tied = fixture();
+  tied.events[4].timestampFileTime = tied.events[2].timestampFileTime;
+  replaceEvents(tied, tied.events);
+  assert.throws(() => analyzeExternalObserverEvidence(tied), /stopped before it started/u);
 });

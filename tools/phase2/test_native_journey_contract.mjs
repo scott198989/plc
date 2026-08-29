@@ -61,6 +61,17 @@ test("native launcher attributes WebView2 through exact job membership", async (
   assert.match(source, /JOB_OBJECT_MSG_NEW_PROCESS/u);
   assert.match(source, /const auto admitted = job_processes\(process_job\);/u);
   assert.match(source, /admitted\.contains\(root_process\)/u);
+  const identity = source.slice(
+    source.indexOf("void capture_process_identity("),
+    source.indexOf("void capture_job_notifications("),
+  );
+  assert.ok(identity.indexOf("const auto existing = observation.processes.find(process_id);") <
+    identity.indexOf("sha256_file(image_path)"), "process digest lookup must precede hashing");
+  assert.equal(identity.match(/sha256_handle\(observation\.runtime_authorities\.back\(\)\.get\(\)\)/gu)?.length, 1,
+    "the held WebView2 runtime image must be hashed once per observation identity");
+  assert.match(identity,
+    /open_attested_path\([\s\S]*?image_path,[\s\S]*?HardlinkPolicy::allow_multiple\)/u,
+    "the installed WebView2 runtime may use Microsoft-managed hardlinks while its no-write handle is retained");
   const capture = source.slice(source.indexOf("void capture_external_observation(\n    HANDLE process_job"));
   assert.doesNotMatch(capture.slice(0, capture.indexOf("\n}\n\n}  // namespace")), /descendant_processes\(root_process/u);
 });

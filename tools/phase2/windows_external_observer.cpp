@@ -550,12 +550,10 @@ const char* event_kind_text(EventKind kind) {
   }
 }
 
-EventKind classify(const GUID& provider, std::wstring_view names) {
+EventKind classify(const GUID& provider, UCHAR opcode, std::wstring_view names) {
   if (IsEqualGUID(provider, kKernelProcess)) {
-    if (includes(names, L"start") && includes(names, L"process")) return EventKind::process_start;
-    if ((includes(names, L"stop") || includes(names, L"end")) && includes(names, L"process")) {
-      return EventKind::process_stop;
-    }
+    if (opcode == EVENT_TRACE_TYPE_STOP) return EventKind::process_stop;
+    if (opcode == EVENT_TRACE_TYPE_START) return EventKind::process_start;
     return EventKind::other;
   }
   if (IsEqualGUID(provider, kNameResolution) || IsEqualGUID(provider, kDnsClient)) {
@@ -622,7 +620,10 @@ void WINAPI event_callback(PEVENT_RECORD record) {
     const std::wstring opcode_name = trace_info_name(info, info->OpcodeNameOffset);
     const std::wstring task_name = trace_info_name(info, info->TaskNameOffset);
     const std::wstring combined = lower(event_name + L" " + opcode_name + L" " + task_name);
-    const EventKind kind = classify(record->EventHeader.ProviderId, combined);
+    const EventKind kind = classify(
+        record->EventHeader.ProviderId,
+        record->EventHeader.EventDescriptor.Opcode,
+        combined);
     auto properties = event_properties(record, info);
     if (kind == EventKind::process_start || kind == EventKind::process_stop) {
       const auto pid = numeric_property(properties, {L"ProcessId", L"ProcessID", L"PID"});
@@ -705,7 +706,8 @@ class TraceSession {
     properties->FlushTimer = 1;
     properties->LogFileMode = EVENT_TRACE_FILE_MODE_SEQUENTIAL |
                               EVENT_TRACE_REAL_TIME_MODE |
-                              EVENT_TRACE_SYSTEM_LOGGER_MODE;
+                              EVENT_TRACE_SYSTEM_LOGGER_MODE |
+                              EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING;
     properties->LoggerNameOffset = sizeof(EVENT_TRACE_PROPERTIES);
     properties->LogFileNameOffset = sizeof(EVENT_TRACE_PROPERTIES) +
         static_cast<ULONG>((std::wcslen(kSessionName) + 1) * sizeof(wchar_t));
@@ -724,8 +726,8 @@ class TraceSession {
 
   TraceSession(const TraceSession&) = delete;
   TraceSession& operator=(const TraceSession&) = delete;
-  ~TraceSession() {
-    if (active_) ControlTraceW(handle_, kSessionName, trace_properties(), EVENT_TRACE_CONTROL_STOP);
+  ~TraceSession() noexcept {
+    stop_trace_and_consumer();
   }
 
   void start_consumer() {
@@ -738,10 +740,13 @@ class TraceSession {
                              PROCESS_TRACE_MODE_REAL_TIME | PROCESS_TRACE_MODE_RAW_TIMESTAMP;
       log.EventRecordCallback = event_callback;
       log.Context = &context_;
-      const TRACEHANDLE consumer = OpenTraceW(&log);
+      TRACEHANDLE consumer = OpenTraceW(&log);
+      {
+        std::lock_guard lock(consumer_mutex_);
+        consumer_handle_ = consumer;
+      }
       {
         std::lock_guard lock(context_.mutex);
-        consumer_handle_ = consumer;
         context_.ready = true;
       }
       context_.ready_condition.notify_all();
@@ -749,15 +754,23 @@ class TraceSession {
         context_.process_trace_status = GetLastError();
         return;
       }
-      const ULONG status = ProcessTrace(&consumer_handle_, 1, nullptr, nullptr);
+      const ULONG status = ProcessTrace(&consumer, 1, nullptr, nullptr);
       if (status != ERROR_SUCCESS && status != ERROR_CANCELLED && context_.process_trace_status == ERROR_INVALID_STATE) {
         context_.process_trace_status = status;
       }
-      CloseTrace(consumer_handle_);
+      bool close_consumer = false;
+      {
+        std::lock_guard lock(consumer_mutex_);
+        if (consumer_handle_ == consumer) {
+          consumer_handle_ = INVALID_PROCESSTRACE_HANDLE;
+          close_consumer = true;
+        }
+      }
+      if (close_consumer) CloseTrace(consumer);
     });
     std::unique_lock lock(context_.mutex);
     if (!context_.ready_condition.wait_for(lock, std::chrono::seconds(10), [this] { return context_.ready; }) ||
-        consumer_handle_ == INVALID_PROCESSTRACE_HANDLE) {
+        !consumer_attached()) {
       fail("The real-time ETW consumer did not attach before provider enablement.");
     }
   }
@@ -774,22 +787,43 @@ class TraceSession {
   }
 
   EVENT_TRACE_PROPERTIES stop() {
-    EVENT_TRACE_PROPERTIES result{};
-    const ULONG status = ControlTraceW(handle_, kSessionName, trace_properties(), EVENT_TRACE_CONTROL_STOP);
-    active_ = false;
+    const ULONG status = stop_trace_and_consumer();
     if (status != ERROR_SUCCESS) fail("The fixed ETW observer session could not stop cleanly.");
-    if (consumer_.joinable()) consumer_.join();
-    context_.stream.flush();
-    context_.stream.close();
     if (context_.process_trace_status != ERROR_INVALID_STATE &&
         context_.process_trace_status != ERROR_SUCCESS) {
       fail("The real-time ETW consumer reported an incomplete event stream.");
     }
-    result = *trace_properties();
-    return result;
+    return *trace_properties();
   }
 
  private:
+  [[nodiscard]] bool consumer_attached() {
+    std::lock_guard lock(consumer_mutex_);
+    return consumer_handle_ != INVALID_PROCESSTRACE_HANDLE;
+  }
+
+  ULONG stop_trace_and_consumer() noexcept {
+    ULONG status = ERROR_SUCCESS;
+    if (active_) {
+      status = ControlTraceW(handle_, kSessionName, trace_properties(), EVENT_TRACE_CONTROL_STOP);
+      active_ = false;
+    }
+    if (status != ERROR_SUCCESS) {
+      TRACEHANDLE consumer = INVALID_PROCESSTRACE_HANDLE;
+      {
+        std::lock_guard lock(consumer_mutex_);
+        consumer = std::exchange(consumer_handle_, INVALID_PROCESSTRACE_HANDLE);
+      }
+      if (consumer != INVALID_PROCESSTRACE_HANDLE) CloseTrace(consumer);
+    }
+    if (consumer_.joinable()) consumer_.join();
+    if (context_.stream.is_open()) {
+      context_.stream.flush();
+      context_.stream.close();
+    }
+    return status;
+  }
+
   static std::size_t properties_size() {
     return sizeof(EVENT_TRACE_PROPERTIES) +
            (std::wcslen(kSessionName) + 1 + 32'768) * sizeof(wchar_t);
@@ -801,6 +835,7 @@ class TraceSession {
   std::vector<BYTE> properties_;
   TRACEHANDLE handle_{0};
   TRACEHANDLE consumer_handle_{INVALID_PROCESSTRACE_HANDLE};
+  std::mutex consumer_mutex_;
   std::thread consumer_;
   bool active_{true};
 };
@@ -811,17 +846,198 @@ struct LaunchedProcess {
   DWORD process_id;
 };
 
+std::vector<BYTE> token_information(
+    HANDLE token,
+    TOKEN_INFORMATION_CLASS information_class) {
+  DWORD bytes = 0;
+  SetLastError(ERROR_SUCCESS);
+  const BOOL sized = GetTokenInformation(token, information_class, nullptr, 0, &bytes);
+  if (sized != 0 || GetLastError() != ERROR_INSUFFICIENT_BUFFER ||
+      bytes == 0 || bytes > 1024U * 1024U) {
+    fail("A fixed launcher token identity size failed closed.");
+  }
+  std::vector<BYTE> result(bytes);
+  if (GetTokenInformation(
+          token, information_class, result.data(), bytes, &bytes) == 0 ||
+      bytes == 0 || bytes > result.size()) {
+    fail("A fixed launcher token identity could not be read.");
+  }
+  result.resize(bytes);
+  return result;
+}
+
+template <typename Value>
+Value token_scalar(HANDLE token, TOKEN_INFORMATION_CLASS information_class) {
+  const auto bytes = token_information(token, information_class);
+  if (bytes.size() < sizeof(Value)) {
+    fail("A fixed launcher token scalar is malformed.");
+  }
+  Value value{};
+  std::memcpy(&value, bytes.data(), sizeof(value));
+  return value;
+}
+
+std::vector<BYTE> token_user_sid(HANDLE token) {
+  const auto bytes = token_information(token, TokenUser);
+  const auto* user = reinterpret_cast<const TOKEN_USER*>(bytes.data());
+  if (user->User.Sid == nullptr || IsValidSid(user->User.Sid) == 0) {
+    fail("A fixed launcher user SID is malformed.");
+  }
+  const DWORD length = GetLengthSid(user->User.Sid);
+  std::vector<BYTE> result(length);
+  if (length == 0 || CopySid(length, result.data(), user->User.Sid) == 0) {
+    fail("A fixed launcher user SID could not be retained.");
+  }
+  return result;
+}
+
+std::vector<BYTE> token_logon_sid(HANDLE token) {
+  const auto bytes = token_information(token, TokenGroups);
+  const auto* groups = reinterpret_cast<const TOKEN_GROUPS*>(bytes.data());
+  std::vector<BYTE> result;
+  for (DWORD index = 0; index < groups->GroupCount; ++index) {
+    const auto& group = groups->Groups[index];
+    if ((group.Attributes & SE_GROUP_LOGON_ID) != SE_GROUP_LOGON_ID) continue;
+    if (!result.empty() || group.Sid == nullptr || IsValidSid(group.Sid) == 0) {
+      fail("A fixed launcher logon SID is ambiguous.");
+    }
+    const DWORD length = GetLengthSid(group.Sid);
+    result.resize(length);
+    if (length == 0 || CopySid(length, result.data(), group.Sid) == 0) {
+      fail("A fixed launcher logon SID could not be retained.");
+    }
+  }
+  if (result.empty()) fail("A fixed launcher logon SID is unavailable.");
+  return result;
+}
+
+bool equal_sid_bytes(const std::vector<BYTE>& left, const std::vector<BYTE>& right) {
+  return !left.empty() && !right.empty() &&
+      IsValidSid(const_cast<BYTE*>(left.data())) != 0 &&
+      IsValidSid(const_cast<BYTE*>(right.data())) != 0 &&
+      EqualSid(const_cast<BYTE*>(left.data()), const_cast<BYTE*>(right.data())) != 0;
+}
+
+void require_same_token_identity(HANDLE left, HANDLE right) {
+  if (!equal_sid_bytes(token_user_sid(left), token_user_sid(right)) ||
+      !equal_sid_bytes(token_logon_sid(left), token_logon_sid(right)) ||
+      token_scalar<DWORD>(left, TokenSessionId) !=
+          token_scalar<DWORD>(right, TokenSessionId)) {
+    fail("The fixed launcher token does not match the interactive user and session.");
+  }
+}
+
+void require_standard_interactive_token(HANDLE token) {
+  const auto type = token_scalar<TOKEN_TYPE>(token, TokenType);
+  const auto elevation_type =
+      token_scalar<TOKEN_ELEVATION_TYPE>(token, TokenElevationType);
+  const auto elevation = token_scalar<TOKEN_ELEVATION>(token, TokenElevation);
+  const auto app_container = token_scalar<DWORD>(token, TokenIsAppContainer);
+  const auto ui_access = token_scalar<DWORD>(token, TokenUIAccess);
+  const auto integrity_bytes = token_information(token, TokenIntegrityLevel);
+  const auto* integrity =
+      reinterpret_cast<const TOKEN_MANDATORY_LABEL*>(integrity_bytes.data());
+  if (integrity->Label.Sid == nullptr || IsValidSid(integrity->Label.Sid) == 0) {
+    fail("The fixed launcher integrity SID is malformed.");
+  }
+  const auto* count = GetSidSubAuthorityCount(integrity->Label.Sid);
+  if (count == nullptr || *count == 0) {
+    fail("The fixed launcher integrity level is unavailable.");
+  }
+  const DWORD integrity_rid =
+      *GetSidSubAuthority(integrity->Label.Sid, static_cast<DWORD>(*count - 1));
+  if (type != TokenPrimary || elevation_type != TokenElevationTypeLimited ||
+      elevation.TokenIsElevated != 0 || app_container != 0 || ui_access != 0 ||
+      integrity_rid != SECURITY_MANDATORY_MEDIUM_RID) {
+    fail("The fixed launcher token is not a standard medium-integrity desktop token.");
+  }
+}
+
+UniqueHandle open_token(HANDLE process, DWORD access) {
+  HANDLE token = INVALID_HANDLE_VALUE;
+  if (OpenProcessToken(process, access, &token) == 0) {
+    fail("A fixed launcher process token could not be opened.");
+  }
+  return UniqueHandle(token);
+}
+
+UniqueHandle interactive_shell_token() {
+  const HWND shell = GetShellWindow();
+  DWORD process_id = 0;
+  if (shell == nullptr || GetWindowThreadProcessId(shell, &process_id) == 0 ||
+      process_id == 0) {
+    fail("The interactive Windows shell identity is unavailable.");
+  }
+  UniqueHandle process(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, process_id));
+  if (!process.valid()) fail("The interactive Windows shell could not be attested.");
+  return open_token(process.value, TOKEN_QUERY);
+}
+
+UniqueHandle linked_standard_user_token() {
+  auto elevated = open_token(GetCurrentProcess(), TOKEN_QUERY);
+  if (token_scalar<TOKEN_ELEVATION_TYPE>(elevated.value, TokenElevationType) !=
+      TokenElevationTypeFull) {
+    fail("The ETW observer does not hold a full UAC token.");
+  }
+  const auto linked_bytes = token_information(elevated.value, TokenLinkedToken);
+  const auto* linked = reinterpret_cast<const TOKEN_LINKED_TOKEN*>(linked_bytes.data());
+  UniqueHandle linked_token(linked->LinkedToken);
+  if (!linked_token.valid()) fail("The linked standard-user token is unavailable.");
+  require_standard_interactive_token(linked_token.value);
+  require_same_token_identity(elevated.value, linked_token.value);
+
+  auto shell_token = interactive_shell_token();
+  require_standard_interactive_token(shell_token.value);
+  require_same_token_identity(linked_token.value, shell_token.value);
+
+  HANDLE primary = INVALID_HANDLE_VALUE;
+  if (DuplicateTokenEx(
+          linked_token.value,
+          TOKEN_QUERY | TOKEN_DUPLICATE | TOKEN_ASSIGN_PRIMARY,
+          nullptr,
+          SecurityImpersonation,
+          TokenPrimary,
+          &primary) == 0) {
+    fail("The linked standard-user primary token could not be created.");
+  }
+  UniqueHandle result(primary);
+  require_standard_interactive_token(result.value);
+  require_same_token_identity(result.value, shell_token.value);
+  return result;
+}
+
 LaunchedProcess create_fixed_launcher(const std::filesystem::path& launcher) {
+  auto standard_token = linked_standard_user_token();
   std::wstring command = L"\"" + launcher.wstring() + L"\"";
   STARTUPINFOW startup{};
   startup.cb = sizeof(startup);
+  std::wstring desktop = L"winsta0\\default";
+  startup.lpDesktop = desktop.data();
   PROCESS_INFORMATION process{};
-  if (CreateProcessW(launcher.c_str(), command.data(), nullptr, nullptr, FALSE,
-                     CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
-                     nullptr, launcher.parent_path().c_str(), &startup, &process) == 0) {
-    fail("The fixed exact-candidate launcher could not be created.");
+  if (CreateProcessWithTokenW(
+          standard_token.value,
+          LOGON_WITH_PROFILE,
+          launcher.c_str(),
+          command.data(),
+          CREATE_SUSPENDED | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW,
+          nullptr,
+          launcher.parent_path().c_str(),
+          &startup,
+          &process) == 0) {
+    fail("The fixed exact-candidate launcher could not be created as the interactive standard user; win32=" +
+         std::to_string(GetLastError()) + ".");
   }
-  return {UniqueHandle(process.hProcess), UniqueHandle(process.hThread), process.dwProcessId};
+  UniqueHandle process_handle(process.hProcess);
+  UniqueHandle thread_handle(process.hThread);
+  try {
+    auto child_token = open_token(process_handle.value, TOKEN_QUERY);
+    require_standard_interactive_token(child_token.value);
+    require_same_token_identity(child_token.value, standard_token.value);
+  } catch (...) {
+    TerminateProcess(process_handle.value, 1);
+    throw;
+  }
+  return {std::move(process_handle), std::move(thread_handle), process.dwProcessId};
 }
 
 DWORD run_fixed_launcher(const std::filesystem::path& launcher, ConsumerContext& context,
@@ -844,7 +1060,6 @@ DWORD run_fixed_launcher(const std::filesystem::path& launcher, ConsumerContext&
     fail("The fixed exact-candidate launcher exit code is unavailable.");
   }
   exited = now();
-  if (exit_code != 0) fail("The fixed exact-candidate launcher failed.");
   std::this_thread::sleep_for(std::chrono::seconds(3));
   return exit_code;
 }
@@ -1055,6 +1270,10 @@ int run() {
       session_started, providers_enabled, launcher_started, launcher_exited, session_stopped,
       launcher_pid, launcher_exit, statistics, providers, etl, events, metadata, transcript_row,
       observer_sha256));
+  if (launcher_exit != 0) {
+    fail("The fixed exact-candidate launcher failed after its trace was preserved; exitCode=" +
+         std::to_string(launcher_exit) + ".");
+  }
   return 0;
 }
 

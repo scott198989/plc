@@ -305,6 +305,15 @@ function integerProperty(row, names, required, label) {
   return parsed[0];
 }
 
+function processSequenceProperty(row, name, label) {
+  const value = properties(row).get(name.toLocaleLowerCase("en-US"));
+  requireCondition(typeof value === "string" && /^[1-9][0-9]{0,19}$/u.test(value),
+    `${label} is missing or malformed.`);
+  const parsed = BigInt(value);
+  requireCondition(parsed <= 18_446_744_073_709_551_615n, `${label} exceeds unsigned 64-bit range.`);
+  return value;
+}
+
 function stringProperty(row, names, required, label) {
   const map = properties(row);
   const values = names.map((name) => map.get(name.toLocaleLowerCase("en-US"))).filter((value) => value !== undefined);
@@ -319,55 +328,121 @@ function stringProperty(row, names, required, label) {
 
 function analyzeProcesses(events, raw) {
   const starts = new Map();
-  const stops = new Map();
+  const activeByPid = new Map();
+  const stopSequences = new Set();
   for (const row of events) {
     if (row.providerId !== PROCESS_PROVIDER_ID || !["PROCESS_START", "PROCESS_STOP"].includes(row.kind)) continue;
     const pid = integerProperty(row, ["ObserverProcessId", "ProcessId", "PID"], true, "Process event PID");
     requireCondition(pid > 0, "Process event PID must be positive.");
+    const processSequenceNumber = processSequenceProperty(
+      row, "ProcessSequenceNumber", `Process ${pid} sequence number`);
     if (row.kind === "PROCESS_START") {
-      requireCondition(!starts.has(pid), `ETW process PID ${pid} was reused during the capture interval.`);
+      requireCondition(!starts.has(processSequenceNumber),
+        `ETW process sequence ${processSequenceNumber} has duplicate start evidence.`);
+      requireCondition(!stopSequences.has(processSequenceNumber),
+        `ETW process sequence ${processSequenceNumber} started after stop evidence.`);
+      requireCondition(!activeByPid.has(pid),
+        `ETW process PID ${pid} has overlapping process instances.`);
       const parentProcessId = integerProperty(row,
         ["ObserverParentProcessId", "ParentProcessId", "ParentId", "PPID"], true,
         `Process ${pid} parent PID`);
+      const parentProcessSequenceNumber = processSequenceProperty(
+        row, "ParentProcessSequenceNumber", `Process ${pid} parent sequence number`);
       // System-wide ETW includes unrelated processes. They may have no readable image
       // hash, but the exact candidate root must still carry the hash below.
       const imageSha256 = stringProperty(row, ["ObserverImageSha256"], false, `Process ${pid} image hash`);
       requireCondition(imageSha256 === null || SHA256.test(imageSha256), `Process ${pid} image hash is malformed.`);
-      starts.set(pid, { imageSha256, parentProcessId, processId: pid, startedAt: BigInt(row.timestampFileTime) });
+      const instance = {
+        imageSha256,
+        parentProcessId,
+        parentProcessSequenceNumber,
+        processId: pid,
+        processSequenceNumber,
+        startedAt: BigInt(row.timestampFileTime),
+        stoppedAt: null,
+      };
+      starts.set(processSequenceNumber, instance);
+      activeByPid.set(pid, processSequenceNumber);
     } else {
-      requireCondition(!stops.has(pid), `ETW process PID ${pid} has duplicate stop events.`);
-      stops.set(pid, BigInt(row.timestampFileTime));
+      requireCondition(!stopSequences.has(processSequenceNumber),
+        `ETW process sequence ${processSequenceNumber} has duplicate stop evidence.`);
+      stopSequences.add(processSequenceNumber);
+      const instance = starts.get(processSequenceNumber);
+      if (instance === undefined) {
+        requireCondition(!activeByPid.has(pid),
+          `ETW process PID ${pid} stop sequence conflicts with its active instance.`);
+        continue;
+      }
+      requireCondition(instance.processId === pid,
+        `ETW process sequence ${processSequenceNumber} changed PID at teardown.`);
+      requireCondition(activeByPid.get(pid) === processSequenceNumber,
+        `ETW process PID ${pid} teardown is ambiguous.`);
+      const stoppedAt = BigInt(row.timestampFileTime);
+      requireCondition(stoppedAt > instance.startedAt,
+        `ETW process sequence ${processSequenceNumber} stopped before it started.`);
+      instance.stoppedAt = stoppedAt;
+      activeByPid.delete(pid);
     }
   }
+
+  const providersEnabled = BigInt(raw.interval.providersEnabledAtFileTime);
+  const launcherStarted = BigInt(raw.interval.launcherStartedAtFileTime);
+  const launcherExited = BigInt(raw.interval.launcherExitedAtFileTime);
+  const launcherInstances = [...starts.values()].filter((row) =>
+    row.processId === raw.launcher.processId && row.startedAt >= providersEnabled &&
+    row.startedAt <= launcherStarted);
+  requireCondition(launcherInstances.length === 1,
+    "ETW process evidence did not identify exactly one fixed launcher instance.");
+  const launcher = launcherInstances[0];
+  requireCondition(launcher.stoppedAt !== null && launcher.stoppedAt <= launcherExited,
+    "The fixed launcher instance lacks a covered teardown event.");
   const roots = [...starts.values()].filter((row) =>
-    row.imageSha256 === raw.candidateImageSha256 && row.parentProcessId === raw.launcher.processId);
+    row.imageSha256 === raw.candidateImageSha256 && row.parentProcessId === raw.launcher.processId &&
+    row.parentProcessSequenceNumber === launcher.processSequenceNumber);
   requireCondition(roots.length === 1, "ETW ancestry did not identify exactly one exact-hash candidate root process.");
   const root = roots[0];
-  const descendants = new Map([[root.processId, root]]);
+  const descendants = new Map([[root.processSequenceNumber, root]]);
   let changed = true;
   while (changed) {
     changed = false;
     for (const row of starts.values()) {
-      if (!descendants.has(row.processId) && descendants.has(row.parentProcessId)) {
-        descendants.set(row.processId, row);
+      if (descendants.has(row.processSequenceNumber)) continue;
+      const parent = descendants.get(row.parentProcessSequenceNumber);
+      if (parent !== undefined) {
+        requireCondition(row.parentProcessId === parent.processId,
+          `Candidate process ${row.processId} has conflicting parent PID and process sequence evidence.`);
+        requireCondition(parent.startedAt <= row.startedAt && parent.stoppedAt !== null &&
+          row.startedAt <= parent.stoppedAt,
+        `Candidate process ${row.processId} started outside its parent process lifetime.`);
+        descendants.set(row.processSequenceNumber, row);
         changed = true;
       }
     }
   }
-  const launcherStarted = BigInt(raw.interval.launcherStartedAtFileTime);
-  const launcherExited = BigInt(raw.interval.launcherExitedAtFileTime);
   const stopped = BigInt(raw.interval.stoppedAtFileTime);
   requireCondition(root.startedAt >= launcherStarted && root.startedAt < launcherExited,
     "The exact candidate process did not start inside the observed launcher interval.");
   for (const row of descendants.values()) {
-    const stop = stops.get(row.processId);
-    requireCondition(stop !== undefined && stop > row.startedAt && stop <= stopped,
+    requireCondition(row.stoppedAt !== null && row.stoppedAt <= stopped,
       `Candidate process ${row.processId} lacks a covered teardown event.`);
   }
+
+  for (const row of starts.values()) {
+    if (descendants.has(row.processSequenceNumber)) continue;
+    const conflictingParents = [...descendants.values()].filter((parent) =>
+      parent.processId === row.parentProcessId && parent.startedAt <= row.startedAt &&
+      parent.stoppedAt !== null && row.startedAt <= parent.stoppedAt);
+    requireCondition(conflictingParents.length === 0,
+      `Process ${row.processId} has a parent PID inside candidate lifetime but a conflicting parent sequence.`);
+  }
+
+  const candidateInstances = [...descendants.values()];
   return {
-    processAncestry: [...descendants.values()].map(({ imageSha256, parentProcessId, processId }) =>
-      ({ imageSha256, parentProcessId, processId })).sort((left, right) => left.processId - right.processId),
-    processIds: new Set(descendants.keys()),
+    candidateInstances,
+    processAncestry: [...candidateInstances]
+      .sort((left, right) => left.processId - right.processId ||
+        (BigInt(left.processSequenceNumber) < BigInt(right.processSequenceNumber) ? -1 : 1))
+      .map(({ imageSha256, parentProcessId, processId }) => ({ imageSha256, parentProcessId, processId })),
     rootProcessId: root.processId,
   };
 }
@@ -410,14 +485,20 @@ function unspecified(target) {
   return value === "0.0.0.0" || value === "::" || value === "0:0:0:0:0:0:0:0";
 }
 
-function analyzeNetwork(events, processIds) {
+function analyzeNetwork(events, candidateInstances) {
   const externalAttempts = [];
   const accountedEvents = [];
   const unknownEvents = [];
   for (const row of events) {
     if (!NETWORK_PROVIDER_IDS.has(row.providerId)) continue;
     const processId = attributedProcessId(row);
-    if (!processIds.has(processId)) continue;
+    const timestamp = BigInt(row.timestampFileTime);
+    const matchingInstances = candidateInstances.filter((instance) =>
+      instance.processId === processId && instance.startedAt <= timestamp &&
+      instance.stoppedAt !== null && timestamp <= instance.stoppedAt);
+    requireCondition(matchingInstances.length <= 1,
+      `Network event ${row.sequence} has ambiguous candidate process lifetime attribution.`);
+    if (matchingInstances.length === 0) continue;
     const summary = {
       eventId: row.eventId,
       eventName: row.eventName,
@@ -504,7 +585,7 @@ export function analyzeExternalObserverEvidence({
   const events = parseEvents(files.get(FIXED_FILES.events), interval);
   const providerCoverage = validateProviderMetadata(metadata, events);
   const processes = analyzeProcesses(events, raw);
-  const network = analyzeNetwork(events, processes.processIds);
+  const network = analyzeNetwork(events, processes.candidateInstances);
   const zeroExternalAttempts = network.externalAttempts.length === 0 && network.unknownEvents.length === 0;
   return {
     accountedNetworkEventCount: network.accountedEvents.length,

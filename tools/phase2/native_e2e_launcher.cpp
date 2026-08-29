@@ -279,11 +279,14 @@ VolumeAttestation attest_native_system_volume(const std::filesystem::path& path)
   return result;
 }
 
+enum class HardlinkPolicy { require_single, allow_multiple };
+
 HeldHandle open_attested_path(
     const std::filesystem::path& path,
     bool directory,
     std::uint32_t expected_serial,
-    DWORD access = 0) {
+    DWORD access = 0,
+    HardlinkPolicy hardlink_policy = HardlinkPolicy::require_single) {
   const auto desired_access =
       access != 0 ? access : (directory ? 0U : GENERIC_READ);
   HeldHandle authority(CreateFileW(
@@ -309,7 +312,11 @@ HeldHandle open_attested_path(
   if (((information.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0) != directory) {
     fail("A fixed-local authority path has the wrong object type.");
   }
-  if (!directory && information.nNumberOfLinks != 1) {
+  if (!directory && information.nNumberOfLinks == 0) {
+    fail("A fixed-local authority file has no hardlink identity.");
+  }
+  if (!directory && hardlink_policy == HardlinkPolicy::require_single &&
+      information.nNumberOfLinks != 1) {
     fail("A fixed-local authority file is not single-link.");
   }
   const auto observed_identity = final_path(authority.get());
@@ -1907,14 +1914,43 @@ void capture_process_identity(
     const std::filesystem::path& image_path,
     std::uint32_t system_volume_serial,
     ExternalObservation& observation) {
-  std::string digest;
-  if (!image_path.empty()) digest = narrow_ascii(sha256_file(image_path));
   const auto name = lowercase_ascii(image_name);
   const auto existing = observation.processes.find(process_id);
+  std::string digest = existing == observation.processes.end()
+      ? std::string{}
+      : existing->second.executable_sha256;
   const bool new_runtime_identity =
       name == "msedgewebview2.exe" && !image_path.empty() &&
       (existing == observation.processes.end() ||
        existing->second.executable_sha256.empty());
+
+  if (name == "msedgewebview2.exe" && !image_path.empty()) {
+    if (observation.runtime_authorities.empty()) {
+      observation.runtime_authorities =
+          attest_path_chain(image_path.parent_path(), system_volume_serial);
+      observation.runtime_authorities.push_back(
+          open_attested_path(
+              image_path,
+              false,
+              system_volume_serial,
+              0,
+              HardlinkPolicy::allow_multiple));
+      observation.runtime_path = image_path;
+      observation.runtime_sha256 =
+          sha256_handle(observation.runtime_authorities.back().get());
+      observation.runtime_version = file_version(image_path);
+    } else if (observation.runtime_path.empty() ||
+               observation.runtime_sha256.empty() ||
+               observation.runtime_version.empty() ||
+               normalized_path(observation.runtime_path.wstring()) !=
+                   normalized_path(image_path.wstring())) {
+      fail("More than one WebView2 runtime identity was observed.");
+    }
+    digest = narrow_ascii(observation.runtime_sha256);
+  } else if (digest.empty() && !image_path.empty()) {
+    digest = narrow_ascii(sha256_file(image_path));
+  }
+
   const auto [stored, inserted] = observation.processes.try_emplace(
       process_id,
       ObservedProcess{process_id, parent_process_id, name, digest});
@@ -1922,7 +1958,9 @@ void capture_process_identity(
     if ((!stored->second.image_name.empty() && !name.empty() &&
          stored->second.image_name != name) ||
         (!stored->second.executable_sha256.empty() && !digest.empty() &&
-         stored->second.executable_sha256 != digest)) {
+         stored->second.executable_sha256 != digest) ||
+        (stored->second.parent_process_id != 0 && parent_process_id != 0 &&
+         stored->second.parent_process_id != parent_process_id)) {
       fail("A scoped process identity changed during observation.");
     }
     if (stored->second.parent_process_id == 0 && parent_process_id != 0) {
@@ -1935,29 +1973,6 @@ void capture_process_identity(
   }
   if (name != "msedgewebview2.exe" || image_path.empty()) return;
   if (new_runtime_identity) ++observation.runtime_process_count;
-  std::wstring runtime_digest;
-  if (observation.runtime_authorities.empty()) {
-    observation.runtime_authorities =
-        attest_path_chain(image_path.parent_path(), system_volume_serial);
-    observation.runtime_authorities.push_back(
-        open_attested_path(image_path, false, system_volume_serial));
-    runtime_digest = sha256_handle(observation.runtime_authorities.back().get());
-  } else {
-    if (normalized_path(observation.runtime_path.wstring()) !=
-        normalized_path(image_path.wstring())) {
-      fail("More than one WebView2 runtime path identity was observed.");
-    }
-    runtime_digest = sha256_handle(observation.runtime_authorities.back().get());
-  }
-  const auto version = file_version(image_path);
-  if (!observation.runtime_path.empty() &&
-      (observation.runtime_sha256 != runtime_digest ||
-       observation.runtime_version != version)) {
-    fail("More than one WebView2 runtime identity was observed.");
-  }
-  observation.runtime_path = image_path;
-  observation.runtime_sha256 = runtime_digest;
-  observation.runtime_version = version;
 }
 
 void capture_job_notifications(
