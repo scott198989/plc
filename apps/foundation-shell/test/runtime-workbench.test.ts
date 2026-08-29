@@ -74,7 +74,7 @@ const readyRuntime = {
       valueType: "BOOL",
     }],
     runtimeControllerId: "runtime-controller",
-    runtimeReplayHash: "runtime-replay-hash",
+    runtimeReplayHash: "C".repeat(64),
     scanSequence: "41",
     snapshotAvailable: true,
     softwareToLoaded: "MATCH",
