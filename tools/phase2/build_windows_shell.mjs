@@ -320,8 +320,11 @@ const capturePinnedPnpm = (args) => runCapture(process.execPath, [pnpmEntry, ...
 const observedPnpmVersion = capturePinnedPnpm(["--version"]).trim();
 validatePinnedRendererToolchain({ ...rendererToolchain, pnpmVersion: observedPnpmVersion });
 const pnpmStoreStatus = capturePinnedPnpm(["store", "status"]);
-runPinnedPnpm(["--offline", "--frozen-lockfile", "run", "wasm:all:embed"]);
-runPinnedPnpm(["--offline", "--frozen-lockfile", "--filter", "@govs/foundation-shell", "build"]);
+// The prior dependency restoration is offline and lockfile-frozen. `pnpm run`
+// performs no resolution/install and rejects those install-only flags, so invoke
+// the fixed scripts directly through the already admitted entry module.
+runPinnedPnpm(["run", "wasm:all:embed"]);
+runPinnedPnpm(["--filter", "@govs/foundation-shell", "run", "build"]);
 run(process.execPath, [path.join(root, "tools", "foundation", "inline-shell.mjs")]);
 const generatedFiles = (await walkFiles(path.join(root, "dist"), () => true)).map(relative).sort((left, right) => left.localeCompare(right, "en"));
 const generatedRenderer = validateRendererArtifactInventory(await Promise.all(
