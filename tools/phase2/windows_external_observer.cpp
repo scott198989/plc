@@ -1058,6 +1058,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR command_line, int) {
     }
     return run();
   } catch (const std::exception& error) {
+    try {
+      const auto diagnostic = executable_path().parent_path() / L"external-observer-last-error.log";
+      delete_fixed_file(diagnostic);
+      write_new_file(diagnostic, std::string(error.what()) + "\n");
+    } catch (...) {
+      // The fixed diagnostic stream is best-effort only; never hide the failure.
+    }
     MessageBoxA(nullptr, error.what(), "Gov's PLC Phase 2 external observer", MB_OK | MB_ICONERROR);
     return 1;
   }
