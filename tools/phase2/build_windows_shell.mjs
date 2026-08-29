@@ -240,11 +240,16 @@ for (const entry of [
   "tools/phase2/build-engineering-wasm.mjs",
   "tools/phase2/embed-engineering-wasm.mjs",
   "tools/phase2/finalize_native_e2e_evidence.mjs",
+  "tools/phase2/build_external_observer.mjs",
+  "tools/phase2/external_observer_evidence.mjs",
+  "tools/phase2/finalize_external_observer_evidence.mjs",
   "tools/phase2/isolation-counterfactual-lib.mjs",
   "tools/phase2/native_e2e_launcher.cpp",
   "tools/phase2/native_build_recipe.mjs",
+  "tools/phase2/verify_external_observer_source.mjs",
   "tools/phase2/verify_native_shell_api_allowlist.mjs",
   "tools/phase2/verify_native_shell_pe_imports.mjs",
+  "tools/phase2/windows_external_observer.cpp",
 ]) {
   candidateSourceFiles.add(path.join(root, ...entry.split("/")));
 }
