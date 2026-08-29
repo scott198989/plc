@@ -280,6 +280,22 @@ Moment now() {
   return {raw.QuadPart, output.str()};
 }
 
+Moment moment_from_file_time(ULONGLONG value) {
+  FILETIME file_time{};
+  file_time.dwLowDateTime = static_cast<DWORD>(value);
+  file_time.dwHighDateTime = static_cast<DWORD>(value >> 32);
+  SYSTEMTIME system{};
+  if (value == 0 || FileTimeToSystemTime(&file_time, &system) == 0) {
+    fail("A fixed manual launcher ETW timestamp is unavailable.");
+  }
+  std::ostringstream output;
+  output << std::setfill('0') << std::setw(4) << system.wYear << '-' << std::setw(2) << system.wMonth
+         << '-' << std::setw(2) << system.wDay << 'T' << std::setw(2) << system.wHour << ':'
+         << std::setw(2) << system.wMinute << ':' << std::setw(2) << system.wSecond << '.'
+         << std::setw(3) << system.wMilliseconds << 'Z';
+  return {value, output.str()};
+}
+
 std::wstring registered_provider_name(const GUID& target) {
   ULONG bytes = 0;
   ULONG status = TdhEnumerateProviders(nullptr, &bytes);
@@ -588,6 +604,9 @@ struct ConsumerContext {
   std::map<std::wstring, std::uint64_t> provider_counts;
   std::set<DWORD> candidate_descendants;
   std::atomic<DWORD> launcher_process_id{0};
+  std::atomic<ULONGLONG> launcher_started_file_time{0};
+  std::atomic<ULONGLONG> launcher_exited_file_time{0};
+  std::atomic<DWORD> launcher_exit_code{MAXDWORD};
 };
 
 std::wstring trace_info_name(const TRACE_EVENT_INFO* info, ULONG offset) {
@@ -632,12 +651,26 @@ void WINAPI event_callback(PEVENT_RECORD record) {
         const auto parent = numeric_property(properties,
             {L"ParentProcessId", L"ParentProcessID", L"ParentId", L"PPID"});
         if (parent) set_property(properties, L"ObserverParentProcessId", std::to_string(*parent));
+        if (const auto image = process_image_path(*pid);
+            image && lowercase_ascii(image->filename().wstring()) == L"run-native-e2e.exe" &&
+            utf8(sha256_file(*image)) == utf8(kLauncherSha256)) {
+          DWORD expected = 0;
+          if (context->launcher_process_id.compare_exchange_strong(expected, *pid)) {
+            context->launcher_started_file_time.store(record->EventHeader.TimeStamp.QuadPart);
+          }
+        }
         const DWORD launcher = context->launcher_process_id.load();
         if (parent && (launcher != 0 && *parent == launcher || context->candidate_descendants.contains(*parent))) {
           context->candidate_descendants.insert(*pid);
           if (const auto image = process_image_path(*pid)) {
             set_property(properties, L"ObserverImageSha256", utf8(sha256_file(*image)));
           }
+        }
+      } else if (kind == EventKind::process_stop && pid &&
+                 *pid == context->launcher_process_id.load()) {
+        context->launcher_exited_file_time.store(record->EventHeader.TimeStamp.QuadPart);
+        if (const auto exit_status = numeric_property(properties, {L"ExitStatus"})) {
+          context->launcher_exit_code.store(static_cast<DWORD>(*exit_status));
         }
       }
     } else {
@@ -1320,11 +1353,20 @@ int run() {
   trace.start_consumer();
   trace.enable(providers);
   const Moment providers_enabled = now();
-  Moment launcher_started{};
-  Moment launcher_exited{};
   const auto launcher_path = native_build / L"Run-Native-E2E.exe";
-  const DWORD launcher_exit = run_fixed_launcher(launcher_path, context, launcher_started, launcher_exited);
+  const std::string prompt = "Run the fixed normal-user launcher in a separate non-administrator PowerShell window:\n\n"
+      "Start-Process -FilePath '" + utf8(launcher_path.wstring()) + "' -Wait\n\n"
+      "After it exits, return here and click OK. No arguments or alternate paths are accepted.";
+  if (MessageBoxA(nullptr, prompt.c_str(), "Gov's PLC Phase 2 manual fixed-launch evidence", MB_OKCANCEL | MB_ICONINFORMATION) != IDOK) {
+    fail("The fixed manual launcher evidence flow was cancelled.");
+  }
   const DWORD launcher_pid = context.launcher_process_id.load();
+  const Moment launcher_started = moment_from_file_time(context.launcher_started_file_time.load());
+  const Moment launcher_exited = moment_from_file_time(context.launcher_exited_file_time.load());
+  const DWORD launcher_exit = context.launcher_exit_code.load();
+  if (launcher_pid == 0 || launcher_exit == MAXDWORD) {
+    fail("The fixed manual launcher was not observed with complete ETW start and stop evidence.");
+  }
   const EVENT_TRACE_PROPERTIES statistics = trace.stop();
   const Moment session_stopped = now();
   for (auto& provider : providers) {
