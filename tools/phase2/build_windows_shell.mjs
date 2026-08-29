@@ -313,11 +313,15 @@ await rm(path.join(root, "dist"), { force: true, recursive: true });
 await mkdir(path.join(root, "dist"), { recursive: true });
 run(process.execPath, [path.join(root, "tools", "phase2", "verify_native_shell_api_allowlist.mjs")]);
 run(process.execPath, [path.join(root, "tools", "foundation", "assert-toolchain.mjs")]);
-const observedPnpmVersion = runCapture(resolvedPnpm, ["--version"]).trim();
+// A Windows .cmd wrapper cannot be spawned with shell:false. Invoke the already
+// admitted pnpm entry module through the admitted Node executable instead.
+const runPinnedPnpm = (args) => run(process.execPath, [pnpmEntry, ...args]);
+const capturePinnedPnpm = (args) => runCapture(process.execPath, [pnpmEntry, ...args]);
+const observedPnpmVersion = capturePinnedPnpm(["--version"]).trim();
 validatePinnedRendererToolchain({ ...rendererToolchain, pnpmVersion: observedPnpmVersion });
-const pnpmStoreStatus = runCapture(resolvedPnpm, ["store", "status"]);
-run(resolvedPnpm, ["--offline", "--frozen-lockfile", "run", "wasm:all:embed"]);
-run(resolvedPnpm, ["--offline", "--frozen-lockfile", "--filter", "@govs/foundation-shell", "build"]);
+const pnpmStoreStatus = capturePinnedPnpm(["store", "status"]);
+runPinnedPnpm(["--offline", "--frozen-lockfile", "run", "wasm:all:embed"]);
+runPinnedPnpm(["--offline", "--frozen-lockfile", "--filter", "@govs/foundation-shell", "build"]);
 run(process.execPath, [path.join(root, "tools", "foundation", "inline-shell.mjs")]);
 const generatedFiles = (await walkFiles(path.join(root, "dist"), () => true)).map(relative).sort((left, right) => left.localeCompare(right, "en"));
 const generatedRenderer = validateRendererArtifactInventory(await Promise.all(
