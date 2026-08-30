@@ -34,6 +34,9 @@ const DECIMAL_FILETIME = /^[1-9][0-9]{16,19}$/u;
 const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
 const WINDOWS_TO_UNIX_EPOCH_100NS = 116444736000000000n;
 const SAFE_NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+// Windows provider manifests contain descriptive event templates, not merely
+// short identifiers. Keep them bounded without rejecting valid OS metadata.
+const MAX_MANIFEST_DESCRIPTOR_TEXT = 4096;
 const NETWORK_PROVIDER_IDS = new Set(REQUIRED_ETW_PROVIDERS
   .filter(({ role }) => role !== "process-ancestry")
   .map(({ providerId }) => providerId));
@@ -222,7 +225,7 @@ function validateProviderMetadata(metadata, events) {
         Number.isSafeInteger(descriptor.task) && descriptor.task >= 0 && descriptor.task <= 65_535 &&
         /^0x[A-F0-9]{16}$/u.test(descriptor.keyword) &&
         [descriptor.eventName, descriptor.opcodeName, descriptor.taskName].every((name) =>
-          typeof name === "string" && name.length <= 256),
+          typeof name === "string" && name.length <= MAX_MANIFEST_DESCRIPTOR_TEXT),
       `ETW provider ${row.providerId} contains malformed event metadata.`);
       const key = `${descriptor.eventId}:${descriptor.version}`;
       requireCondition(!descriptorKeys.has(key), `ETW provider ${row.providerId} repeats event metadata ${key}.`);

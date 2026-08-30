@@ -246,6 +246,19 @@ test("accepts exact lossless ETW evidence with complete ancestry and loopback-on
   assert.deepEqual(Object.values(result.coverage), [true, true, true, true, true, true]);
 });
 
+test("accepts bounded Windows provider-manifest templates", () => {
+  const input = fixture();
+  input.metadata.providers[0].eventDescriptors[0].eventName = "W".repeat(1024);
+  input.files.set(NAMES.metadata, jsonBytes(input.metadata));
+  input.raw.files.metadata = {
+    bytes: input.files.get(NAMES.metadata).byteLength,
+    path: NAMES.metadata,
+    sha256: hashExternalObserverBytes(input.files.get(NAMES.metadata)),
+  };
+  resyncRaw(input);
+  assert.equal(analyzeExternalObserverEvidence(input).result, "PASS");
+});
+
 test("rejects nonzero ETW loss counters", () => {
   const input = fixture();
   input.raw.traceStatistics.eventsLost = 1;
