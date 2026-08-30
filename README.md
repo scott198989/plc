@@ -1,11 +1,12 @@
-# PLC Engineering Simulator
+# PLC Engineering Education Platform
 
 > Comprehensive internal handoff for the next engineer or Codex instance.
 >
-> **Read this before changing code.** This repository contains a substantial
-> Phase 2 implementation, but it is **not an accepted Phase 2 release**. The
-> current formal verdict is `BLOCKED`, Scott must accept any candidate, and
-> Phase 3 and Phase 4 work remains unauthorized.
+> **Read this before changing code.** Scott's active product direction is the
+> [MVP product scope](MVP_PRODUCT_SCOPE.md). It authorizes the student, HMI, and
+> teacher workflows needed by that MVP even where older phase documents reserved
+> them for later. Historical phase evidence remains useful engineering context,
+> but it is no longer the product finish line.
 
 This project is a professional, brand-neutral, offline educational PLC
 engineering simulator. It is intended to teach the engineering decisions,
@@ -35,11 +36,11 @@ This table is the fastest way to avoid the most expensive misunderstandings.
 
 | Question | Current answer |
 |---|---|
-| What phase is authorized? | Phase 2: Runnable PLC Engineering Core |
-| Is Phase 2 implemented? | A broad runnable implementation exists across the UI, compiler, runtime, commissioning, observability, persistence, and native file shell |
-| Is Phase 2 verified or accepted? | No. The formal Phase 2 evidence ledger is incomplete and the current verdict is `BLOCKED` |
-| Who can accept Phase 2? | Scott—not Codex, not a passing local test, and not the terminal gate by itself |
-| May work begin on Phase 3? | No |
+| What work is authorized? | The [PLC Engineering Education Platform MVP](MVP_PRODUCT_SCOPE.md) |
+| What exists now? | A broad reusable engineering core across the UI, compiler, runtime, commissioning, observability, persistence, and native file shell |
+| Is the MVP complete? | No. Full LAD authoring, virtual trainer, HMI, assignments, hints, grading, and teacher workflows remain incomplete or missing |
+| Who decides MVP acceptance? | Scott—not Codex and not a passing test suite by itself |
+| May HMI and teacher work begin? | Yes, when reached through the product-first MVP implementation order |
 | May work begin on packaging or public release? | No; that is Phase 4 and remains unauthorized |
 | Does “Go online” contact a device? | Never. It means connect to an in-process virtual controller only |
 | Can the product import/export a vendor PLC project? | No |
@@ -54,16 +55,16 @@ or phase status.
 
 ## If you have only five minutes
 
-1. Read the [Phase 2 master directive](<References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx>). It is the controlling implementation instruction for current work.
-2. Read the [research report](<References for Codex from Scott/Govs PLC project Research Report.md>) for product intent, workflow, fidelity, architecture, and long-range context—but do not let it override the directive.
+1. Read the active [MVP product scope](MVP_PRODUCT_SCOPE.md). It is the controlling product instruction for current work.
+2. Read the [Phase 2 master directive](<References for Codex from Scott/PLC Engineering Simulator - Codex Master Implementation Directive - Phase 2 of 4 - Runnable PLC Engineering Core.docx>) for reusable engineering-core and safety requirements.
 3. Read [this repository's Phase 2 tooling guide](tools/phase2/README.md) before collecting or finalizing evidence.
 4. Run `git status --short` before touching anything. At this handoff, there are intentional user-owned changes described in [Current working-tree state](#current-working-tree-state).
 5. Put the exact Node `24.19.0` runtime first on `PATH`; the ordinary host `node` currently resolves to `24.14.0`.
 6. Do not confuse implemented behavior, static coverage, verification credit, and acceptance. They are four separate states.
-7. Do not start Phase 3 features such as a process lab, HMI, Teacher Mode, Learning Lens, lessons, scenarios, or assessment.
+7. Build HMI, assignments, staged hints, grading, submission, and teacher review only as required by the active MVP; do not broaden them into post-MVP systems.
 8. Do not add networking, industrial protocols, device discovery, endpoints, telemetry, remote fonts, CDNs, or generic connector abstractions.
 9. Treat ignored `.phase2-verification/` material and `Phase 2 Review Package/` as local/generated context, not canonical source or current candidate evidence.
-10. When Phase 2 evidence eventually passes, stop at **“Phase 2 implementation candidate—awaiting Scott acceptance.”** Do not self-accept and continue.
+10. Judge progress by the MVP student/teacher acceptance journey, and leave final acceptance to Scott.
 
 ## Purpose
 
