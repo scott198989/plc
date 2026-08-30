@@ -653,7 +653,7 @@ void WINAPI event_callback(PEVENT_RECORD record) {
         if (parent) set_property(properties, L"ObserverParentProcessId", std::to_string(*parent));
         if (const auto image = process_image_path(*pid);
             image && lower(image->filename().wstring()) == L"run-native-e2e.exe" &&
-            utf8(sha256_file(*image)) == utf8(kLauncherSha256)) {
+            lower(sha256_file(*image)) == lower(kLauncherSha256)) {
           DWORD expected = 0;
           if (context->launcher_process_id.compare_exchange_strong(expected, *pid)) {
             context->launcher_started_file_time.store(record->EventHeader.TimeStamp.QuadPart);
