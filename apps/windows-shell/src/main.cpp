@@ -434,13 +434,16 @@ class ApplicationHost final {
     if (!options) throw std::runtime_error("WebView2 options are unavailable.");
     std::wstring browser_arguments =
         L"--disable-background-networking --disable-breakpad "
+        L"--disable-client-side-phishing-detection "
         L"--disable-component-extensions-with-background-pages "
         L"--disable-component-update --disable-default-apps "
         L"--disable-domain-reliability --disable-logging "
         L"--disable-sync --metrics-recording-only --no-default-browser-check "
-        L"--no-first-run --no-pings "
+        L"--host-resolver-rules=\"MAP * ~NOTFOUND\" --no-first-run "
+        L"--no-pings --no-proxy-server "
         L"--disable-features=AutofillServerCommunication,CertificateTransparencyComponentUpdater,"
-        L"OptimizationHints,MediaRouter,WebRtc,WebRtcHideLocalIpsWithMdns";
+        L"OptimizationHints,MediaRouter,WebRtc,WebRtcHideLocalIpsWithMdns,"
+        L"msEdgeAffiliationBackend,msSmartScreenProtection";
     if (verification_mode_) {
       net_log_path_ = package / L"native-netlog.json";
       browser_arguments += L" --log-net-log=\"" + net_log_path_.wstring() +
@@ -536,6 +539,17 @@ class ApplicationHost final {
     if (FAILED(settings.As(&settings3)) || !settings3 ||
         FAILED(settings3->put_AreBrowserAcceleratorKeysEnabled(FALSE))) {
       throw std::runtime_error("The WebView2 accelerator policy failed closed.");
+    }
+    ComPtr<ICoreWebView2Settings4> settings4;
+    if (FAILED(settings.As(&settings4)) || !settings4 ||
+        FAILED(settings4->put_IsPasswordAutosaveEnabled(FALSE)) ||
+        FAILED(settings4->put_IsGeneralAutofillEnabled(FALSE))) {
+      throw std::runtime_error("The WebView2 credential policy failed closed.");
+    }
+    ComPtr<ICoreWebView2Settings8> settings8;
+    if (FAILED(settings.As(&settings8)) || !settings8 ||
+        FAILED(settings8->put_IsReputationCheckingRequired(FALSE))) {
+      throw std::runtime_error("The WebView2 reputation policy failed closed.");
     }
 
     ComPtr<ICoreWebView2_3> webview3;

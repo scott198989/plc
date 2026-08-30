@@ -15,6 +15,24 @@ const REQUIRED_SOURCE_TOKENS = Object.freeze([
   "TdhGetManifestEventInformation(",
   "TdhGetEventInformation(",
   "TdhGetProperty(",
+  "L\"ClientPID\"",
+  "L\"ObserverProcessIdSource\"",
+  "little_endian_afd_process_id(",
+  "record->EventHeader.EventDescriptor.Id == 1000",
+  "afd_process_token(properties)",
+  "pid && *pid != 0",
+  "client_pid_property",
+  "else if (!client_pid_property)",
+  "afd_process_ids",
+  "ambiguous_afd_process_ids",
+  "forget_afd_process_id(",
+  "kernel-process-pid",
+  "kernel-network-pid",
+  "dns-client-pid",
+  "dns-client-header-fallback",
+  "name-resolution-header",
+  "afd-create-process-id",
+  "afd-process-map",
   "TokenLinkedToken",
   "TokenElevationTypeFull",
   "TokenElevationTypeLimited",
@@ -83,6 +101,9 @@ export function verifyExternalObserverSources({ analyzer, build, finalizer, sour
   if (source.includes("CreateProcessW(")) {
     throw new Error("External observer must not fall back to the elevated process token.");
   }
+  if (source.includes("payload_pid.value_or(record->EventHeader.ProcessId)")) {
+    throw new Error("External observer provider attribution must not use a generic ETW header fallback.");
+  }
   for (const pattern of FORBIDDEN_SOURCE) {
     const match = pattern.exec(source);
     if (match) throw new Error(`External observer forbidden capability: ${match[0]}`);
@@ -119,8 +140,12 @@ export function verifyExternalObserverSources({ analyzer, build, finalizer, sour
     "ProcessSequenceNumber",
     "ParentProcessSequenceNumber",
     "ambiguous candidate process lifetime attribution",
-    "unclassified-candidate-network-event",
-    "resolver-api-invocation",
+    "unknownEvents.length === 0",
+    "unsupported-resolver-event-schema",
+    "unsupported-afd-event-schema",
+    "unsupported-kernel-network-event-schema",
+    "network-target-unavailable",
+    "resolver-invocation",
     "non-loopback-network-attempt",
   ]) {
     if (!analyzer.includes(token)) throw new Error(`External observer analyzer invariant missing: ${token}`);

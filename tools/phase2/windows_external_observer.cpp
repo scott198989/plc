@@ -527,6 +527,45 @@ std::optional<DWORD> numeric_property(const std::vector<Property>& properties,
   return static_cast<DWORD>(parsed);
 }
 
+std::optional<unsigned> hex_nibble(char character) {
+  if (character >= '0' && character <= '9') return static_cast<unsigned>(character - '0');
+  if (character >= 'A' && character <= 'F') return static_cast<unsigned>(character - 'A' + 10);
+  if (character >= 'a' && character <= 'f') return static_cast<unsigned>(character - 'a' + 10);
+  return std::nullopt;
+}
+
+std::optional<std::string> afd_process_token(const std::vector<Property>& properties) {
+  auto value = find_property(properties, {L"Process"});
+  if (!value || value->size() != sizeof(std::uintptr_t) * 2) return std::nullopt;
+  bool nonzero = false;
+  for (char& character : *value) {
+    const auto nibble = hex_nibble(character);
+    if (!nibble) return std::nullopt;
+    nonzero = nonzero || *nibble != 0;
+    if (character >= 'A' && character <= 'F') character = static_cast<char>(character - 'A' + 'a');
+  }
+  return nonzero ? value : std::nullopt;
+}
+
+std::optional<DWORD> little_endian_afd_process_id(const std::vector<Property>& properties) {
+  const auto value = find_property(properties, {L"ProcessId"});
+  if (!value || value->size() != sizeof(std::uintptr_t) * 2) return std::nullopt;
+  std::uint64_t parsed = 0;
+  for (std::size_t index = 0; index < sizeof(std::uintptr_t); ++index) {
+    const auto high = hex_nibble((*value)[index * 2]);
+    const auto low = hex_nibble((*value)[index * 2 + 1]);
+    if (!high || !low) return std::nullopt;
+    const unsigned byte = (*high << 4U) | *low;
+    if (index >= sizeof(DWORD)) {
+      if (byte != 0) return std::nullopt;
+    } else {
+      parsed |= static_cast<std::uint64_t>(byte) << (index * 8U);
+    }
+  }
+  if (parsed == 0 || parsed > MAXDWORD) return std::nullopt;
+  return static_cast<DWORD>(parsed);
+}
+
 void set_property(std::vector<Property>& properties, std::wstring name, std::string value) {
   const std::wstring wanted = lower(name);
   for (auto& property : properties) {
@@ -537,6 +576,13 @@ void set_property(std::vector<Property>& properties, std::wstring name, std::str
     }
   }
   properties.push_back({std::move(name), std::move(value)});
+}
+
+void set_observer_process_id(std::vector<Property>& properties, DWORD process_id,
+                             std::string_view source) {
+  if (process_id == 0) return;
+  set_property(properties, L"ObserverProcessId", std::to_string(process_id));
+  set_property(properties, L"ObserverProcessIdSource", std::string(source));
 }
 
 std::optional<std::filesystem::path> process_image_path(DWORD process_id) {
@@ -603,11 +649,57 @@ struct ConsumerContext {
   std::uint64_t sequence{0};
   std::map<std::wstring, std::uint64_t> provider_counts;
   std::set<DWORD> candidate_descendants;
+  std::map<std::string, DWORD> afd_process_ids;
+  std::map<std::string, std::set<DWORD>> ambiguous_afd_process_ids;
   std::atomic<DWORD> launcher_process_id{0};
   std::atomic<ULONGLONG> launcher_started_file_time{0};
   std::atomic<ULONGLONG> launcher_exited_file_time{0};
   std::atomic<DWORD> launcher_exit_code{MAXDWORD};
 };
+
+void remember_afd_process_id(ConsumerContext& context, const std::string& token, DWORD process_id) {
+  if (const auto ambiguous = context.ambiguous_afd_process_ids.find(token);
+      ambiguous != context.ambiguous_afd_process_ids.end()) {
+    ambiguous->second.insert(process_id);
+    return;
+  }
+  const auto [row, inserted] = context.afd_process_ids.emplace(token, process_id);
+  if (!inserted && row->second != process_id) {
+    const DWORD previous_process_id = row->second;
+    context.afd_process_ids.erase(row);
+    context.ambiguous_afd_process_ids.emplace(
+        token, std::set<DWORD>{previous_process_id, process_id});
+  }
+}
+
+std::optional<DWORD> recalled_afd_process_id(const ConsumerContext& context,
+                                             const std::string& token) {
+  if (context.ambiguous_afd_process_ids.contains(token)) return std::nullopt;
+  const auto row = context.afd_process_ids.find(token);
+  return row == context.afd_process_ids.end() ? std::nullopt : std::optional<DWORD>(row->second);
+}
+
+void forget_afd_process_id(ConsumerContext& context, DWORD process_id) {
+  for (auto row = context.afd_process_ids.begin(); row != context.afd_process_ids.end();) {
+    if (row->second == process_id) {
+      row = context.afd_process_ids.erase(row);
+    } else {
+      ++row;
+    }
+  }
+  for (auto row = context.ambiguous_afd_process_ids.begin();
+       row != context.ambiguous_afd_process_ids.end();) {
+    row->second.erase(process_id);
+    if (row->second.size() == 1) {
+      context.afd_process_ids.insert_or_assign(row->first, *row->second.begin());
+      row = context.ambiguous_afd_process_ids.erase(row);
+    } else if (row->second.empty()) {
+      row = context.ambiguous_afd_process_ids.erase(row);
+    } else {
+      ++row;
+    }
+  }
+}
 
 std::wstring trace_info_name(const TRACE_EVENT_INFO* info, ULONG offset) {
   return offset == 0 ? std::wstring{} :
@@ -646,7 +738,8 @@ void WINAPI event_callback(PEVENT_RECORD record) {
     auto properties = event_properties(record, info);
     if (kind == EventKind::process_start || kind == EventKind::process_stop) {
       const auto pid = numeric_property(properties, {L"ProcessId", L"ProcessID", L"PID"});
-      if (pid) set_property(properties, L"ObserverProcessId", std::to_string(*pid));
+      if (pid) set_observer_process_id(properties, *pid, "kernel-process-pid");
+      if (kind == EventKind::process_stop && pid) forget_afd_process_id(*context, *pid);
       if (kind == EventKind::process_start && pid) {
         const auto parent = numeric_property(properties,
             {L"ParentProcessId", L"ParentProcessID", L"ParentId", L"PPID"});
@@ -674,12 +767,42 @@ void WINAPI event_callback(PEVENT_RECORD record) {
         }
       }
     } else {
-      const auto payload_pid = numeric_property(properties, {L"ProcessId", L"ProcessID", L"PID"});
-      const DWORD attributed_pid = payload_pid.value_or(record->EventHeader.ProcessId);
-      if (attributed_pid != 0) set_property(properties, L"ObserverProcessId", std::to_string(attributed_pid));
-      if (kind == EventKind::socket || kind == EventKind::packet) {
-        const bool listener = includes(combined, L"listen") || includes(combined, L"bind");
-        set_property(properties, L"ObserverDirection", listener ? "listen" : "outbound");
+      if (IsEqualGUID(record->EventHeader.ProviderId, kKernelNetwork)) {
+        if (const auto pid = numeric_property(properties, {L"PID"})) {
+          set_observer_process_id(properties, *pid, "kernel-network-pid");
+        }
+      } else if (IsEqualGUID(record->EventHeader.ProviderId, kDnsClient)) {
+        const auto client_pid_property = find_property(properties, {L"ClientPID"});
+        if (const auto pid = numeric_property(properties, {L"ClientPID"}); pid && *pid != 0) {
+          set_observer_process_id(properties, *pid, "dns-client-pid");
+        } else if (!client_pid_property) {
+          set_observer_process_id(
+              properties, record->EventHeader.ProcessId, "dns-client-header-fallback");
+        }
+      } else if (IsEqualGUID(record->EventHeader.ProviderId, kNameResolution)) {
+        set_observer_process_id(properties, record->EventHeader.ProcessId, "name-resolution-header");
+      } else if (IsEqualGUID(record->EventHeader.ProviderId, kWinsockAfd)) {
+        const auto token = afd_process_token(properties);
+        if (record->EventHeader.EventDescriptor.Id == 1000) {
+          if (const auto pid = little_endian_afd_process_id(properties)) {
+            set_observer_process_id(properties, *pid, "afd-create-process-id");
+            if (token) remember_afd_process_id(*context, *token, *pid);
+          }
+        } else if (token) {
+          if (const auto pid = recalled_afd_process_id(*context, *token)) {
+            set_observer_process_id(properties, *pid, "afd-process-map");
+          }
+        }
+      }
+      const bool afd_provider = IsEqualGUID(record->EventHeader.ProviderId, kWinsockAfd);
+      if (afd_provider || kind == EventKind::packet) {
+        const auto event_id = record->EventHeader.EventDescriptor.Id;
+        const bool afd_outbound = event_id == 1003 || event_id == 1007 || event_id == 1013 ||
+                                  event_id == 1018 || event_id == 1021;
+        const char* direction = afd_provider
+            ? (event_id == 1030 ? "listen" : (afd_outbound ? "outbound" : "passive"))
+            : "outbound";
+        set_property(properties, L"ObserverDirection", direction);
         const auto target = find_property(properties,
             {L"RemoteAddress", L"DestinationAddress", L"DestAddress", L"daddr", L"Address"});
         if (target) set_property(properties, L"ObserverTargetAddress", *target);

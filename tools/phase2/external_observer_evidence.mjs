@@ -42,6 +42,14 @@ const NETWORK_PROVIDER_IDS = new Set(REQUIRED_ETW_PROVIDERS
   .map(({ providerId }) => providerId));
 const PROCESS_PROVIDER_ID = REQUIRED_ETW_PROVIDERS
   .find(({ role }) => role === "process-ancestry").providerId;
+const DNS_CLIENT_PROVIDER_ID = REQUIRED_ETW_PROVIDERS
+  .find(({ role }) => role === "dns-client").providerId;
+const NAME_RESOLUTION_PROVIDER_ID = REQUIRED_ETW_PROVIDERS
+  .find(({ role }) => role === "resolver-api").providerId;
+const PACKET_PROVIDER_ID = REQUIRED_ETW_PROVIDERS
+  .find(({ role }) => role === "packet").providerId;
+const AFD_PROVIDER_ID = REQUIRED_ETW_PROVIDERS
+  .find(({ role }) => role === "endpoint-socket").providerId;
 const PROVIDER_ROLES = new Map(REQUIRED_ETW_PROVIDERS.map(({ providerId, role }) => [providerId, role]));
 const EVENT_KINDS = new Set([
   "DNS_RESOLVER",
@@ -52,6 +60,24 @@ const EVENT_KINDS = new Set([
   "PROCESS_STOP",
   "SOCKET",
 ]);
+const DNS_CLIENT_INITIATION_EVENT_IDS = new Set([3006, 3009, 3010, 3012, 3019]);
+const DNS_CLIENT_PASSIVE_EVENT_IDS = new Set([
+  1001, 1015, 1016, 3008, 3011, 3013, 3014, 3016, 3018, 3020,
+]);
+const NAME_RESOLUTION_INITIATION_EVENT_IDS = new Set([1000, 1002, 1006]);
+const NAME_RESOLUTION_PASSIVE_EVENT_IDS = new Set([
+  1001, 1003, 1004, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014,
+]);
+const PACKET_OUTBOUND_EVENT_IDS = new Set([10, 12, 42, 58]);
+const PACKET_PASSIVE_EVENT_IDS = new Set([11, 13, 15, 18, 43, 59]);
+const AFD_LIFECYCLE_EVENT_IDS = new Set([1001, 1002, 1032, 1035, 3006]);
+const AFD_OUTBOUND_EVENT_IDS = new Set([1003, 1007, 1013, 1018, 1021]);
+const AFD_DIRECT_REMOTE_EVENT_IDS = new Set([1007, 1013, 1018, 1021]);
+const AFD_PASSIVE_EVENT_IDS = new Set([
+  1004, 1006, 1009, 1012, 1015, 1017, 1020, 1023, 1024, 1026,
+  1027, 1036, 3001, 3003, 3004,
+]);
+const AFD_BIND_EVENT_ID = 1030;
 const FIXED_FILES = Object.freeze({
   etl: "native-gap-free-external-events.etl",
   events: "native-gap-free-external-events.jsonl",
@@ -203,6 +229,7 @@ function validateProviderMetadata(metadata, events) {
   const observed = stableSort(metadata.providers, ({ providerId }) => String(providerId));
   requireCondition(observed.length === expected.length, "ETW provider metadata is incomplete.");
   const eventCounts = new Map(REQUIRED_ETW_PROVIDERS.map(({ providerId }) => [providerId, 0]));
+  const descriptorInventory = new Map();
   for (const event of events) eventCounts.set(event.providerId, (eventCounts.get(event.providerId) ?? 0) + 1);
   observed.forEach((row, index) => {
     const expectedRow = expected[index];
@@ -215,6 +242,7 @@ function validateProviderMetadata(metadata, events) {
       Array.isArray(row.eventDescriptors) && row.eventDescriptors.length === row.manifestEventCount,
     `ETW provider metadata for ${expectedRow.providerId} is incomplete or inconsistent.`);
     const descriptorKeys = new Set();
+    const descriptors = new Map();
     for (const descriptor of row.eventDescriptors) {
       requireCondition(exactKeys(descriptor, [
         "eventId", "eventName", "keyword", "level", "opcode", "opcodeName", "task", "taskName", "version",
@@ -230,8 +258,28 @@ function validateProviderMetadata(metadata, events) {
       const key = `${descriptor.eventId}:${descriptor.version}`;
       requireCondition(!descriptorKeys.has(key), `ETW provider ${row.providerId} repeats event metadata ${key}.`);
       descriptorKeys.add(key);
+      descriptors.set(key, descriptor);
     }
+    descriptorInventory.set(row.providerId, descriptors);
   });
+  for (const event of events) {
+    const descriptor = descriptorInventory.get(event.providerId)?.get(`${event.eventId}:${event.version}`);
+    // Winsock-AFD adds runtime keyword bits and changes level/opcode for the
+    // enter/exit or status phase of an otherwise identical manifest event.
+    // Those runtime fields are schema-validated in parseEvents. The AFD stable
+    // identity is provider + ID/version/task and manifest names; providers with
+    // stable runtime descriptors must match level/opcode/opcodeName as well.
+    const afdRuntimeDescriptor = event.providerId === AFD_PROVIDER_ID;
+    requireCondition(descriptor !== undefined &&
+      descriptor.eventName === event.eventName &&
+      descriptor.task === event.task &&
+      descriptor.taskName === event.taskName,
+    `ETW event ${event.sequence} does not match its fixed provider descriptor.`);
+    requireCondition(afdRuntimeDescriptor ||
+      descriptor.level === event.level && descriptor.opcode === event.opcode &&
+      descriptor.opcodeName === event.opcodeName,
+    `ETW event ${event.sequence} does not match its fixed provider descriptor.`);
+  }
   return observed.map(({ eventDescriptors: _eventDescriptors, ...row }) => row);
 }
 
@@ -442,6 +490,7 @@ function analyzeProcesses(events, raw) {
   const candidateInstances = [...descendants.values()];
   return {
     candidateInstances,
+    processInstances: [...starts.values()],
     processAncestry: [...candidateInstances]
       .sort((left, right) => left.processId - right.processId ||
         (BigInt(left.processSequenceNumber) < BigInt(right.processSequenceNumber) ? -1 : 1))
@@ -450,14 +499,142 @@ function analyzeProcesses(events, raw) {
   };
 }
 
-function attributedProcessId(row) {
-  const payload = integerProperty(row, ["ObserverProcessId", "ProcessId", "PID"], false,
-    `Network event ${row.sequence} process attribution`);
-  if (payload !== null && row.headerProcessId !== 0 && row.headerProcessId !== 4) {
-    requireCondition(payload === row.headerProcessId,
-      `Network event ${row.sequence} has conflicting header and payload process attribution.`);
+function optionalProperty(row, name) {
+  return properties(row).get(name.toLocaleLowerCase("en-US"));
+}
+
+function normalizedProcessAttribution(row, authoritativeProcessId, expectedSource) {
+  const processIdValue = optionalProperty(row, "ObserverProcessId");
+  const source = optionalProperty(row, "ObserverProcessIdSource");
+  let normalizedProcessId = null;
+  if (processIdValue !== undefined) {
+    requireCondition(/^[1-9][0-9]{0,9}$/u.test(processIdValue),
+      `Network event ${row.sequence} normalized process attribution is malformed.`);
+    normalizedProcessId = Number(processIdValue);
+    requireCondition(Number.isSafeInteger(normalizedProcessId) && normalizedProcessId <= 4_294_967_295,
+      `Network event ${row.sequence} normalized process attribution is malformed.`);
   }
-  return payload ?? row.headerProcessId;
+  if (source === undefined) {
+    // Captures made by observer v1 before attribution-source tagging remain
+    // replayable. Their normalized PID is syntax-checked but never trusted;
+    // provider-specific data below remains authoritative.
+    return;
+  }
+  requireCondition(typeof expectedSource === "string" && authoritativeProcessId !== null &&
+    source === expectedSource && normalizedProcessId === authoritativeProcessId,
+  `Network event ${row.sequence} has incompatible normalized process attribution.`);
+}
+
+function positiveProviderPid(row, name, label) {
+  const processId = integerProperty(row, [name], true, label);
+  requireCondition(processId > 0 && processId <= 4_294_967_295, `${label} is malformed.`);
+  return processId;
+}
+
+function afdProcessToken(row) {
+  const token = stringProperty(row, ["Process"], true,
+    `AFD event ${row.sequence} process token`);
+  requireCondition(/^[A-Fa-f0-9]{16}$/u.test(token) && !/^0{16}$/u.test(token),
+    `AFD event ${row.sequence} process token is malformed.`);
+  return token.toLocaleUpperCase("en-US");
+}
+
+function afdCreateProcessId(row) {
+  const value = stringProperty(row, ["ProcessId"], true,
+    `AFD create event ${row.sequence} process ID`);
+  requireCondition(/^[A-Fa-f0-9]{16}$/u.test(value),
+    `AFD create event ${row.sequence} process ID is malformed.`);
+  const bytes = [];
+  for (let index = 0; index < value.length; index += 2) {
+    bytes.push(Number.parseInt(value.slice(index, index + 2), 16));
+  }
+  requireCondition(bytes.slice(4).every((byte) => byte === 0),
+    `AFD create event ${row.sequence} process ID exceeds DWORD range.`);
+  const processId = bytes[0] + bytes[1] * 0x100 + bytes[2] * 0x1_0000 + bytes[3] * 0x100_0000;
+  requireCondition(Number.isSafeInteger(processId) && processId > 0 && processId <= 4_294_967_295,
+    `AFD create event ${row.sequence} process ID is malformed.`);
+  return processId;
+}
+
+function activeProcessInstance(processInstances, processId, timestamp, label) {
+  const matches = processInstances.filter((instance) => instance.processId === processId &&
+    instance.startedAt <= timestamp && (instance.stoppedAt === null || timestamp <= instance.stoppedAt));
+  requireCondition(matches.length <= 1, `${label} has ambiguous process-lifetime attribution.`);
+  return matches[0] ?? null;
+}
+
+function afdAttributions(events, processInstances) {
+  const bindings = new Map();
+  const attributed = new Map();
+  for (const row of events) {
+    if (row.providerId !== AFD_PROVIDER_ID) continue;
+    const timestamp = BigInt(row.timestampFileTime);
+    const token = afdProcessToken(row);
+    const previous = bindings.get(token) ?? null;
+    if (previous !== null) {
+      requireCondition(timestamp >= previous.boundAt,
+        `AFD event ${row.sequence} is temporally before its process-token binding.`);
+    }
+    if (row.eventId === 1000) {
+      const processId = afdCreateProcessId(row);
+      const instance = activeProcessInstance(processInstances, processId, timestamp,
+        `AFD create event ${row.sequence}`);
+      if (previous !== null && previous.processId !== processId) {
+        requireCondition(previous.instance !== null && previous.instance.stoppedAt !== null &&
+          previous.instance.stoppedAt < timestamp,
+          `AFD create event ${row.sequence} ambiguously reuses a process token without a completed prior lifetime.`);
+      }
+      if (previous !== null && previous.boundAt === timestamp) {
+        requireCondition(previous.processId === processId &&
+          previous.instance?.processSequenceNumber === instance?.processSequenceNumber,
+        `AFD create event ${row.sequence} has conflicting simultaneous process-token bindings.`);
+      }
+      const binding = { boundAt: timestamp, instance, processId };
+      bindings.set(token, binding);
+      normalizedProcessAttribution(row, processId, "afd-create-process-id");
+      attributed.set(row.sequence, binding);
+      continue;
+    }
+    const bindingExpired = previous !== null && previous.instance !== null &&
+      previous.instance.stoppedAt !== null && timestamp > previous.instance.stoppedAt;
+    if (previous === null || bindingExpired) {
+      normalizedProcessAttribution(row, null, null);
+      attributed.set(row.sequence, null);
+      continue;
+    }
+    normalizedProcessAttribution(row, previous.processId, "afd-process-map");
+    attributed.set(row.sequence, previous);
+  }
+  return attributed;
+}
+
+function attributedProcess(row, afdRows) {
+  if (row.providerId === AFD_PROVIDER_ID) return afdRows.get(row.sequence) ?? null;
+  let processId;
+  let source;
+  if (row.providerId === PACKET_PROVIDER_ID) {
+    processId = positiveProviderPid(row, "PID", `Packet event ${row.sequence} payload PID`);
+    source = "kernel-network-pid";
+  } else if (row.providerId === DNS_CLIENT_PROVIDER_ID) {
+    if (optionalProperty(row, "ClientPID") !== undefined) {
+      processId = positiveProviderPid(row, "ClientPID", `DNS event ${row.sequence} client PID`);
+      source = "dns-client-pid";
+    } else {
+      requireCondition(row.headerProcessId > 0,
+        `DNS event ${row.sequence} header-fallback PID is malformed.`);
+      processId = row.headerProcessId;
+      source = "dns-client-header-fallback";
+    }
+  } else if (row.providerId === NAME_RESOLUTION_PROVIDER_ID) {
+    requireCondition(row.headerProcessId > 0,
+      `Name-resolution event ${row.sequence} header PID is malformed.`);
+    processId = row.headerProcessId;
+    source = "name-resolution-header";
+  } else {
+    fail(`Network event ${row.sequence} has an unsupported provider attribution rule.`);
+  }
+  normalizedProcessAttribution(row, processId, source);
+  return { boundAt: BigInt(row.timestampFileTime), instance: null, processId };
 }
 
 function normalizeIpTarget(value) {
@@ -488,17 +665,140 @@ function unspecified(target) {
   return value === "0.0.0.0" || value === "::" || value === "0:0:0:0:0:0:0:0";
 }
 
-function analyzeNetwork(events, candidateInstances) {
+function resolverTarget(row) {
+  const value = stringProperty(row, ["QueryName", "NodeName"], false,
+    `Resolver event ${row.sequence} target`);
+  if (value === null) return null;
+  const target = value.trim().replace(/\.$/u, "").toLocaleLowerCase("en-US");
+  requireCondition(target.length > 0 && !/[\u0000-\u001F\u007F\s]/u.test(target),
+    `Resolver event ${row.sequence} target is malformed.`);
+  return target;
+}
+
+function approvedResolverTarget(target) {
+  if (target === "null") return true;
+  if (target === "localhost" || target === "govs-plc.local") return true;
+  return loopback(target);
+}
+
+function resolverDisposition(row) {
+  const initiating = row.providerId === DNS_CLIENT_PROVIDER_ID
+    ? DNS_CLIENT_INITIATION_EVENT_IDS
+    : NAME_RESOLUTION_INITIATION_EVENT_IDS;
+  const passive = row.providerId === DNS_CLIENT_PROVIDER_ID
+    ? DNS_CLIENT_PASSIVE_EVENT_IDS
+    : NAME_RESOLUTION_PASSIVE_EVENT_IDS;
+  if (passive.has(row.eventId)) {
+    return { disposition: "accounted", reason: "resolver-completion-or-lifecycle", target: null };
+  }
+  if (!initiating.has(row.eventId) || row.kind !== "DNS_RESOLVER") {
+    return { disposition: "unknown", reason: "unsupported-resolver-event-schema", target: null };
+  }
+  const target = resolverTarget(row);
+  if (target === null) {
+    return { disposition: "unknown", reason: "resolver-invocation-missing-target", target: null };
+  }
+  return approvedResolverTarget(target)
+    ? { disposition: "accounted", reason: "approved-local-resolver-target", target }
+    : { disposition: "external", reason: "resolver-invocation", target };
+}
+
+function afdEndpointToken(row) {
+  const endpoint = stringProperty(row, ["Endpoint"], false,
+    `AFD event ${row.sequence} endpoint token`);
+  if (endpoint === null) return null;
+  requireCondition(/^[A-Fa-f0-9]{16}$/u.test(endpoint) && !/^0{16}$/u.test(endpoint),
+    `AFD event ${row.sequence} endpoint token is malformed.`);
+  return endpoint.toLocaleUpperCase("en-US");
+}
+
+function eventIpTarget(row) {
+  return stringProperty(row,
+    ["ObserverTargetAddress", "RemoteAddress", "DestinationAddress", "DestAddress", "daddr", "Address"],
+    false, `Network event ${row.sequence} target`);
+}
+
+function packetIpTarget(row) {
+  // KernelNetwork's UDP receive templates place the remote peer in saddr;
+  // the other fixed packet templates expose the remote peer in daddr.
+  return [43, 59].includes(row.eventId)
+    ? stringProperty(row, ["saddr"], false, `Packet event ${row.sequence} remote target`)
+    : eventIpTarget(row);
+}
+
+function afdEndpointContexts(events, afdRows) {
+  const contexts = new Map();
+  const rows = new Map();
+  for (const row of events) {
+    if (row.providerId !== AFD_PROVIDER_ID) continue;
+    const attribution = afdRows.get(row.sequence) ?? null;
+    if (attribution?.instance === null || attribution === null) continue;
+    const endpoint = afdEndpointToken(row);
+    if (endpoint === null) continue;
+    const key = `${attribution.instance.processSequenceNumber}\0${endpoint}`;
+    const context = contexts.get(key) ?? { endpoint, targets: new Map() };
+    const target = AFD_DIRECT_REMOTE_EVENT_IDS.has(row.eventId) ? eventIpTarget(row) : null;
+    if (target !== null) {
+      const normalized = normalizeIpTarget(target);
+      requireCondition(isIP(normalized) !== 0,
+        `AFD event ${row.sequence} endpoint target is malformed.`);
+      context.targets.set(normalized, target);
+    }
+    contexts.set(key, context);
+    rows.set(row.sequence, { context, directTarget: target });
+  }
+  for (const value of rows.values()) {
+    if (value.directTarget !== null) continue;
+    const routable = [...value.context.targets].filter(([target]) => !unspecified(target));
+    const available = routable.length > 0 ? routable : [...value.context.targets];
+    value.inferredTarget = available.length === 1 ? available[0][1] : null;
+  }
+  return rows;
+}
+
+function analyzeNetwork(events, candidateInstances, processInstances) {
   const externalAttempts = [];
   const accountedEvents = [];
   const unknownEvents = [];
+  const resolverAttemptKeys = new Set();
+  const ipAttemptKeys = new Set();
+  const afdRows = afdAttributions(events, processInstances);
+  const afdEndpoints = afdEndpointContexts(events, afdRows);
+  const recordIpObservation = (summary, target, direction, attemptKey) => {
+    if (target === null) {
+      unknownEvents.push({ ...summary, reason: "network-target-unavailable" });
+      return;
+    }
+    const normalized = normalizeIpTarget(target);
+    if (!new Set(["listen", "outbound", "passive"]).has(direction) || isIP(normalized) === 0) {
+      unknownEvents.push({ ...summary, direction, reason: "unparseable-network-target", target });
+    } else if (loopback(target) || (direction === "listen" && unspecified(target))) {
+      accountedEvents.push({ ...summary, direction, reason: "loopback-or-unspecified-listener", target });
+    } else if (ipAttemptKeys.has(attemptKey)) {
+      accountedEvents.push({ ...summary, direction, reason: "duplicate-network-observation", target });
+    } else {
+      ipAttemptKeys.add(attemptKey);
+      externalAttempts.push({
+        ...summary,
+        direction,
+        reason: direction === "outbound" ? "non-loopback-network-attempt" : "non-loopback-network-activity",
+        target,
+      });
+    }
+  };
   for (const row of events) {
     if (!NETWORK_PROVIDER_IDS.has(row.providerId)) continue;
-    const processId = attributedProcessId(row);
+    const attribution = attributedProcess(row, afdRows);
+    if (attribution === null) continue;
+    const processId = attribution.processId;
     const timestamp = BigInt(row.timestampFileTime);
-    const matchingInstances = candidateInstances.filter((instance) =>
-      instance.processId === processId && instance.startedAt <= timestamp &&
-      instance.stoppedAt !== null && timestamp <= instance.stoppedAt);
+    const matchingInstances = row.providerId === AFD_PROVIDER_ID
+      ? attribution.instance === null
+        ? []
+        : candidateInstances.filter((instance) =>
+          instance.processSequenceNumber === attribution.instance.processSequenceNumber)
+      : candidateInstances.filter((instance) => instance.processId === processId &&
+        instance.startedAt <= timestamp && instance.stoppedAt !== null && timestamp <= instance.stoppedAt);
     requireCondition(matchingInstances.length <= 1,
       `Network event ${row.sequence} has ambiguous candidate process lifetime attribution.`);
     if (matchingInstances.length === 0) continue;
@@ -510,33 +810,65 @@ function analyzeNetwork(events, candidateInstances) {
       providerId: row.providerId,
       sequence: row.sequence,
     };
-    if (row.kind === "NETWORK_PASSIVE") {
-      // A passive receive/accept/completion is not affirmative evidence that no
-      // network attempt occurred. Without a causal, fixed-schema counterpart it
-      // remains non-credit rather than being silently accepted.
-      unknownEvents.push({ ...summary, reason: "unpaired-passive-network-observation" });
+    if ([DNS_CLIENT_PROVIDER_ID, NAME_RESOLUTION_PROVIDER_ID].includes(row.providerId)) {
+      const resolver = resolverDisposition(row);
+      const resolverSummary = resolver.target === null ? summary : { ...summary, target: resolver.target };
+      if (resolver.disposition === "unknown") {
+        unknownEvents.push({ ...resolverSummary, reason: resolver.reason });
+      } else if (resolver.disposition === "accounted") {
+        accountedEvents.push({ ...resolverSummary, reason: resolver.reason });
+      } else {
+        const key = `${matchingInstances[0].processSequenceNumber}\0${resolver.target}`;
+        if (resolverAttemptKeys.has(key)) {
+          accountedEvents.push({ ...resolverSummary, reason: "duplicate-resolver-observation" });
+        } else {
+          resolverAttemptKeys.add(key);
+          externalAttempts.push({ ...resolverSummary, reason: resolver.reason });
+        }
+      }
       continue;
     }
-    if (row.kind === "DNS_RESOLVER") {
-      externalAttempts.push({ ...summary, reason: "resolver-api-invocation" });
+    if (row.providerId === AFD_PROVIDER_ID && row.eventId === 1000) {
+      accountedEvents.push({ ...summary, reason: "afd-process-token-binding" });
       continue;
     }
-    if (!["SOCKET", "PACKET"].includes(row.kind)) {
-      unknownEvents.push({ ...summary, reason: "unclassified-candidate-network-event" });
+    if (row.providerId === AFD_PROVIDER_ID) {
+      if (AFD_LIFECYCLE_EVENT_IDS.has(row.eventId)) {
+        accountedEvents.push({ ...summary, reason: "afd-lifecycle-or-socket-configuration" });
+        continue;
+      }
+      if (AFD_PASSIVE_EVENT_IDS.has(row.eventId)) {
+        accountedEvents.push({ ...summary, reason: "afd-passive-completion-or-receive" });
+        continue;
+      }
+      if (!AFD_OUTBOUND_EVENT_IDS.has(row.eventId) && row.eventId !== AFD_BIND_EVENT_ID) {
+        unknownEvents.push({ ...summary, reason: "unsupported-afd-event-schema" });
+        continue;
+      }
+      const endpoint = afdEndpoints.get(row.sequence) ?? null;
+      const target = eventIpTarget(row) ?? endpoint?.inferredTarget ?? null;
+      const direction = row.eventId === AFD_BIND_EVENT_ID ? "listen" : "outbound";
+      const endpointKey = endpoint?.context.endpoint ?? `sequence-${row.sequence}`;
+      recordIpObservation(summary, target, direction,
+        `${matchingInstances[0].processSequenceNumber}\0AFD\0${endpointKey}\0${normalizeIpTarget(target)}`);
       continue;
     }
-    const direction = stringProperty(row, ["ObserverDirection"], true,
-      `Network event ${row.sequence} direction`).toLocaleLowerCase("en-US");
-    const target = stringProperty(row,
-      ["ObserverTargetAddress", "RemoteAddress", "DestinationAddress", "DestAddress", "daddr"],
-      true, `Network event ${row.sequence} target`);
-    if (!new Set(["listen", "outbound"]).has(direction) || isIP(normalizeIpTarget(target)) === 0) {
-      unknownEvents.push({ ...summary, direction, reason: "unparseable-network-target", target });
-    } else if (loopback(target) || (direction === "listen" && unspecified(target))) {
-      accountedEvents.push({ ...summary, direction, reason: "loopback-or-unspecified-listener", target });
-    } else {
-      externalAttempts.push({ ...summary, direction, reason: "non-loopback-network-attempt", target });
+    if (row.providerId === PACKET_PROVIDER_ID) {
+      const outbound = PACKET_OUTBOUND_EVENT_IDS.has(row.eventId);
+      if (!outbound && !PACKET_PASSIVE_EVENT_IDS.has(row.eventId)) {
+        unknownEvents.push({ ...summary, reason: "unsupported-kernel-network-event-schema" });
+        continue;
+      }
+      const target = packetIpTarget(row);
+      const sourcePort = stringProperty(row, ["sport"], false,
+        `Packet event ${row.sequence} source port`) ?? "";
+      const destinationPort = stringProperty(row, ["dport"], false,
+        `Packet event ${row.sequence} destination port`) ?? "";
+      recordIpObservation(summary, target, outbound ? "outbound" : "passive",
+        `${matchingInstances[0].processSequenceNumber}\0PACKET\0${normalizeIpTarget(target)}\0${sourcePort}\0${destinationPort}`);
+      continue;
     }
+    fail(`Network event ${row.sequence} has no provider-specific classification rule.`);
   }
   return { accountedEvents, externalAttempts, unknownEvents };
 }
@@ -588,7 +920,7 @@ export function analyzeExternalObserverEvidence({
   const events = parseEvents(files.get(FIXED_FILES.events), interval);
   const providerCoverage = validateProviderMetadata(metadata, events);
   const processes = analyzeProcesses(events, raw);
-  const network = analyzeNetwork(events, processes.candidateInstances);
+  const network = analyzeNetwork(events, processes.candidateInstances, processes.processInstances);
   const zeroExternalAttempts = network.externalAttempts.length === 0 && network.unknownEvents.length === 0;
   return {
     accountedNetworkEventCount: network.accountedEvents.length,

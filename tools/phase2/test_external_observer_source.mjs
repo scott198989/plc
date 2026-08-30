@@ -51,6 +51,24 @@ test("external observer source requires opcode classification and a validated li
     "EVENT_TRACE_TYPE_STOP",
     "record->EventHeader.EventDescriptor.Opcode",
     "EVENT_TRACE_NO_PER_PROCESSOR_BUFFERING",
+    "L\"ClientPID\"",
+    "L\"ObserverProcessIdSource\"",
+    "little_endian_afd_process_id(",
+    "record->EventHeader.EventDescriptor.Id == 1000",
+    "afd_process_token(properties)",
+    "pid && *pid != 0",
+    "client_pid_property",
+    "else if (!client_pid_property)",
+    "afd_process_ids",
+    "ambiguous_afd_process_ids",
+    "forget_afd_process_id(",
+    "kernel-process-pid",
+    "kernel-network-pid",
+    "dns-client-pid",
+    "dns-client-header-fallback",
+    "name-resolution-header",
+    "afd-create-process-id",
+    "afd-process-map",
     "TokenLinkedToken",
     "TokenElevationTypeLimited",
     "GetShellWindow()",
@@ -72,6 +90,10 @@ test("external observer source requires opcode classification and a validated li
     ...sources,
     source: `${sources.source}\nCreateProcessW();`,
   }), /elevated process token/u);
+  assert.throws(() => verifyExternalObserverSources({
+    ...sources,
+    source: `${sources.source}\nauto unsafe = payload_pid.value_or(record->EventHeader.ProcessId);`,
+  }), /generic ETW header fallback/u);
 });
 
 test("external observer source verifier rejects network, shell, device, and industrial capabilities", () => {
