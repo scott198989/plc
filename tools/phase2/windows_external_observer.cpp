@@ -1360,6 +1360,14 @@ int run() {
   if (MessageBoxA(nullptr, prompt.c_str(), "Gov's PLC Phase 2 manual fixed-launch evidence", MB_OKCANCEL | MB_ICONINFORMATION) != IDOK) {
     fail("The fixed manual launcher evidence flow was cancelled.");
   }
+  const auto launcher_drain_deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+  while ((context.launcher_process_id.load() == 0 ||
+          context.launcher_started_file_time.load() == 0 ||
+          context.launcher_exited_file_time.load() == 0 ||
+          context.launcher_exit_code.load() == MAXDWORD) &&
+         std::chrono::steady_clock::now() < launcher_drain_deadline) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
   const DWORD launcher_pid = context.launcher_process_id.load();
   const Moment launcher_started = moment_from_file_time(context.launcher_started_file_time.load());
   const Moment launcher_exited = moment_from_file_time(context.launcher_exited_file_time.load());
