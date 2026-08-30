@@ -92,7 +92,8 @@ export async function finalizeFixedExternalObserverEvidence() {
   if (process.argv.slice(2).length !== 0) throw new Error("The Phase 2 ETW evidence finalizer accepts zero arguments.");
   const [rawBytes, candidateManifestBytes, candidateImageBytes, launcherBytes, observerBytes,
     observerSourceBytes, observerBuildScriptBytes, observerAnalyzerSourceBytes,
-    observerFinalizerSourceBytes, etlDigest, eventsBytes, metadataBytes, transcriptBytes] =
+    observerFinalizerSourceBytes, observerSourceVerifierBytes, etlDigest, eventsBytes,
+    metadataBytes, transcriptBytes] =
     await Promise.all([
       readFixedFile(rawPath, 4 * 1024 * 1024),
       readFixedFile(candidateManifestPath, 16 * 1024 * 1024),
