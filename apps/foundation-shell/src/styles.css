@@ -1,4 +1,5 @@
 @import url("./VirtualTrainer.css");
+@import url("./TagConfigurationEditor.css");
 
 :root {
   color: #182129;
@@ -873,6 +874,16 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 }
 
 .graph-editor__identity span { border-color: #7fa6a1; background: #e4f0ef; color: #174d49; }
+.graph-editor__identity .graph-editor__live-state[data-live="true"] {
+  border-color: #4c9871;
+  background: #e6f6ec;
+  color: #176044;
+}
+.graph-editor__identity .graph-editor__live-state[data-live="false"] {
+  border-color: #c3cacc;
+  background: #f2f4f4;
+  color: #69777d;
+}
 .graph-editor__identity button { cursor: pointer; font: inherit; }
 .graph-editor__identity button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
 .graph-editor__identity button:disabled { cursor: not-allowed; opacity: 0.52; }
@@ -1098,6 +1109,28 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 }
 
 .lad-symbol strong { width: 18px; color: #b0414a; text-align: center; font-size: 15px; }
+.lad-live-operand {
+  min-height: 20px;
+  border: 1px solid #c3cbce;
+  border-radius: 999px;
+  padding: 3px 7px;
+  display: inline-flex;
+  align-items: center;
+  justify-self: end;
+  gap: 5px;
+  background: #f1f4f4;
+  color: #6b787e;
+  font: 700 7px "Cascadia Mono", "Consolas", monospace;
+  letter-spacing: 0.035em;
+  text-transform: uppercase;
+}
+.lad-live-operand i { width: 7px; height: 7px; border-radius: 50%; background: #8b989d; }
+.lad-live-operand[data-truth="on"] { border-color: #5aa47b; background: #e9f7ef; color: #176044; }
+.lad-live-operand[data-truth="on"] i { background: #24a45f; box-shadow: 0 0 7px rgb(36 164 95 / 52%); }
+.lad-live-operand[data-truth="off"] { border-color: #aeb9bc; background: #f6f8f8; color: #45565c; }
+.lad-live-operand[data-truth="off"] i { background: #607178; }
+.lad-live-operand[data-forced="true"] { border-color: #c68a35; color: #7b4d08; background: #fff5e5; }
+.lad-live-operand strong { border-left: 1px solid currentColor; padding-left: 5px; }
 .lad-element label,
 .fbd-node label { display: grid; gap: 4px; color: #5f6d73; font-size: 8px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; }
 .lad-element select,

@@ -28,11 +28,14 @@ import {
   wrapContactWithParallelContact,
 } from "./lad-authoring";
 import type { LadAuthoringResult } from "./lad-authoring";
+import { projectLadLiveMonitoring } from "./lad-live-monitoring";
+import type { LadBooleanMemberLiveState } from "./lad-live-monitoring";
 import { projectLadNetworkTopology } from "./lad-topology";
 import type { LadTopologyItem, LadTopologyParallel } from "./lad-topology";
 import { RuntimeInspector, RuntimeToolbar } from "./RuntimeWorkbench";
 import type { ReplayVerificationReceipt } from "./replay-types";
 import type { EngineeringRuntimeView, RuntimeOperation } from "./runtime-types";
+import { TagConfigurationEditor } from "./TagConfigurationEditor";
 import type {
   ProjectPayload,
   ProjectPayloadValue,
@@ -348,6 +351,13 @@ export const EngineeringWorkbench = ({
                 snapshot={snapshot}
                 tombstoneCount={tombstoneCount}
               />
+            ) : selected.kind === "Tag" ? (
+              <TagConfigurationEditor
+                busy={busy}
+                object={selected}
+                onOperation={onOperation}
+                snapshot={snapshot}
+              />
             ) : isEditableMemberContainer(selected) ? (
               <MemberTableEditor
                 busy={busy}
@@ -358,7 +368,12 @@ export const EngineeringWorkbench = ({
             ) : isSclProgramBlock(selected) ? (
               <SclProgramEditor busy={busy} object={selected} onOperation={onOperation} />
             ) : isGraphicalProgramBlock(selected) ? (
-              <GraphicalProgramEditor busy={busy} object={selected} onOperation={onOperation} />
+              <GraphicalProgramEditor
+                busy={busy}
+                object={selected}
+                onOperation={onOperation}
+                snapshot={snapshot}
+              />
             ) : (
               <ObjectOverview object={selected} snapshot={snapshot} />
             )}
@@ -1062,12 +1077,14 @@ type GraphicalProgramEditorProps = Readonly<{
   busy: boolean;
   object: WorkbenchObjectView;
   onOperation: (operation: WorkbenchOperation) => Promise<void>;
+  snapshot: WorkbenchSnapshot;
 }>;
 
 const GraphicalProgramEditor = ({
   busy,
   object,
   onOperation,
+  snapshot,
 }: GraphicalProgramEditorProps): React.JSX.Element => {
   const language = object.semanticPayload.language === "FBD" ? "FBD" : "LAD";
   const graph = object.semanticPayload.graph;
@@ -1079,6 +1096,14 @@ const GraphicalProgramEditor = ({
   const readableBooleanMembers = members.filter((member) => member.dataType === "BOOL");
   const writableBooleanMembers = readableBooleanMembers.filter((member) =>
     member.role !== "input" && member.role !== "constant"
+  );
+  const liveResult = language === "LAD"
+    ? projectLadLiveMonitoring(snapshot, object.id)
+    : null;
+  const liveMembers = new Map(
+    liveResult?.ok === true
+      ? liveResult.projection.members.map((member) => [member.memberId, member] as const)
+      : [],
   );
   const [ladAuthoringError, setLadAuthoringError] = useState<string | null>(null);
   useEffect(() => setLadAuthoringError(null), [object.id, object.semanticRevision]);
@@ -1132,6 +1157,17 @@ const GraphicalProgramEditor = ({
         <div className="graph-editor__identity">
           <span>{language}</span>
           <code>{networks.length} network{networks.length === 1 ? "" : "s"}</code>
+          {language === "LAD" && liveResult?.ok === true && (
+            <span
+              className="graph-editor__live-state"
+              data-live={liveResult.projection.monitorState === "ACTIVE"}
+              title={`CPU ${liveResult.projection.cpuState ?? "unavailable"} · scan ${liveResult.projection.scanSequence ?? "—"}`}
+            >
+              {liveResult.projection.monitorState === "ACTIVE"
+                ? `Live · scan ${liveResult.projection.scanSequence ?? "—"}`
+                : "Monitoring off"}
+            </span>
+          )}
           {language === "LAD" && graph !== undefined && (
             <button
               disabled={busy || writableBooleanMembers.length === 0}
@@ -1178,6 +1214,7 @@ const GraphicalProgramEditor = ({
                 busy={busy}
                 graph={graph}
                 key={String(network.id ?? networkIndex)}
+                liveMembers={liveMembers}
                 members={readableBooleanMembers}
                 network={network}
                 networkIndex={networkIndex}
@@ -1217,6 +1254,7 @@ type GraphNetworkEditorProps = Readonly<{
 type LadderNetworkEditorProps = Readonly<{
   busy: boolean;
   graph: ProjectPayloadValue | undefined;
+  liveMembers: ReadonlyMap<string, LadBooleanMemberLiveState>;
   members: readonly GraphInterfaceMember[];
   network: ProjectPayload;
   networkIndex: number;
@@ -1227,6 +1265,7 @@ type LadderNetworkEditorProps = Readonly<{
 const LadderNetworkEditor = ({
   busy,
   graph,
+  liveMembers,
   members,
   network,
   networkIndex,
@@ -1258,6 +1297,7 @@ const LadderNetworkEditor = ({
   const renderContext: LadRenderContext = {
     busy,
     graph,
+    liveMembers,
     members,
     networkId,
     onMutation,
@@ -1291,6 +1331,7 @@ const LadderNetworkEditor = ({
 type LadRenderContext = Readonly<{
   busy: boolean;
   graph: ProjectPayloadValue;
+  liveMembers: ReadonlyMap<string, LadBooleanMemberLiveState>;
   members: readonly GraphInterfaceMember[];
   networkId: string;
   onMutation: (result: LadAuthoringResult) => void;
@@ -1384,6 +1425,7 @@ const LadElement = ({
   const nodeId = element.nodeId;
   const operand = canonicalRecordFields(node.operand);
   const memberId = typeof operand?.memberId === "string" ? operand.memberId : "";
+  const live = context.liveMembers.get(memberId) ?? null;
 
   if (element.nodeKind === "power-source") {
     return <div className="lad-power-source"><span aria-hidden="true">L+</span><small>Power</small></div>;
@@ -1405,6 +1447,7 @@ const LadElement = ({
     const parallelMember = context.members.find((member) => member.id === memberId) ?? context.members[0];
     return (
       <div className="lad-element lad-contact">
+        <LadLiveOperandBadge live={live} />
         <div className="lad-symbol" aria-hidden="true">
           <span>—|</span><strong>{node.mode === "normally-closed" ? "/" : ""}</strong><span>|—</span>
         </div>
@@ -1470,6 +1513,7 @@ const LadElement = ({
   if (element.nodeKind === "coil") {
     return (
       <div className="lad-element lad-coil">
+        <LadLiveOperandBadge live={live} />
         <div className="lad-symbol" aria-hidden="true"><span>—(</span><strong>{coilMark(node.mode)}</strong><span>)—</span></div>
         <label>
           <span>Operand</span>
@@ -1513,6 +1557,33 @@ const LadElement = ({
       <strong>{element.nodeKind}</strong>
       <small>This canonical node is visible but not editable in the basic LAD palette yet.</small>
     </div>
+  );
+};
+
+const LadLiveOperandBadge = ({
+  live,
+}: Readonly<{
+  live: LadBooleanMemberLiveState | null;
+}>): React.JSX.Element => {
+  const truth = live?.truth ?? "unknown";
+  const label = truth === "on" ? "ON" : truth === "off" ? "OFF" : "—";
+  const reason = live === null
+    ? "No live binding"
+    : live.unknownReason === null
+      ? `${live.tagName ?? live.memberName}${live.runtimeAddress === null ? "" : ` · ${live.runtimeAddress}`}`
+      : live.unknownReason.replaceAll("-", " ");
+  return (
+    <span
+      aria-label={`Operand value ${label}${live?.forced === true ? ", forced" : ""}`}
+      className="lad-live-operand"
+      data-forced={live?.forced === true}
+      data-truth={truth}
+      title={reason}
+    >
+      <i aria-hidden="true" />
+      Operand {label}
+      {live?.forced === true && <strong>F</strong>}
+    </span>
   );
 };
 
