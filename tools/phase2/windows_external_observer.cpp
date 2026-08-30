@@ -669,7 +669,7 @@ void WINAPI event_callback(PEVENT_RECORD record) {
       } else if (kind == EventKind::process_stop && pid &&
                  *pid == context->launcher_process_id.load()) {
         context->launcher_exited_file_time.store(record->EventHeader.TimeStamp.QuadPart);
-        if (const auto exit_status = numeric_property(properties, {L"ExitStatus"})) {
+        if (const auto exit_status = numeric_property(properties, {L"ExitCode", L"ExitStatus"})) {
           context->launcher_exit_code.store(static_cast<DWORD>(*exit_status));
         }
       }
