@@ -1,3 +1,5 @@
+@import url("./VirtualTrainer.css");
+
 :root {
   color: #182129;
   color-scheme: light;
@@ -860,7 +862,8 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 .graph-editor__identity { display: flex; align-items: center; gap: 8px; white-space: nowrap; }
 
 .graph-editor__identity span,
-.graph-editor__identity code {
+.graph-editor__identity code,
+.graph-editor__identity button {
   border: 1px solid var(--line);
   padding: 5px 7px;
   background: var(--panel-subtle);
@@ -870,6 +873,18 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 }
 
 .graph-editor__identity span { border-color: #7fa6a1; background: #e4f0ef; color: #174d49; }
+.graph-editor__identity button { cursor: pointer; font: inherit; }
+.graph-editor__identity button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.graph-editor__identity button:disabled { cursor: not-allowed; opacity: 0.52; }
+
+.graph-editor__authoring-error {
+  border-bottom: 1px solid #dfb2b6;
+  border-left: 4px solid var(--danger);
+  padding: 10px 18px;
+  background: #fff3f4;
+  color: #792d35;
+  font-size: 10px;
+}
 
 .graph-editor__networks {
   min-width: 0;
@@ -925,6 +940,18 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 
 .graph-network__heading code { color: #6d7a80; font-size: 9px; font-weight: 500; letter-spacing: 0; text-transform: none; }
 
+.graph-network__heading-actions { display: flex; align-items: center; gap: 10px; }
+.graph-network__heading-actions button {
+  border: 1px solid #aab5b8;
+  padding: 4px 7px;
+  background: #f8fafa;
+  color: #56666c;
+  cursor: pointer;
+  font-size: 8px;
+}
+.graph-network__heading-actions button:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+.graph-network__heading-actions button:disabled { cursor: not-allowed; opacity: 0.5; }
+
 .lad-rung {
   min-width: 760px;
   min-height: 264px;
@@ -938,6 +965,15 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 .lad-rail { width: 4px; min-height: 190px; flex: none; background: #31464b; }
 .lad-rail--right { margin-left: auto; }
 
+.lad-series,
+.lad-series__segment {
+  min-width: max-content;
+  display: flex;
+  align-items: center;
+}
+
+.lad-series { align-self: center; }
+
 .lad-power-source {
   width: 52px;
   padding-top: 62px;
@@ -949,13 +985,7 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 
 .lad-power-source::before,
 .lad-element::before {
-  content: "";
-  position: absolute;
-  top: 72px;
-  right: 100%;
-  width: 26px;
-  height: 2px;
-  background: #31464b;
+  display: none;
 }
 
 .lad-power-source { position: relative; }
@@ -966,7 +996,6 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
   position: relative;
   width: min(205px, 22vw);
   min-width: 150px;
-  margin-left: 26px;
   border: 1px solid #aab5b8;
   padding: 18px 14px 14px;
   display: grid;
@@ -976,14 +1005,87 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 }
 
 .lad-element::after {
+  display: none;
+}
+
+.lad-insert-contact {
+  position: relative;
+  z-index: 1;
+  width: 72px;
+  min-width: 72px;
+  min-height: 30px;
+  margin: 0 12px;
+  border: 1px dashed #789092;
+  border-radius: 999px;
+  padding: 4px 7px;
+  background: #f8fbfb;
+  color: #466063;
+  cursor: pointer;
+  font-size: 8px;
+  font-weight: 730;
+  white-space: nowrap;
+}
+
+.lad-insert-contact::before,
+.lad-insert-contact::after {
   content: "";
   position: absolute;
-  top: 72px;
-  left: 100%;
-  width: 26px;
+  top: calc(50% - 1px);
+  width: 13px;
   height: 2px;
   background: #31464b;
 }
+
+.lad-insert-contact::before { right: 100%; }
+.lad-insert-contact::after { left: 100%; }
+.lad-insert-contact:hover:not(:disabled) { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
+.lad-insert-contact:disabled { cursor: not-allowed; opacity: 0.52; }
+
+.lad-parallel {
+  min-width: max-content;
+  display: grid;
+  grid-template-columns: 4px auto 4px;
+  align-items: stretch;
+  gap: 0;
+}
+
+.lad-parallel__bus { min-height: 100%; background: #31464b; }
+.lad-parallel__paths { min-width: max-content; display: grid; gap: 8px; padding: 4px 0; }
+
+.lad-parallel__path {
+  position: relative;
+  min-width: max-content;
+  min-height: 176px;
+  padding: 18px 0;
+  display: flex;
+  align-items: center;
+}
+
+.lad-parallel__path::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  top: 50%;
+  right: 0;
+  left: 0;
+  height: 2px;
+  background: #31464b;
+}
+
+.lad-parallel__path-label {
+  position: absolute;
+  z-index: 2;
+  top: 2px;
+  left: 10px;
+  color: #728086;
+  font-size: 7px;
+  font-weight: 760;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.lad-parallel__path > .lad-series,
+.lad-parallel__path > .lad-insert-contact { position: relative; z-index: 1; }
 
 .lad-symbol {
   height: 42px;
@@ -1001,6 +1103,21 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 .lad-element select,
 .fbd-node select { width: 100%; min-width: 0; height: 30px; border: 1px solid #aab5b8; padding: 0 7px; background: #f8fafa; color: #26373d; font-size: 9px; }
 .lad-element--unsupported { color: var(--danger); }
+
+.lad-element__actions { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.lad-element__actions button {
+  min-height: 28px;
+  border: 1px solid #aab5b8;
+  background: #f5f8f8;
+  color: #43555b;
+  cursor: pointer;
+  font-size: 8px;
+}
+.lad-element__actions button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent-deep); }
+.lad-element__actions button:last-child:hover:not(:disabled) { border-color: var(--danger); color: var(--danger); }
+.lad-element__actions button:disabled { cursor: not-allowed; opacity: 0.5; }
+
+.lad-return { min-height: 96px; place-content: center; color: #43555b; text-align: center; }
 
 .lad-call { min-width: 142px; width: 152px; align-content: stretch; padding: 0; }
 .lad-call__title { min-height: 38px; border-bottom: 1px solid #afbbbd; display: flex; align-items: center; justify-content: space-between; background: #e4efee; }

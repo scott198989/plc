@@ -18,6 +18,18 @@ import {
   unsignedValue,
   updateGraphNodeFields,
 } from "./canonical-authoring";
+import {
+  addLadNetwork,
+  insertSeriesContact,
+  removeContactAndReconnect,
+  removeLadNetwork,
+  updateLadCoil,
+  updateLadContact,
+  wrapContactWithParallelContact,
+} from "./lad-authoring";
+import type { LadAuthoringResult } from "./lad-authoring";
+import { projectLadNetworkTopology } from "./lad-topology";
+import type { LadTopologyItem, LadTopologyParallel } from "./lad-topology";
 import { RuntimeInspector, RuntimeToolbar } from "./RuntimeWorkbench";
 import type { ReplayVerificationReceipt } from "./replay-types";
 import type { EngineeringRuntimeView, RuntimeOperation } from "./runtime-types";
@@ -1064,6 +1076,33 @@ const GraphicalProgramEditor = ({
     ? graphRecord.networks
     : [];
   const members = readGraphInterfaceMembers(object.semanticPayload);
+  const readableBooleanMembers = members.filter((member) => member.dataType === "BOOL");
+  const writableBooleanMembers = readableBooleanMembers.filter((member) =>
+    member.role !== "input" && member.role !== "constant"
+  );
+  const [ladAuthoringError, setLadAuthoringError] = useState<string | null>(null);
+  useEffect(() => setLadAuthoringError(null), [object.id, object.semanticRevision]);
+
+  const commitGraph = (updated: ProjectPayloadValue): void => {
+    if (busy) {
+      return;
+    }
+    void onOperation({
+      key: "graph",
+      kind: "project.set-semantic-field",
+      objectId: object.id,
+      value: updated,
+    });
+  };
+
+  const commitLadMutation = (result: LadAuthoringResult): void => {
+    if (result.ok === false) {
+      setLadAuthoringError(result.message);
+      return;
+    }
+    setLadAuthoringError(null);
+    commitGraph(result.graph);
+  };
 
   const commitNodeFields = (
     nodeId: string,
@@ -1074,23 +1113,7 @@ const GraphicalProgramEditor = ({
     }
     const updated = updateGraphNodeFields(graph, nodeId, fields);
     if (updated !== null) {
-      void onOperation({
-        key: "graph",
-        kind: "project.set-semantic-field",
-        objectId: object.id,
-        value: updated,
-      });
-    }
-  };
-
-  const bindOperand = (
-    node: ProjectPayload,
-    nodeId: string,
-    memberId: string,
-  ): void => {
-    const operand = canonicalRecordFields(node.operand);
-    if (operand !== null) {
-      commitNodeFields(nodeId, { operand: recordValue({ ...operand, memberId }) });
+      commitGraph(updated);
     }
   };
 
@@ -1109,8 +1132,31 @@ const GraphicalProgramEditor = ({
         <div className="graph-editor__identity">
           <span>{language}</span>
           <code>{networks.length} network{networks.length === 1 ? "" : "s"}</code>
+          {language === "LAD" && graph !== undefined && (
+            <button
+              disabled={busy || writableBooleanMembers.length === 0}
+              onClick={() => {
+                const member = writableBooleanMembers[0];
+                if (member !== undefined) {
+                  commitLadMutation(addLadNetwork(graph, { coilMemberId: member.id }));
+                }
+              }}
+              title={writableBooleanMembers.length === 0
+                ? "Add a writable BOOL interface member before creating another network"
+                : "Add a new ladder network"}
+              type="button"
+            >
+              + Network
+            </button>
+          )}
         </div>
       </header>
+
+      {ladAuthoringError !== null && (
+        <div className="graph-editor__authoring-error" role="alert">
+          {ladAuthoringError}
+        </div>
+      )}
 
       {networks.length === 0 ? (
         <div className="graph-editor__invalid" role="alert">
@@ -1129,13 +1175,14 @@ const GraphicalProgramEditor = ({
             }
             return language === "LAD" ? (
               <LadderNetworkEditor
-                bindOperand={bindOperand}
                 busy={busy}
-                commitNodeFields={commitNodeFields}
+                graph={graph}
                 key={String(network.id ?? networkIndex)}
-                members={members}
+                members={readableBooleanMembers}
                 network={network}
                 networkIndex={networkIndex}
+                onMutation={commitLadMutation}
+                writableMembers={writableBooleanMembers}
               />
             ) : (
               <FbdNetworkEditor
@@ -1167,108 +1214,305 @@ type GraphNetworkEditorProps = Readonly<{
   networkIndex: number;
 }>;
 
+type LadderNetworkEditorProps = Readonly<{
+  busy: boolean;
+  graph: ProjectPayloadValue | undefined;
+  members: readonly GraphInterfaceMember[];
+  network: ProjectPayload;
+  networkIndex: number;
+  onMutation: (result: LadAuthoringResult) => void;
+  writableMembers: readonly GraphInterfaceMember[];
+}>;
+
 const LadderNetworkEditor = ({
-  bindOperand,
   busy,
-  commitNodeFields,
+  graph,
   members,
   network,
   networkIndex,
-}: GraphNetworkEditorProps & Readonly<{
-  bindOperand: (node: ProjectPayload, nodeId: string, memberId: string) => void;
-}>): React.JSX.Element => {
+  onMutation,
+  writableMembers,
+}: LadderNetworkEditorProps): React.JSX.Element => {
   const nodes = Array.isArray(network.nodes)
     ? network.nodes.map(canonicalRecordFields).filter((node): node is ProjectPayload => node !== null)
     : [];
   const edgeCount = Array.isArray(network.edges) ? network.edges.length : 0;
+  const networkId = typeof network.id === "string" ? network.id : null;
+  const projection = projectLadNetworkTopology(network);
+
+  if (graph === undefined || networkId === null || projection.ok === false) {
+    const reason = projection.ok === false
+      ? projection.message
+      : "The canonical LAD document or network identity is unavailable.";
+    return (
+      <section className="lad-network" aria-label={`LAD network ${networkIndex + 1}`}>
+        <div className="graph-network__heading">
+          <span>Network {networkIndex + 1}</span>
+          <code>Invalid topology</code>
+        </div>
+        <div className="graph-editor__invalid" role="alert">{reason}</div>
+      </section>
+    );
+  }
+
+  const renderContext: LadRenderContext = {
+    busy,
+    graph,
+    members,
+    networkId,
+    onMutation,
+    writableMembers,
+  };
   return (
     <section className="lad-network" aria-label={`LAD network ${networkIndex + 1}`}>
       <div className="graph-network__heading">
         <span>Network {networkIndex + 1}</span>
-        <code>{nodes.length} nodes · {edgeCount} power edges</code>
+        <span className="graph-network__heading-actions">
+          <code>{nodes.length} nodes · {edgeCount} power edges</code>
+          <button
+            aria-label={`Remove LAD network ${networkIndex + 1}`}
+            disabled={busy}
+            onClick={() => onMutation(removeLadNetwork(graph, { networkId }))}
+            type="button"
+          >
+            Remove network
+          </button>
+        </span>
       </div>
       <div className="lad-rung">
         <span className="lad-rail" aria-hidden="true" />
-        {nodes.map((node) => {
-          const nodeId = typeof node.id === "string" ? node.id : "";
-          const nodeKind = typeof node.nodeKind === "string" ? node.nodeKind : "unresolved";
-          const operand = canonicalRecordFields(node.operand);
-          const memberId = typeof operand?.memberId === "string" ? operand.memberId : "";
-          if (nodeKind === "power-source") {
-            return <div className="lad-power-source" key={nodeId}><span aria-hidden="true">L+</span><small>Power</small></div>;
-          }
-          if (nodeKind === "call") {
-            const targetBlockId = typeof node.targetBlockId === "string" ? node.targetBlockId : "unresolved";
-            return (
-              <div className="lad-element lad-call" key={nodeId}>
-                <div className="lad-call__title"><span>CALL</span><strong>FC</strong></div>
-                <div className="lad-call__target">
-                  <span>Target block</span>
-                  <code title={targetBlockId}>{targetBlockId.slice(0, 8)}…{targetBlockId.slice(-4)}</code>
-                </div>
-                <div className="lad-call__pins">
-                  <span>InputValue</span><span>Result</span>
-                </div>
-              </div>
-            );
-          }
-          if (nodeKind === "contact") {
-            return (
-              <div className="lad-element lad-contact" key={nodeId}>
-                <div className="lad-symbol" aria-hidden="true">
-                  <span>—|</span><strong>{node.mode === "normally-closed" ? "/" : ""}</strong><span>|—</span>
-                </div>
-                <label>
-                  <span>Operand</span>
-                  <select disabled={busy} onChange={(event) => bindOperand(node, nodeId, event.target.value)} value={memberId}>
-                    {memberOptions(members, memberId)}
-                  </select>
-                </label>
-                <label>
-                  <span>Contact</span>
-                  <select
-                    disabled={busy}
-                    onChange={(event) => commitNodeFields(nodeId, { mode: event.target.value })}
-                    value={typeof node.mode === "string" ? node.mode : "normally-open"}
-                  >
-                    <option value="normally-open">Normally open</option>
-                    <option value="normally-closed">Normally closed</option>
-                  </select>
-                </label>
-              </div>
-            );
-          }
-          if (nodeKind === "coil") {
-            return (
-              <div className="lad-element lad-coil" key={nodeId}>
-                <div className="lad-symbol" aria-hidden="true"><span>—(</span><strong>{coilMark(node.mode)}</strong><span>)—</span></div>
-                <label>
-                  <span>Operand</span>
-                  <select disabled={busy} onChange={(event) => bindOperand(node, nodeId, event.target.value)} value={memberId}>
-                    {memberOptions(members, memberId)}
-                  </select>
-                </label>
-                <label>
-                  <span>Coil</span>
-                  <select
-                    disabled={busy}
-                    onChange={(event) => commitNodeFields(nodeId, { mode: event.target.value })}
-                    value={typeof node.mode === "string" ? node.mode : "normal"}
-                  >
-                    <option value="normal">Normal</option>
-                    <option value="negated">Negated</option>
-                    <option value="set">Set</option>
-                    <option value="reset">Reset</option>
-                  </select>
-                </label>
-              </div>
-            );
-          }
-          return <div className="lad-element lad-element--unsupported" key={nodeId}>{nodeKind}</div>;
-        })}
+        <LadTopologySeries context={renderContext} items={projection.topology.items} />
         <span className="lad-rail lad-rail--right" aria-hidden="true" />
       </div>
     </section>
+  );
+};
+
+type LadRenderContext = Readonly<{
+  busy: boolean;
+  graph: ProjectPayloadValue;
+  members: readonly GraphInterfaceMember[];
+  networkId: string;
+  onMutation: (result: LadAuthoringResult) => void;
+  writableMembers: readonly GraphInterfaceMember[];
+}>;
+
+const LadTopologySeries = ({
+  context,
+  items,
+}: Readonly<{
+  context: LadRenderContext;
+  items: readonly LadTopologyItem[];
+}>): React.JSX.Element => (
+  <div className="lad-series">
+    {items.map((item) => (
+      <div className="lad-series__segment" key={item.kind === "element" ? item.nodeId : item.branchId}>
+        {item.beforeEdgeId !== null && (
+          <LadInsertContact context={context} edgeId={item.beforeEdgeId} />
+        )}
+        {item.kind === "parallel" ? (
+          <LadParallel context={context} parallel={item} />
+        ) : (
+          <LadElement context={context} element={item} />
+        )}
+      </div>
+    ))}
+  </div>
+);
+
+const LadInsertContact = ({
+  context,
+  edgeId,
+}: Readonly<{
+  context: LadRenderContext;
+  edgeId: string;
+}>): React.JSX.Element => {
+  const member = context.members[0];
+  return (
+    <button
+      aria-label="Add series contact"
+      className="lad-insert-contact"
+      disabled={context.busy || member === undefined}
+      onClick={() => {
+        if (member !== undefined) {
+          context.onMutation(insertSeriesContact(context.graph, {
+            edgeId,
+            memberId: member.id,
+            networkId: context.networkId,
+          }));
+        }
+      }}
+      title={member === undefined ? "Add a BOOL interface member before inserting a contact" : "Insert a contact on this power edge"}
+      type="button"
+    >
+      <span aria-hidden="true">+</span>
+      Contact
+    </button>
+  );
+};
+
+const LadParallel = ({
+  context,
+  parallel,
+}: Readonly<{
+  context: LadRenderContext;
+  parallel: LadTopologyParallel;
+}>): React.JSX.Element => (
+  <div className="lad-parallel" aria-label={`${parallel.paths.length}-path parallel branch`}>
+    <span className="lad-parallel__bus" aria-hidden="true" />
+    <div className="lad-parallel__paths">
+      {parallel.paths.map((path, index) => (
+        <div className="lad-parallel__path" key={path.pathId}>
+          <span className="lad-parallel__path-label">Path {index + 1}</span>
+          <LadTopologySeries context={context} items={path.items} />
+          <LadInsertContact context={context} edgeId={path.exitEdgeId} />
+        </div>
+      ))}
+    </div>
+    <span className="lad-parallel__bus lad-parallel__bus--right" aria-hidden="true" />
+  </div>
+);
+
+const LadElement = ({
+  context,
+  element,
+}: Readonly<{
+  context: LadRenderContext;
+  element: Extract<LadTopologyItem, Readonly<{ kind: "element" }>>;
+}>): React.JSX.Element => {
+  const node = element.node;
+  const nodeId = element.nodeId;
+  const operand = canonicalRecordFields(node.operand);
+  const memberId = typeof operand?.memberId === "string" ? operand.memberId : "";
+
+  if (element.nodeKind === "power-source") {
+    return <div className="lad-power-source"><span aria-hidden="true">L+</span><small>Power</small></div>;
+  }
+  if (element.nodeKind === "call") {
+    const targetBlockId = typeof node.targetBlockId === "string" ? node.targetBlockId : "unresolved";
+    return (
+      <div className="lad-element lad-call">
+        <div className="lad-call__title"><span>CALL</span><strong>FC</strong></div>
+        <div className="lad-call__target">
+          <span>Target block</span>
+          <code title={targetBlockId}>{targetBlockId.slice(0, 8)}…{targetBlockId.slice(-4)}</code>
+        </div>
+        <div className="lad-call__pins"><span>InputValue</span><span>Result</span></div>
+      </div>
+    );
+  }
+  if (element.nodeKind === "contact") {
+    const parallelMember = context.members.find((member) => member.id === memberId) ?? context.members[0];
+    return (
+      <div className="lad-element lad-contact">
+        <div className="lad-symbol" aria-hidden="true">
+          <span>—|</span><strong>{node.mode === "normally-closed" ? "/" : ""}</strong><span>|—</span>
+        </div>
+        <label>
+          <span>Operand</span>
+          <select
+            disabled={context.busy || context.members.length === 0}
+            onChange={(event) => context.onMutation(updateLadContact(context.graph, {
+              contactNodeId: nodeId,
+              memberId: event.target.value,
+              networkId: context.networkId,
+            }))}
+            value={memberId}
+          >
+            {memberOptions(context.members, memberId)}
+          </select>
+        </label>
+        <label>
+          <span>Contact</span>
+          <select
+            disabled={context.busy}
+            onChange={(event) => context.onMutation(updateLadContact(context.graph, {
+              contactNodeId: nodeId,
+              mode: event.target.value as "normally-closed" | "normally-open",
+              networkId: context.networkId,
+            }))}
+            value={typeof node.mode === "string" ? node.mode : "normally-open"}
+          >
+            <option value="normally-open">Normally open</option>
+            <option value="normally-closed">Normally closed</option>
+          </select>
+        </label>
+        <div className="lad-element__actions">
+          <button
+            disabled={context.busy || parallelMember === undefined}
+            onClick={() => {
+              if (parallelMember !== undefined) {
+                context.onMutation(wrapContactWithParallelContact(context.graph, {
+                  contactNodeId: nodeId,
+                  memberId: parallelMember.id,
+                  networkId: context.networkId,
+                }));
+              }
+            }}
+            type="button"
+          >
+            Add parallel
+          </button>
+          <button
+            disabled={context.busy}
+            onClick={() => context.onMutation(removeContactAndReconnect(context.graph, {
+              contactNodeId: nodeId,
+              networkId: context.networkId,
+            }))}
+            type="button"
+          >
+            Remove
+          </button>
+        </div>
+      </div>
+    );
+  }
+  if (element.nodeKind === "coil") {
+    return (
+      <div className="lad-element lad-coil">
+        <div className="lad-symbol" aria-hidden="true"><span>—(</span><strong>{coilMark(node.mode)}</strong><span>)—</span></div>
+        <label>
+          <span>Operand</span>
+          <select
+            disabled={context.busy || context.writableMembers.length === 0}
+            onChange={(event) => context.onMutation(updateLadCoil(context.graph, {
+              coilNodeId: nodeId,
+              memberId: event.target.value,
+              networkId: context.networkId,
+            }))}
+            value={memberId}
+          >
+            {memberOptions(context.writableMembers, memberId)}
+          </select>
+        </label>
+        <label>
+          <span>Coil</span>
+          <select
+            disabled={context.busy}
+            onChange={(event) => context.onMutation(updateLadCoil(context.graph, {
+              coilNodeId: nodeId,
+              mode: event.target.value as "negated" | "normal" | "reset" | "set",
+              networkId: context.networkId,
+            }))}
+            value={typeof node.mode === "string" ? node.mode : "normal"}
+          >
+            <option value="normal">Normal</option>
+            <option value="negated">Negated</option>
+            <option value="set">Set</option>
+            <option value="reset">Reset</option>
+          </select>
+        </label>
+      </div>
+    );
+  }
+  if (element.nodeKind === "return") {
+    return <div className="lad-element lad-return"><strong>RETURN</strong></div>;
+  }
+  return (
+    <div className="lad-element lad-element--unsupported">
+      <strong>{element.nodeKind}</strong>
+      <small>This canonical node is visible but not editable in the basic LAD palette yet.</small>
+    </div>
   );
 };
 

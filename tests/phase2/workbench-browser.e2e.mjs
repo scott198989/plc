@@ -161,7 +161,7 @@ try {
   if (await page.getByText("CALL", { exact: true }).count() !== 2) {
     throw new Error("mixed-language LAD block did not retain both real FC call nodes");
   }
-  const contactMode = page.getByLabel("Contact").first();
+  const contactMode = page.locator(".lad-contact select").nth(1);
   await contactMode.selectOption("normally-closed");
   await contactMode.selectOption("normally-open");
   const ladderScreenshot = path.join(evidenceDirectory, "workbench-lad-editor.png");

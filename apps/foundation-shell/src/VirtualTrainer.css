@@ -1,0 +1,292 @@
+.virtual-trainer {
+  --trainer-ink: #e9f2ff;
+  --trainer-muted: #9fb0c6;
+  --trainer-panel: #111b29;
+  --trainer-edge: #2b3b50;
+  --trainer-accent: #53c7ff;
+  --trainer-live: #75ef9a;
+  background: linear-gradient(145deg, #101a28, #0a111b);
+  border: 1px solid var(--trainer-edge);
+  border-radius: 18px;
+  box-shadow: 0 18px 50px rgb(0 0 0 / 22%);
+  color: var(--trainer-ink);
+  padding: 24px;
+}
+
+.virtual-trainer__header,
+.virtual-trainer__panel-heading,
+.virtual-trainer__device-label {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.virtual-trainer__header h2,
+.virtual-trainer__panel-heading h3,
+.virtual-trainer__header p {
+  margin: 0;
+}
+
+.virtual-trainer__header p {
+  color: var(--trainer-muted);
+  margin-top: 6px;
+}
+
+.virtual-trainer__eyebrow,
+.virtual-trainer__panel-heading span {
+  color: var(--trainer-accent);
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.virtual-trainer__state {
+  align-items: center;
+  background: #172333;
+  border: 1px solid var(--trainer-edge);
+  border-radius: 999px;
+  color: var(--trainer-muted);
+  display: inline-flex;
+  font-size: 0.82rem;
+  font-weight: 700;
+  gap: 8px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.virtual-trainer__state > span {
+  background: #718198;
+  border-radius: 50%;
+  height: 8px;
+  width: 8px;
+}
+
+.virtual-trainer__state[data-ready="true"] {
+  color: var(--trainer-live);
+}
+
+.virtual-trainer__state[data-ready="true"] > span {
+  background: var(--trainer-live);
+  box-shadow: 0 0 10px rgb(117 239 154 / 70%);
+}
+
+.virtual-trainer__panels {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  margin-top: 22px;
+}
+
+.virtual-trainer__panel {
+  background: color-mix(in srgb, var(--trainer-panel) 94%, transparent);
+  border: 1px solid var(--trainer-edge);
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.virtual-trainer__panel-heading {
+  border-bottom: 1px solid var(--trainer-edge);
+  padding-bottom: 13px;
+}
+
+.virtual-trainer__panel-heading > small,
+.virtual-trainer__device-label code,
+.virtual-trainer__feedback,
+.virtual-trainer__empty,
+.virtual-trainer__notice {
+  color: var(--trainer-muted);
+}
+
+.virtual-trainer__device-grid {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.virtual-trainer__device {
+  background: #0b1420;
+  border: 1px solid #243449;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+.virtual-trainer__device-label code {
+  font-size: 0.75rem;
+}
+
+.virtual-trainer__pushbutton,
+.virtual-trainer__switch {
+  color: var(--trainer-ink);
+  cursor: pointer;
+  font: inherit;
+  font-weight: 750;
+  margin-top: 14px;
+  min-height: 54px;
+  width: 100%;
+}
+
+.virtual-trainer__mode-picker {
+  background: #111d2b;
+  border: 1px solid #2b3d53;
+  border-radius: 8px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  margin-top: 12px;
+  padding: 3px;
+}
+
+.virtual-trainer__mode-picker button {
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: var(--trainer-muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 700;
+  min-height: 30px;
+}
+
+.virtual-trainer__mode-picker button[aria-pressed="true"] {
+  background: #2c425a;
+  color: var(--trainer-ink);
+}
+
+.virtual-trainer__pushbutton {
+  align-items: center;
+  background: linear-gradient(#334861, #233347);
+  border: 1px solid #54708f;
+  border-radius: 12px;
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+}
+
+.virtual-trainer__pushbutton > span {
+  background: var(--trainer-accent);
+  border: 3px solid #92ddff;
+  border-radius: 50%;
+  box-shadow: 0 3px 0 #0a6a94;
+  height: 18px;
+  width: 18px;
+}
+
+.virtual-trainer__pushbutton:active > span,
+.virtual-trainer__pushbutton[data-active="true"] > span {
+  box-shadow: 0 0 12px rgb(83 199 255 / 78%);
+  transform: translateY(2px);
+}
+
+.virtual-trainer__switch {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  display: flex;
+  justify-content: center;
+  gap: 12px;
+}
+
+.virtual-trainer__switch > span {
+  background: #2a394d;
+  border: 1px solid #50647d;
+  border-radius: 999px;
+  display: block;
+  height: 30px;
+  padding: 3px;
+  transition: background 140ms ease;
+  width: 58px;
+}
+
+.virtual-trainer__switch i {
+  background: #afbdd0;
+  border-radius: 50%;
+  display: block;
+  height: 22px;
+  transition: transform 140ms ease;
+  width: 22px;
+}
+
+.virtual-trainer__switch[aria-checked="true"] > span {
+  background: #236b45;
+  border-color: var(--trainer-live);
+}
+
+.virtual-trainer__switch[aria-checked="true"] i {
+  background: var(--trainer-live);
+  transform: translateX(26px);
+}
+
+.virtual-trainer__feedback {
+  display: block;
+  margin-top: 7px;
+  text-align: center;
+}
+
+.virtual-trainer__indicator {
+  align-items: center;
+  display: grid;
+  gap: 2px 12px;
+  grid-template-columns: auto 1fr;
+  margin-top: 18px;
+}
+
+.virtual-trainer__indicator > span {
+  background: #28384b;
+  border: 4px solid #4c6078;
+  border-radius: 50%;
+  grid-row: 1 / 3;
+  height: 38px;
+  width: 38px;
+}
+
+.virtual-trainer__indicator--actuator > span {
+  border-radius: 8px;
+}
+
+.virtual-trainer__indicator[data-active="true"] > span {
+  background: var(--trainer-live);
+  border-color: #a8ffc0;
+  box-shadow: 0 0 18px rgb(117 239 154 / 65%);
+}
+
+.virtual-trainer__indicator small {
+  color: var(--trainer-muted);
+  text-transform: capitalize;
+}
+
+.virtual-trainer__empty,
+.virtual-trainer__notice {
+  line-height: 1.5;
+}
+
+.virtual-trainer__notice {
+  background: #172333;
+  border-left: 3px solid var(--trainer-accent);
+  border-radius: 6px;
+  margin: 18px 0 0;
+  padding: 10px 12px;
+}
+
+.virtual-trainer button:focus-visible {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+.virtual-trainer button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+@media (max-width: 560px) {
+  .virtual-trainer {
+    border-radius: 12px;
+    padding: 16px;
+  }
+
+  .virtual-trainer__header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import type { ReplayVerificationReceipt } from "./replay-types";
+import { VirtualTrainer } from "./VirtualTrainer";
 import type {
   EngineeringRuntimeView,
   RuntimeForceView,
@@ -181,6 +182,11 @@ export const RuntimeInspector = ({
           </dl>
         </section>
       )}
+      <VirtualTrainer
+        busy={busy}
+        onOperation={onOperation}
+        runtime={runtime}
+      />
       <section className="runtime-tool-section">
         <div className="runtime-tool-section__heading">
           <span><small>Live values</small><strong>Runtime probes</strong></span>
