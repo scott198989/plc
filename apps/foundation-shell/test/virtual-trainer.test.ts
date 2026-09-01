@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   createMomentaryPulseOperationSequence,
   VirtualTrainer,
+  VirtualTrainerTutorialProvider,
 } from "../src/VirtualTrainer";
 import type { EngineeringRuntimeView, RuntimeProbeView } from "../src/runtime-types";
 
@@ -124,6 +125,35 @@ describe("Virtual Trainer", () => {
     expect(markup).toContain('role="switch"');
     expect(markup).toContain('aria-checked="true"');
     expect(markup).toContain("ON");
+  });
+
+  it("temporarily presents the active tutorial input as a momentary pushbutton", () => {
+    const tutorialRuntime = {
+      ...runtime,
+      session: runtime.session === null ? null : {
+        ...runtime.session,
+        probes: [{
+          ...booleanProbe("start", "input", false),
+          displayName: "Start_PB",
+        }],
+      },
+    } satisfies EngineeringRuntimeView;
+    const markup = renderToStaticMarkup(
+      createElement(
+        VirtualTrainerTutorialProvider,
+        { target: "press-start" },
+        createElement(VirtualTrainer, {
+          busy: false,
+          inputControls: { start: "maintained" },
+          onOperation: async () => undefined,
+          runtime: tutorialRuntime,
+        }),
+      ),
+    );
+
+    expect(markup).toContain('aria-label="Pulse Start_PB"');
+    expect(markup).toContain('data-tutorial-target="press-start"');
+    expect(markup).not.toContain('role="switch"');
   });
 
   it("uses learner-friendly device defaults for starter tag names", () => {

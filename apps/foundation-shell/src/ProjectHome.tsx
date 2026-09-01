@@ -1,6 +1,7 @@
 import { useId, useState } from "react";
 
 import { verifyLocalFoundation } from "./foundation-client";
+import { TutorialLaunchButton } from "./GuidedTutorial";
 import { ThemeToggle } from "./ThemeToggle";
 import type { AppTheme } from "./ThemeToggle";
 
@@ -11,6 +12,7 @@ type ProjectHomeProps = Readonly<{
   fileAccessAvailable: boolean;
   onCreate: (displayName: string) => Promise<void>;
   onOpen: () => Promise<void>;
+  onStartTutorial: () => void;
   onToggleTheme: () => void;
   theme: AppTheme;
 }>;
@@ -22,6 +24,7 @@ export const ProjectHome = ({
   fileAccessAvailable,
   onCreate,
   onOpen,
+  onStartTutorial,
   onToggleTheme,
   theme,
 }: ProjectHomeProps): React.JSX.Element => {
@@ -48,6 +51,7 @@ export const ProjectHome = ({
           <span className="core-state__dot" aria-hidden="true" />
           {coreLabel === null ? "Starting core" : `Core ${coreLabel}`}
         </div>
+        <TutorialLaunchButton onClick={onStartTutorial} />
         <ThemeToggle onToggle={onToggleTheme} theme={theme} />
       </header>
 
@@ -69,7 +73,7 @@ export const ProjectHome = ({
         </section>
 
         <section className="project-actions" aria-label="Project actions">
-          <article className="project-action-card project-action-card--primary">
+          <article className="project-action-card project-action-card--primary" data-tutorial-target="create-project">
             <span className="action-number" aria-hidden="true">01</span>
             <div className="action-copy">
               <p className="action-kicker">Start clean</p>

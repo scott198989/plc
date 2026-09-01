@@ -37,12 +37,15 @@ import { projectLadNetworkTopology } from "./lad-topology";
 import type { LadTopologyItem, LadTopologyParallel } from "./lad-topology";
 import { projectMotorStarterGuide } from "./motor-starter-guide";
 import type { MotorStarterGuideProjection } from "./motor-starter-guide";
+import { TutorialLaunchButton } from "./GuidedTutorial";
+import type { GuidedTutorialStep } from "./guided-tutorial";
 import { RuntimeInspector, RuntimeToolbar } from "./RuntimeWorkbench";
 import type { ReplayVerificationReceipt } from "./replay-types";
 import type { EngineeringRuntimeView, RuntimeOperation } from "./runtime-types";
 import { TagConfigurationEditor } from "./TagConfigurationEditor";
 import { ThemeToggle } from "./ThemeToggle";
 import type { AppTheme } from "./ThemeToggle";
+import { VirtualTrainerTutorialProvider } from "./VirtualTrainer";
 import type {
   ProjectPayload,
   ProjectPayloadValue,
@@ -61,12 +64,25 @@ type EngineeringWorkbenchProps = Readonly<{
   onRuntimeOperation: (operation: RuntimeOperation) => Promise<void>;
   onSave: (mode: "save" | "save-as") => Promise<void>;
   onStartSimulation: () => Promise<void>;
+  onStartTutorial: () => void;
   onToggleTheme: () => void;
+  onTutorialMilestone: (milestone: "seal-in-added" | "stop-contact-added") => void;
   onVerifyReplay: () => Promise<void>;
   replayReceipt: ReplayVerificationReceipt | null;
   snapshot: WorkbenchSnapshot;
   theme: AppTheme;
+  tutorialStep: GuidedTutorialStep | null;
 }>;
+
+const ladderTutorialEditorSteps: ReadonlySet<GuidedTutorialStep> = new Set([
+  "select-stop",
+  "add-stop-nc",
+  "select-seal-in",
+  "add-seal-in",
+  "start-simulation",
+  "press-start",
+  "press-stop",
+]);
 
 const kindLabel: Readonly<Record<WorkbenchObjectView["kind"], string>> = {
   BuildRecord: "Build record",
@@ -102,11 +118,14 @@ export const EngineeringWorkbench = ({
   onRuntimeOperation,
   onSave,
   onStartSimulation,
+  onStartTutorial,
   onToggleTheme,
+  onTutorialMilestone,
   onVerifyReplay,
   replayReceipt,
   snapshot,
   theme,
+  tutorialStep,
 }: EngineeringWorkbenchProps): React.JSX.Element => {
   const [selectedId, setSelectedId] = useState(snapshot.projectRootId);
   const [openTabs, setOpenTabs] = useState<readonly string[]>([snapshot.projectRootId]);
@@ -202,6 +221,29 @@ export const EngineeringWorkbench = ({
   const learnerLadProgram = activeObjects.find((object) =>
     object.kind === "OB" && object.semanticPayload.language === "LAD"
   );
+  useEffect(() => {
+    if (tutorialStep === "create-lab") {
+      setSelectedId(snapshot.projectRootId);
+      setOpenTabs((current) => current.includes(snapshot.projectRootId)
+        ? current
+        : [...current, snapshot.projectRootId]);
+      setBottomPane(null);
+      setLadderFocus(false);
+      return;
+    }
+    if (tutorialStep === null || learnerLadProgram === undefined || !ladderTutorialEditorSteps.has(tutorialStep)) {
+      return;
+    }
+    setSelectedId(learnerLadProgram.id);
+    setOpenTabs((current) => current.includes(learnerLadProgram.id)
+      ? current
+      : [...current, learnerLadProgram.id]);
+    const runtimeTutorialStep = tutorialStep === "press-start" || tutorialStep === "press-stop";
+    setBottomPane(runtimeTutorialStep ? "runtime" : null);
+    if (runtimeTutorialStep) {
+      setLadderFocus(false);
+    }
+  }, [learnerLadProgram, snapshot.projectRootId, tutorialStep]);
   const tombstoneCount = Object.values(snapshot.objects).length - activeObjects.length;
   const blockingCount = snapshot.diagnostics.filter((diagnostic) => diagnostic.blocking).length;
   const createOptions = selected === undefined ? [] : creationOptions(selected, snapshot);
@@ -281,6 +323,7 @@ export const EngineeringWorkbench = ({
           </span>
         </div>
         <div className="header-actions" aria-label="Project commands">
+          <TutorialLaunchButton compact onClick={onStartTutorial} />
           {ladderSelected && (
             <button
               aria-controls="main-content"
@@ -463,6 +506,7 @@ export const EngineeringWorkbench = ({
                 onOperation={onOperation}
                 onStartSimulation={startAndOpenSimulation}
                 onToggleLadderFocus={toggleLadderFocus}
+                onTutorialMilestone={onTutorialMilestone}
                 snapshot={snapshot}
               />
             ) : (
@@ -528,14 +572,20 @@ export const EngineeringWorkbench = ({
             )}
             {bottomPane === "runtime" && (
               <div className="runtime-pane-scroll">
-                <RuntimeInspector
-                  busy={busy}
-                  onNavigate={selectObject}
-                  onOperation={onRuntimeOperation}
-                  onVerifyReplay={onVerifyReplay}
-                  replayReceipt={replayReceipt}
-                  runtime={snapshot.runtime}
-                />
+                <VirtualTrainerTutorialProvider
+                  target={tutorialStep === "press-start" || tutorialStep === "press-stop"
+                    ? tutorialStep
+                    : null}
+                >
+                  <RuntimeInspector
+                    busy={busy}
+                    onNavigate={selectObject}
+                    onOperation={onRuntimeOperation}
+                    onVerifyReplay={onVerifyReplay}
+                    replayReceipt={replayReceipt}
+                    runtime={snapshot.runtime}
+                  />
+                </VirtualTrainerTutorialProvider>
               </div>
             )}
           </section>
@@ -679,6 +729,7 @@ const ProjectOverview = ({
           </div>
           <button
             className="learning-start-card__action"
+            data-tutorial-target="create-lab"
             disabled={busy}
             onClick={onLadderAction}
             type="button"
@@ -1226,6 +1277,7 @@ type GraphicalProgramEditorProps = Readonly<{
   onOperation: (operation: WorkbenchOperation) => Promise<void>;
   onStartSimulation: () => Promise<void>;
   onToggleLadderFocus: () => void;
+  onTutorialMilestone: (milestone: "seal-in-added" | "stop-contact-added") => void;
   snapshot: WorkbenchSnapshot;
 }>;
 
@@ -1236,6 +1288,7 @@ const GraphicalProgramEditor = ({
   onOperation,
   onStartSimulation,
   onToggleLadderFocus,
+  onTutorialMilestone,
   snapshot,
 }: GraphicalProgramEditorProps): React.JSX.Element => {
   const language = object.semanticPayload.language === "FBD" ? "FBD" : "LAD";
@@ -1290,6 +1343,14 @@ const GraphicalProgramEditor = ({
   const motorGuide = language === "LAD" && firstTopology?.ok === true
     ? projectMotorStarterGuide(firstTopology.topology, readableBooleanMembers)
     : null;
+  useEffect(() => {
+    if (motorGuide?.hasStopContact === true) {
+      onTutorialMilestone("stop-contact-added");
+    }
+    if (motorGuide?.hasSealInBranch === true) {
+      onTutorialMilestone("seal-in-added");
+    }
+  }, [motorGuide?.hasSealInBranch, motorGuide?.hasStopContact, onTutorialMilestone]);
   useEffect(() => {
     setLadAuthoringError(null);
     setLadInsertTarget(null);
@@ -1470,6 +1531,7 @@ const GraphicalProgramEditor = ({
               </button>
               <button
                 aria-label="NC contact"
+                data-tutorial-target="add-stop-nc"
                 disabled={busy || ladInsertTarget === null || ladPaletteMemberId.length === 0}
                 onClick={() => insertPaletteContact("normally-closed")}
                 title={ladInsertTarget === null ? "Choose an insert point first" : "Insert a normally closed contact"}
@@ -1607,7 +1669,7 @@ const MotorStarterCoach = ({
             <small>Put Stop_PB normally closed in series so pressing Stop interrupts every path.</small>
           </div>
           {!guide.hasStopContact && (
-            <button disabled={busy} onClick={onPrepareStop} type="button">Select Stop instruction</button>
+            <button data-tutorial-target="select-stop" disabled={busy} onClick={onPrepareStop} type="button">Select Stop instruction</button>
           )}
         </li>
         <li data-complete={guide.hasSealInBranch}>
@@ -1617,7 +1679,7 @@ const MotorStarterCoach = ({
             <small>Add a Motor_Run normally open contact in parallel with Start_PB.</small>
           </div>
           {!guide.hasSealInBranch && guide.hasStopContact && (
-            <button disabled={busy} onClick={onPrepareSealIn} type="button">Select seal-in contact</button>
+            <button data-tutorial-target="select-seal-in" disabled={busy} onClick={onPrepareSealIn} type="button">Select seal-in contact</button>
           )}
         </li>
         <li data-complete={simulationRunning}>
@@ -1627,7 +1689,7 @@ const MotorStarterCoach = ({
             <small>{simulationRunning ? motorState : "Start the virtual PLC, press Start, then press Stop."}</small>
           </div>
           {guide.complete && !simulationRunning && (
-            <button disabled={busy} onClick={() => void onStartSimulation()} type="button">Start simulation</button>
+            <button data-tutorial-target="start-simulation" disabled={busy} onClick={() => void onStartSimulation()} type="button">Start simulation</button>
           )}
         </li>
       </ol>
@@ -2085,6 +2147,7 @@ const LadElement = ({
         <div className="lad-element__actions">
           <button
             aria-label={`Add ${parallelMember?.operandLabel ?? parallelMember?.name ?? "variable"} parallel with ${selectedMember?.operandLabel ?? selectedMember?.name ?? "selected contact"}`}
+            data-tutorial-target={context.guideTargetNodeId === nodeId ? "add-seal-in" : undefined}
             disabled={context.busy || parallelMember === undefined}
             onClick={() => {
               if (parallelMember !== undefined) {

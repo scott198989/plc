@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { createContext, useContext, useState } from "react";
+import type { ReactNode } from "react";
 
 import type {
   EngineeringRuntimeView,
@@ -12,6 +13,22 @@ export { createMomentaryPulseOperationSequence } from "./VirtualTrainerOperation
 export type BooleanInputControl = "maintained" | "momentary";
 
 export type BooleanOutputDevice = "actuator" | "lamp";
+
+type VirtualTrainerTutorialTarget = "press-start" | "press-stop";
+
+const VirtualTrainerTutorialContext = createContext<VirtualTrainerTutorialTarget | null>(null);
+
+export const VirtualTrainerTutorialProvider = ({
+  children,
+  target,
+}: Readonly<{
+  children?: ReactNode;
+  target: VirtualTrainerTutorialTarget | null;
+}>): React.JSX.Element => (
+  <VirtualTrainerTutorialContext.Provider value={target}>
+    {children}
+  </VirtualTrainerTutorialContext.Provider>
+);
 
 export type VirtualTrainerProps = Readonly<{
   busy: boolean;
@@ -40,6 +57,7 @@ export const VirtualTrainer = ({
   const [controlModes, setControlModes] = useState<Record<string, BooleanInputControl>>(
     () => ({ ...inputControls }),
   );
+  const tutorialTarget = useContext(VirtualTrainerTutorialContext);
   const session = runtime.session;
   const inputs = session?.probes.filter(isBooleanInput) ?? [];
   const outputs = session?.probes.filter(isBooleanOutput) ?? [];
@@ -95,7 +113,9 @@ export const VirtualTrainer = ({
             ) : (
               <div className="virtual-trainer__device-grid">
                 {inputs.map((probe) => {
-                  const mode = controlModes[probe.id] ?? inputControls[probe.id] ?? inferredInputControl(probe);
+                  const inputTutorialTarget = tutorialTargetForInput(probe.displayName);
+                  const configuredMode = controlModes[probe.id] ?? inputControls[probe.id] ?? inferredInputControl(probe);
+                  const mode = tutorialTarget === inputTutorialTarget ? "momentary" : configuredMode;
                   const rawValue = booleanValue(probe.rawInputValue);
                   const effectiveValue = booleanValue(probe.effectiveValue);
                   const pending = activeControlId === probe.id;
@@ -137,6 +157,7 @@ export const VirtualTrainer = ({
                           aria-label={`Pulse ${probe.displayName}`}
                           className="virtual-trainer__pushbutton"
                           data-active={pending}
+                          data-tutorial-target={inputTutorialTarget}
                           disabled={controlsDisabled}
                           onClick={() => void execute(
                             probe.id,
@@ -245,4 +266,17 @@ const inferredInputControl = (probe: RuntimeProbeView): BooleanInputControl => {
 const inferredOutputDevice = (probe: RuntimeProbeView): BooleanOutputDevice => {
   const name = probe.displayName.toLocaleLowerCase("en-US");
   return /(?:motor|pump|fan|conveyor|valve|actuator)/u.test(name) ? "actuator" : "lamp";
+};
+
+const tutorialTargetForInput = (displayName: string): "press-start" | "press-stop" | undefined => {
+  const normalized = displayName
+    .trim()
+    .toLocaleLowerCase("en-US")
+    .replaceAll(/[^a-z0-9]+/gu, "_")
+    .replaceAll(/^_+|_+$/gu, "");
+  return normalized === "start_pb"
+    ? "press-start"
+    : normalized === "stop_pb"
+      ? "press-stop"
+      : undefined;
 };

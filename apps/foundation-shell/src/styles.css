@@ -96,6 +96,37 @@ input:disabled {
 .home-header .theme-toggle { margin-left: 8px; }
 .header-actions .theme-toggle { margin: 0 3px; }
 
+.tutorial-launch {
+  min-height: 32px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-control);
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: rgb(247 250 253 / 64%);
+  color: #34465e;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 720;
+}
+
+.tutorial-launch > span:first-child {
+  width: 18px;
+  height: 18px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 10px;
+  font-weight: 850;
+}
+
+.tutorial-launch:hover { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-deep); }
+.tutorial-launch--compact { width: 32px; min-width: 32px; padding: 0; }
+.home-header .tutorial-launch { margin-left: 8px; }
+
 code { font-family: "Cascadia Mono", "Consolas", monospace; }
 
 .eyebrow,
@@ -2603,6 +2634,215 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 
 .runtime-unavailable__diagnostic code { overflow: hidden; color: #41545a; font-size: 8px; text-overflow: ellipsis; white-space: nowrap; }
 
+/* First-run guided ladder lesson */
+
+.guided-tutorial {
+  position: fixed;
+  z-index: 1000;
+  inset: 0;
+  pointer-events: none;
+}
+
+.guided-tutorial__scrim {
+  position: fixed;
+  z-index: 1000;
+  background: rgb(4 10 20 / 74%);
+  pointer-events: auto;
+  -webkit-backdrop-filter: blur(2px) saturate(72%);
+  backdrop-filter: blur(2px) saturate(72%);
+}
+
+.guided-tutorial__scrim--full { inset: 0; }
+
+.guided-tutorial__ring {
+  position: fixed;
+  z-index: 1001;
+  border: 3px solid #7db3ff;
+  border-radius: 12px;
+  pointer-events: none;
+  box-shadow: 0 0 0 4px rgb(52 119 206 / 30%), 0 0 30px rgb(66 146 255 / 68%);
+  animation: tutorial-ring 1.4s ease-in-out infinite;
+}
+
+.guided-tutorial__pointer {
+  position: fixed;
+  z-index: 1002;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border: 2px solid #d9eaff;
+  border-radius: 50%;
+  background: #2f75c9;
+  box-shadow: 0 10px 26px rgb(0 0 0 / 34%), 0 0 18px rgb(83 156 255 / 52%);
+  color: #fff;
+  pointer-events: none;
+  font-size: 23px;
+  font-weight: 900;
+}
+
+.guided-tutorial__pointer[data-placement="left"],
+.guided-tutorial__pointer[data-placement="right"] { animation: tutorial-pointer-x 780ms ease-in-out infinite alternate; }
+.guided-tutorial__pointer[data-placement="above"],
+.guided-tutorial__pointer[data-placement="below"] { animation: tutorial-pointer-y 780ms ease-in-out infinite alternate; }
+
+.guided-tutorial__card {
+  position: fixed;
+  z-index: 1003;
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  max-width: calc(100vw - 32px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  border: 1px solid rgb(112 153 207 / 70%);
+  border-top: 4px solid var(--accent);
+  border-radius: 14px;
+  padding: 18px;
+  background: var(--panel-glass-strong);
+  box-shadow: var(--glass-highlight), 0 26px 74px rgb(0 0 0 / 42%);
+  color: var(--ink);
+  pointer-events: auto;
+  -webkit-backdrop-filter: blur(24px) saturate(130%);
+  backdrop-filter: blur(24px) saturate(130%);
+}
+
+.guided-tutorial__card[data-nudge="0"],
+.guided-tutorial__card[data-nudge="1"] { animation: tutorial-nudge 190ms ease-out; }
+
+.guided-tutorial__card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.guided-tutorial__card > header span {
+  color: var(--accent-deep);
+  font-size: 9px;
+  font-weight: 820;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.guided-tutorial__card h2 {
+  margin: 4px 0 0;
+  color: var(--ink);
+  font-size: 21px;
+  line-height: 1.15;
+  letter-spacing: -0.025em;
+}
+
+.guided-tutorial__card > header > strong {
+  min-width: 46px;
+  border: 1px solid #7da0cd;
+  border-radius: 999px;
+  padding: 6px 8px;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  text-align: center;
+  font: 760 10px "Cascadia Mono", "Consolas", monospace;
+}
+
+.guided-tutorial__card > p {
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.guided-tutorial__tip {
+  margin-top: 14px;
+  border-left: 3px solid #4e91e3;
+  border-radius: 0 7px 7px 0;
+  padding: 9px 10px;
+  display: grid;
+  grid-template-columns: 20px 1fr;
+  align-items: start;
+  gap: 8px;
+  background: var(--accent-soft);
+  color: #355f91;
+  font-size: 10px;
+  line-height: 1.45;
+}
+
+.guided-tutorial__tip > span {
+  width: 18px;
+  height: 18px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font: 800 9px "Cascadia Mono", "Consolas", monospace;
+}
+
+.guided-tutorial__instruction,
+.guided-tutorial__locating {
+  min-height: 32px;
+  border-radius: 7px;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgb(232 241 253 / 72%);
+  color: #2e5f99 !important;
+  font-size: 10px !important;
+  font-weight: 720;
+}
+
+.guided-tutorial__locating { color: var(--muted) !important; }
+
+.guided-tutorial__review {
+  margin: 14px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 7px;
+  list-style: none;
+}
+
+.guided-tutorial__review li {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 10px;
+  display: grid;
+  gap: 3px;
+  background: var(--panel-subtle);
+}
+
+.guided-tutorial__review strong { color: var(--ink); font-size: 10px; }
+.guided-tutorial__review span { color: var(--muted); font-size: 9px; line-height: 1.4; }
+
+.guided-tutorial__card > footer {
+  margin-top: 16px;
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.guided-tutorial__card > footer small { margin-right: auto; color: var(--muted); font-size: 8px; }
+.guided-tutorial__card > footer button {
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  padding: 0 12px;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 740;
+}
+.guided-tutorial__secondary { background: var(--panel-subtle); color: var(--muted); }
+.guided-tutorial__primary { border-color: #245ea6 !important; background: #2f72c2; color: #fff; }
+
+@keyframes tutorial-ring {
+  0%, 100% { box-shadow: 0 0 0 3px rgb(52 119 206 / 22%), 0 0 22px rgb(66 146 255 / 44%); }
+  50% { box-shadow: 0 0 0 7px rgb(52 119 206 / 12%), 0 0 36px rgb(66 146 255 / 72%); }
+}
+
+@keyframes tutorial-pointer-x { to { transform: translateX(8px); } }
+@keyframes tutorial-pointer-y { to { transform: translateY(8px); } }
+@keyframes tutorial-nudge { 50% { translate: 4px 0; } }
+
 @media (max-width: 980px) {
   .home-main { grid-template-columns: 1fr; align-items: start; gap: 42px; }
   .home-intro h1,
@@ -2637,6 +2877,8 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
   .core-state { font-size: 0; }
   .theme-toggle { min-width: 32px; width: 32px; padding: 0; }
   .theme-toggle > span:last-child { display: none; }
+  .home-header .tutorial-launch { min-width: 32px; width: 32px; padding: 0; }
+  .home-header .tutorial-launch > span:last-child { display: none; }
   .home-main { width: calc(100% - 34px); padding: 38px 0; gap: 32px; }
   .home-intro h1 { font-size: clamp(36px, 11vw, 48px); }
   .home-intro > p:not(.eyebrow) { font-size: 16px; }
@@ -2878,6 +3120,7 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 :root[data-theme="dark"] .safety-strip span:last-child { color: #9aacbf; }
 
 :root[data-theme="dark"] .theme-toggle,
+:root[data-theme="dark"] .tutorial-launch,
 :root[data-theme="dark"] .icon-button,
 :root[data-theme="dark"] .text-button--quiet,
 :root[data-theme="dark"] .secondary-button,
@@ -2890,6 +3133,7 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 :root[data-theme="dark"] .primary-button,
 :root[data-theme="dark"] .text-button { background: #2f6fc0; color: #fff; }
 :root[data-theme="dark"] .theme-toggle:hover,
+:root[data-theme="dark"] .tutorial-launch:hover,
 :root[data-theme="dark"] .icon-button:hover:not(:disabled),
 :root[data-theme="dark"] .secondary-button:hover:not(:disabled) { background: #243c5d; color: #b9d5ff; }
 
@@ -3024,6 +3268,10 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 :root[data-theme="dark"] .tag-config__areas strong { color: #cbd9e9; }
 
 :root[data-theme="dark"] .dialog-backdrop { background: rgb(3 8 14 / 72%); }
+:root[data-theme="dark"] .guided-tutorial__card { border-color: #486a95; background: rgb(18 29 43 / 97%); }
+:root[data-theme="dark"] .guided-tutorial__tip,
+:root[data-theme="dark"] .guided-tutorial__instruction,
+:root[data-theme="dark"] .guided-tutorial__locating { background: #1b3553; color: #a9ccf5 !important; }
 :root[data-theme="dark"] .workbench-toast { border-color: #915966; background: #321c24; color: #ffdce2; }
 
 @media (forced-colors: active) {
@@ -3045,6 +3293,7 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
   .runtime-tool-section,
   .runtime-unavailable,
   .decision-dialog,
+  .guided-tutorial__card,
   .create-object-menu,
   .tag-config__header,
   .tag-config__form,

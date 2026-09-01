@@ -5,6 +5,8 @@ import type {
   LadTopologyItem,
   LadTopologyParallel,
 } from "./lad-topology";
+import { projectLadNetworkTopology } from "./lad-topology";
+import type { WorkbenchSnapshot } from "./workbench-types";
 
 export type MotorStarterGuideMember = Readonly<{
   id: string;
@@ -76,6 +78,39 @@ export const projectMotorStarterGuide = (
     stopInsertionEdgeId: startContact?.beforeEdgeId ?? null,
     stopMemberId: stop.id,
   };
+};
+
+/** Finds the canonical beginner motor-starter circuit anywhere in the active project. */
+export const projectWorkbenchMotorStarterGuide = (
+  snapshot: WorkbenchSnapshot,
+): MotorStarterGuideProjection | null => {
+  const programs = Object.values(snapshot.objects).filter((object) =>
+    object.lifecycle === "active" &&
+    object.kind === "OB" &&
+    object.semanticPayload.language === "LAD"
+  );
+
+  for (const program of programs) {
+    const graph = canonicalRecordFields(program.semanticPayload.graph);
+    const network = graph !== null && Array.isArray(graph.networks)
+      ? canonicalRecordFields(graph.networks[0])
+      : null;
+    const topology = network === null ? null : projectLadNetworkTopology(network);
+    if (topology?.ok !== true || !Array.isArray(program.semanticPayload.interface)) {
+      continue;
+    }
+    const members = program.semanticPayload.interface.flatMap((value) => {
+      const member = canonicalRecordFields(value);
+      return member !== null && typeof member.id === "string" && typeof member.name === "string"
+        ? [{ id: member.id, name: member.name }]
+        : [];
+    });
+    const projection = projectMotorStarterGuide(topology.topology, members);
+    if (projection.available) {
+      return projection;
+    }
+  }
+  return null;
 };
 
 const unavailable = (reason: string): MotorStarterGuideProjection => ({
