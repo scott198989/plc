@@ -1,4 +1,5 @@
 import type {
+  ProjectPayload,
   ProjectPayloadValue,
   WorkbenchObjectView,
   WorkbenchOperation,
@@ -32,6 +33,7 @@ export const memoryTagDataTypes = [
 
 export type TagDataType = typeof memoryTagDataTypes[number];
 export type TagAddressIntent = "auto" | "explicit";
+export const TAG_DESCRIPTION_MAX_LENGTH = 1_000;
 
 export type TagBindingOption = Readonly<{
   areas: readonly TagAddressArea[];
@@ -51,7 +53,29 @@ export type TagConfigurationDraft = Readonly<{
   area: TagAddressArea;
   bindingKey: string | null;
   dataType: string;
+  description: string;
   name: string;
+}>;
+
+export type TagProgramOption = Readonly<{
+  id: string;
+  name: string;
+}>;
+
+export type TagWithMemberCreationDraft = Readonly<{
+  addressIntent: TagAddressIntent;
+  addressText: string;
+  area: TagAddressArea;
+  dataType: string;
+  description: string;
+  name: string;
+  programId: string | null;
+}>;
+
+export type TagWithMemberCreationPlan = Readonly<{
+  memberId: string;
+  operations: readonly WorkbenchOperation[];
+  tagId: string;
 }>;
 
 export type ParsedTagAddress = Readonly<{
@@ -61,7 +85,7 @@ export type ParsedTagAddress = Readonly<{
 }>;
 
 export type TagConfigurationErrors = Readonly<
-  Partial<Record<"address" | "area" | "binding" | "dataType" | "name", string>>
+  Partial<Record<"address" | "area" | "binding" | "dataType" | "description" | "name", string>>
 >;
 
 export type TagConfigurationValidation = Readonly<{
@@ -73,6 +97,7 @@ export type TagConfigurationValidation = Readonly<{
 const PLC_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]{0,127}$/u;
 const CANONICAL_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/iu;
 const MAX_UINT32 = 4_294_967_295;
+const defaultIdFactory = (): string => crypto.randomUUID();
 
 export const tagKindForArea = (area: TagAddressArea): "Input" | "Memory" | "Output" => {
   switch (area) {
@@ -112,6 +137,7 @@ export const readTagConfiguration = (object: WorkbenchObjectView): TagConfigurat
     area,
     bindingKey: blockId !== null && memberId !== null ? bindingKey(blockId, memberId) : null,
     dataType,
+    description: text(object.semanticPayload.comment) ?? "",
     name: object.displayName,
   };
 };
@@ -119,9 +145,9 @@ export const readTagConfiguration = (object: WorkbenchObjectView): TagConfigurat
 /** Finds only well-formed, same-controller canonical interface members. */
 export const discoverTagBindings = (
   snapshot: WorkbenchSnapshot,
-  tag: WorkbenchObjectView,
+  owner: WorkbenchObjectView,
 ): readonly TagBindingOption[] => {
-  const controllerId = controllerAncestor(snapshot, tag);
+  const controllerId = controllerAncestor(snapshot, owner);
   if (controllerId === null) {
     return [];
   }
@@ -189,21 +215,11 @@ export const compatibleTagBindings = (
   candidate.areas.includes(area) && candidate.dataType === dataType.toLocaleUpperCase("en-US")
 );
 
-/**
- * The current workbench command surface updates one top-level field per
- * transaction. Rebinding within one block changes only memberId and therefore
- * keeps edu.tag/1 valid at every committed intermediate state.
- */
+/** Backward-compatible alias now that complete tag payloads update atomically. */
 export const sequentiallySafeTagBindings = (
   bindings: readonly TagBindingOption[],
   source: TagConfigurationDraft,
-): readonly TagBindingOption[] => {
-  const current = bindings.find((candidate) => candidate.key === source.bindingKey);
-  return current === undefined
-    ? []
-    : compatibleTagBindings(bindings, source.area, source.dataType)
-        .filter((candidate) => candidate.blockId === current.blockId);
-};
+): readonly TagBindingOption[] => compatibleTagBindings(bindings, source.area, source.dataType);
 
 export const parseManualTagAddress = (
   addressText: string,
@@ -269,39 +285,14 @@ export const validateTagConfiguration = (
   snapshot: WorkbenchSnapshot,
   tag: WorkbenchObjectView,
 ): TagConfigurationValidation => {
-  const errors: Partial<Record<keyof TagConfigurationErrors, string>> = {};
-  if (!PLC_IDENTIFIER.test(draft.name)) {
-    errors.name = "Use 1–128 letters, digits, or underscores, starting with a letter or underscore.";
-  } else if (hasSiblingName(snapshot, tag, draft.name)) {
-    errors.name = "Another tag in this symbol table already uses this name.";
-  }
-
-  const admittedTypes = dataTypesForTagArea(draft.area) as readonly string[];
-  if (draft.area !== source.area) {
-    errors.area = "Changing an existing tag area requires an atomic project update that is not available yet.";
-  }
-  if (draft.dataType !== source.dataType) {
-    errors.dataType = "Changing an existing tag type requires an atomic project update that is not available yet.";
-  } else if (!admittedTypes.includes(draft.dataType)) {
-    errors.dataType = draft.area === "M"
-      ? "Choose a canonical scalar PLC type."
-      : "Physical I/O currently supports BOOL digital channels and INT analog channels.";
-  }
-
-  let parsedAddress: ParsedTagAddress | null = null;
-  if (draft.area === "M" && draft.addressIntent !== "auto") {
-    errors.address = "Memory tags are allocated in program memory and must use automatic allocation.";
-  } else if (draft.addressIntent === "explicit") {
-    const parsed = parseManualTagAddress(draft.addressText, draft.area, draft.dataType);
-    if (!parsed.ok) {
-      errors.address = parsed.error;
-    } else {
-      parsedAddress = parsed.value;
-    }
-  }
+  const { errors, parsedAddress } = validateTagFields(
+    draft,
+    snapshot,
+    tag.parentId,
+    tag.id,
+  );
 
   const selectedBinding = bindings.find((candidate) => candidate.key === draft.bindingKey);
-  const sourceBinding = bindings.find((candidate) => candidate.key === source.bindingKey);
   const sourceBindingStillOpaque =
     selectedBinding === undefined &&
     draft.bindingKey !== null &&
@@ -316,11 +307,6 @@ export const validateTagConfiguration = (
       !selectedBinding.areas.includes(draft.area)
     ) {
       errors.binding = "The program variable type or role does not match this tag.";
-    } else if (
-      draft.bindingKey !== source.bindingKey &&
-      (sourceBinding === undefined || selectedBinding.blockId !== sourceBinding.blockId)
-    ) {
-      errors.binding = "Choose a compatible variable in the current program block. Moving a tag between blocks requires an atomic project update.";
     }
   }
 
@@ -334,13 +320,15 @@ export const tagConfigurationChanged = (
   draft.name !== source.name ||
   draft.area !== source.area ||
   draft.dataType !== source.dataType ||
+  draft.description !== source.description ||
   draft.addressIntent !== source.addressIntent ||
   (draft.addressIntent === "explicit" && draft.addressText !== source.addressText) ||
   draft.bindingKey !== source.bindingKey;
 
 /**
- * Produces ordinary canonical workbench commands. The caller remains the only
- * authority that commits them through the existing engineering client.
+ * Renames remain their own identity command, while every semantic field is
+ * replaced in one transaction so an area, type, address, and binding change
+ * can never leave a partially updated tag in the project.
  */
 export const buildTagConfigurationOperations = (
   draft: TagConfigurationDraft,
@@ -364,18 +352,231 @@ export const buildTagConfigurationOperations = (
   const selectedBinding = bindings.find((candidate) => candidate.key === draft.bindingKey);
   const currentBlockId = text(tag.semanticPayload.blockId);
   const currentMemberId = text(tag.semanticPayload.memberId);
-  pushTextField(operations, tag, "blockId", selectedBinding?.blockId ?? currentBlockId);
-  pushTextField(operations, tag, "memberId", selectedBinding?.memberId ?? currentMemberId);
-  pushTextField(operations, tag, "dataType", draft.dataType);
-
-  if (draft.addressIntent === "explicit" && validation.parsedAddress !== null) {
-    pushUnsignedField(operations, tag, "byteOffset", validation.parsedAddress.byteOffset);
-    pushUnsignedField(operations, tag, "bitOffset", validation.parsedAddress.bitOffset);
+  const semanticChangeRequested =
+    draft.area !== source.area ||
+    draft.dataType !== source.dataType ||
+    draft.description !== source.description ||
+    draft.addressIntent !== source.addressIntent ||
+    (draft.addressIntent === "explicit" && draft.addressText !== source.addressText) ||
+    draft.bindingKey !== source.bindingKey;
+  if (semanticChangeRequested) {
+    const semanticPayload = createTagSemanticPayload(
+      draft,
+      validation,
+      selectedBinding?.blockId ?? currentBlockId,
+      selectedBinding?.memberId ?? currentMemberId,
+      tag.semanticPayload,
+    );
+    if (semanticPayload !== null) {
+      operations.push({
+        kind: "project.replace-semantic-payload",
+        objectId: tag.id,
+        semanticPayload,
+      });
+    }
   }
-  pushTextField(operations, tag, "addressIntent", draft.area === "M" ? "auto" : draft.addressIntent);
-  pushTextField(operations, tag, "addressArea", draft.area);
-  pushTextField(operations, tag, "tagKind", tagKindForArea(draft.area));
   return operations;
+};
+
+/** Empty learner-facing values for creating a tag from an existing variable. */
+export const createTagDraftDefaults = (
+  area: TagAddressArea = "I",
+): TagConfigurationDraft => ({
+  addressIntent: "auto",
+  addressText: suggestedAddress(area, "BOOL"),
+  area,
+  bindingKey: null,
+  dataType: "BOOL",
+  description: "",
+  name: "",
+});
+
+export const validateTagCreation = (
+  draft: TagConfigurationDraft,
+  snapshot: WorkbenchSnapshot,
+  symbolTable: WorkbenchObjectView,
+): TagConfigurationValidation => {
+  const { errors, parsedAddress } = validateTagFields(draft, snapshot, symbolTable.id, null);
+  const bindings = discoverTagBindings(snapshot, symbolTable);
+  const selectedBinding = bindings.find((candidate) => candidate.key === draft.bindingKey);
+  if (selectedBinding === undefined) {
+    errors.binding = "Choose a program variable for this tag.";
+  } else if (
+    selectedBinding.dataType !== draft.dataType ||
+    !selectedBinding.areas.includes(draft.area)
+  ) {
+    errors.binding = "The program variable type or role does not match this tag.";
+  }
+  return { errors, parsedAddress, valid: Object.keys(errors).length === 0 };
+};
+
+/** Emits one complete edu.tag/1 create command after all learner choices validate. */
+export const buildTagCreationOperation = (
+  draft: TagConfigurationDraft,
+  validation: TagConfigurationValidation,
+  snapshot: WorkbenchSnapshot,
+  symbolTable: WorkbenchObjectView,
+  idFactory: () => string = defaultIdFactory,
+): WorkbenchOperation | null => {
+  const currentValidation = validateTagCreation(draft, snapshot, symbolTable);
+  if (!validation.valid || !currentValidation.valid || symbolTable.kind !== "SymbolTable") {
+    return null;
+  }
+  const selectedBinding = discoverTagBindings(snapshot, symbolTable)
+    .find((candidate) => candidate.key === draft.bindingKey);
+  if (selectedBinding === undefined) {
+    return null;
+  }
+  const semanticPayload = createTagSemanticPayload(
+    draft,
+    currentValidation,
+    selectedBinding.blockId,
+    selectedBinding.memberId,
+  );
+  if (semanticPayload === null) {
+    return null;
+  }
+  const objectId = idFactory();
+  if (!CANONICAL_UUID.test(objectId)) {
+    return null;
+  }
+  return {
+    displayName: draft.name,
+    kind: "project.create-object",
+    objectId,
+    objectKind: "tag",
+    parentId: symbolTable.id,
+    payloadSchema: "edu.tag/1",
+    presentationPayload: {},
+    semanticPayload,
+  };
+};
+
+/** Finds active LAD organization blocks under the tag table's controller. */
+export const discoverLadTagPrograms = (
+  snapshot: WorkbenchSnapshot,
+  symbolTable: WorkbenchObjectView,
+): readonly TagProgramOption[] => {
+  const controllerId = controllerAncestor(snapshot, symbolTable);
+  if (controllerId === null) {
+    return [];
+  }
+  return Object.values(snapshot.objects)
+    .filter((candidate) =>
+      candidate.lifecycle === "active" &&
+      candidate.kind === "OB" &&
+      candidate.semanticPayload.language === "LAD" &&
+      Array.isArray(candidate.semanticPayload.interface) &&
+      isDescendantOf(snapshot, candidate, controllerId)
+    )
+    .map((candidate) => ({ id: candidate.id, name: candidate.displayName }))
+    .sort((left, right) =>
+      left.name.localeCompare(right.name, "en-US") || left.id.localeCompare(right.id, "en-US")
+    );
+};
+
+export const createTagWithMemberDraftDefaults = (
+  programId: string | null = null,
+  area: TagAddressArea = "I",
+): TagWithMemberCreationDraft => {
+  const tag = createTagDraftDefaults(area);
+  return {
+    addressIntent: tag.addressIntent,
+    addressText: tag.addressText,
+    area: tag.area,
+    dataType: tag.dataType,
+    description: tag.description,
+    name: tag.name,
+    programId,
+  };
+};
+
+export const validateTagWithMemberCreation = (
+  draft: TagWithMemberCreationDraft,
+  snapshot: WorkbenchSnapshot,
+  symbolTable: WorkbenchObjectView,
+): TagConfigurationValidation => {
+  const tagDraft = withBinding(draft, null);
+  const { errors, parsedAddress } = validateTagFields(tagDraft, snapshot, symbolTable.id, null);
+  const programs = discoverLadTagPrograms(snapshot, symbolTable);
+  if (draft.programId === null || !programs.some((program) => program.id === draft.programId)) {
+    errors.binding = "Choose a LAD program in this controller for the new variable.";
+  }
+  return { errors, parsedAddress, valid: Object.keys(errors).length === 0 };
+};
+
+/**
+ * Adds one valid temporary LAD interface member, then creates the complete tag
+ * bound to it. The first committed state merely has an unused member; the
+ * second connects it, so both intermediate and final project states are valid.
+ */
+export const buildTagWithMemberCreationPlan = (
+  draft: TagWithMemberCreationDraft,
+  validation: TagConfigurationValidation,
+  snapshot: WorkbenchSnapshot,
+  symbolTable: WorkbenchObjectView,
+  idFactory: () => string = defaultIdFactory,
+): TagWithMemberCreationPlan | null => {
+  const currentValidation = validateTagWithMemberCreation(draft, snapshot, symbolTable);
+  if (
+    !validation.valid ||
+    !currentValidation.valid ||
+    symbolTable.kind !== "SymbolTable" ||
+    draft.programId === null
+  ) {
+    return null;
+  }
+  const program = snapshot.objects[draft.programId];
+  const allowed = discoverLadTagPrograms(snapshot, symbolTable)
+    .some((candidate) => candidate.id === draft.programId);
+  const currentInterface = program?.semanticPayload.interface;
+  if (!allowed || program === undefined || !Array.isArray(currentInterface)) {
+    return null;
+  }
+
+  const memberId = idFactory();
+  const tagId = idFactory();
+  if (!CANONICAL_UUID.test(memberId) || !CANONICAL_UUID.test(tagId)) {
+    return null;
+  }
+  const member = interfaceMemberPayload(
+    memberId,
+    draft.name,
+    draft.dataType,
+    nextInterfaceOrder(currentInterface),
+  );
+  const tagDraft = withBinding(draft, bindingKey(program.id, memberId));
+  const semanticPayload = createTagSemanticPayload(
+    tagDraft,
+    currentValidation,
+    program.id,
+    memberId,
+  );
+  if (semanticPayload === null) {
+    return null;
+  }
+  return {
+    memberId,
+    operations: [
+      {
+        key: "interface",
+        kind: "project.set-semantic-field",
+        objectId: program.id,
+        value: [...currentInterface, member],
+      },
+      {
+        displayName: draft.name,
+        kind: "project.create-object",
+        objectId: tagId,
+        objectKind: "tag",
+        parentId: symbolTable.id,
+        payloadSchema: "edu.tag/1",
+        presentationPayload: {},
+        semanticPayload,
+      },
+    ],
+    tagId,
+  };
 };
 
 export const addressHelp = (area: TagAddressArea, dataType: string): string => {
@@ -497,46 +698,212 @@ const areasForRole = (role: string): readonly TagAddressArea[] => {
   }
 };
 
-const hasSiblingName = (
+const validateTagFields = (
+  draft: TagConfigurationDraft,
   snapshot: WorkbenchSnapshot,
-  tag: WorkbenchObjectView,
+  symbolTableId: string | null,
+  excludedTagId: string | null,
+): Readonly<{
+  errors: Partial<Record<keyof TagConfigurationErrors, string>>;
+  parsedAddress: ParsedTagAddress | null;
+}> => {
+  const errors: Partial<Record<keyof TagConfigurationErrors, string>> = {};
+  if (!PLC_IDENTIFIER.test(draft.name)) {
+    errors.name = "Use 1–128 letters, digits, or underscores, starting with a letter or underscore.";
+  } else if (hasTagName(snapshot, symbolTableId, excludedTagId, draft.name)) {
+    errors.name = "Another tag in this symbol table already uses this name.";
+  }
+
+  if (draft.description.length > TAG_DESCRIPTION_MAX_LENGTH) {
+    errors.description = `Keep the description to ${TAG_DESCRIPTION_MAX_LENGTH} characters or fewer.`;
+  }
+
+  const areaIsValid = (tagAddressAreas as readonly string[]).includes(draft.area);
+  if (!areaIsValid) {
+    errors.area = "Choose Input (I), Output (Q), or Memory (M).";
+  } else {
+    const admittedTypes = dataTypesForTagArea(draft.area) as readonly string[];
+    if (!admittedTypes.includes(draft.dataType)) {
+      errors.dataType = draft.area === "M"
+        ? "Choose a canonical scalar PLC type."
+        : "Physical I/O currently supports BOOL digital channels and INT analog channels.";
+    }
+  }
+
+  let parsedAddress: ParsedTagAddress | null = null;
+  if (draft.area === "M" && draft.addressIntent !== "auto") {
+    errors.address = "Memory tags are allocated in program memory and must use automatic allocation.";
+  } else if (draft.addressIntent === "explicit" && areaIsValid) {
+    const parsed = parseManualTagAddress(draft.addressText, draft.area, draft.dataType);
+    if (!parsed.ok) {
+      errors.address = parsed.error;
+    } else {
+      parsedAddress = parsed.value;
+      const conflict = explicitAddressConflict(
+        snapshot,
+        symbolTableId,
+        excludedTagId,
+        draft.area,
+        draft.dataType,
+        parsedAddress,
+      );
+      if (conflict !== null) {
+        errors.address = `That manual address overlaps ${conflict}. Choose another I/O address.`;
+      }
+    }
+  }
+
+  return { errors, parsedAddress };
+};
+
+const hasTagName = (
+  snapshot: WorkbenchSnapshot,
+  symbolTableId: string | null,
+  excludedTagId: string | null,
   name: string,
 ): boolean => Object.values(snapshot.objects).some((candidate) =>
-  candidate.id !== tag.id &&
+  candidate.id !== excludedTagId &&
   candidate.lifecycle === "active" &&
   candidate.kind === "Tag" &&
-  candidate.parentId === tag.parentId &&
+  candidate.parentId === symbolTableId &&
   candidate.displayName.toLocaleLowerCase("en-US") === name.toLocaleLowerCase("en-US")
 );
 
-const pushTextField = (
-  operations: WorkbenchOperation[],
-  tag: WorkbenchObjectView,
-  key: string,
-  value: string | null,
-): void => {
-  if (value !== null && tag.semanticPayload[key] !== value) {
-    operations.push({
-      key,
-      kind: "project.set-semantic-field",
-      objectId: tag.id,
-      value,
-    });
+const explicitAddressConflict = (
+  snapshot: WorkbenchSnapshot,
+  symbolTableId: string | null,
+  excludedTagId: string | null,
+  area: TagAddressArea,
+  dataType: string,
+  address: ParsedTagAddress,
+): string | null => {
+  if (area === "M") {
+    return null;
   }
+  const requested = addressSpan(dataType, address.byteOffset, address.bitOffset);
+  if (requested === null) {
+    return null;
+  }
+  for (const candidate of Object.values(snapshot.objects)) {
+    if (
+      candidate.id === excludedTagId ||
+      candidate.lifecycle !== "active" ||
+      candidate.kind !== "Tag" ||
+      candidate.parentId !== symbolTableId ||
+      candidate.semanticPayload.addressArea !== area ||
+      candidate.semanticPayload.addressIntent !== "explicit"
+    ) {
+      continue;
+    }
+    const byteOffset = canonicalUnsigned(candidate.semanticPayload.byteOffset);
+    const bitOffset = canonicalUnsigned(candidate.semanticPayload.bitOffset) ?? 0;
+    const candidateType = text(candidate.semanticPayload.dataType)?.toLocaleUpperCase("en-US") ?? "";
+    const occupied = byteOffset === null ? null : addressSpan(candidateType, byteOffset, bitOffset);
+    if (
+      occupied !== null &&
+      requested.firstBit <= occupied.lastBit &&
+      occupied.firstBit <= requested.lastBit
+    ) {
+      return `“${candidate.displayName}”`;
+    }
+  }
+  return null;
 };
 
-const pushUnsignedField = (
-  operations: WorkbenchOperation[],
-  tag: WorkbenchObjectView,
-  key: string,
-  value: number,
-): void => {
-  if (canonicalUnsigned(tag.semanticPayload[key]) !== value) {
-    operations.push({
-      key,
-      kind: "project.set-semantic-field",
-      objectId: tag.id,
-      value: { $type: "u64", value: value.toString(10) },
-    });
+const addressSpan = (
+  dataType: string,
+  byteOffset: number,
+  bitOffset: number,
+): Readonly<{ firstBit: number; lastBit: number }> | null => {
+  if (dataType === "BOOL" && bitOffset <= 7) {
+    const firstBit = byteOffset * 8 + bitOffset;
+    return { firstBit, lastBit: firstBit };
   }
+  if (dataType === "INT") {
+    const firstBit = byteOffset * 8;
+    return { firstBit, lastBit: firstBit + 15 };
+  }
+  return null;
 };
+
+const createTagSemanticPayload = (
+  draft: TagConfigurationDraft,
+  validation: TagConfigurationValidation,
+  blockId: string | null,
+  memberId: string | null,
+  base: ProjectPayload = {},
+): ProjectPayload | null => {
+  if (blockId === null || memberId === null) {
+    return null;
+  }
+  const payload: Record<string, ProjectPayloadValue> = {
+    ...base,
+    addressArea: draft.area,
+    addressIntent: draft.area === "M" ? "auto" : draft.addressIntent,
+    blockId,
+    comment: draft.description,
+    dataType: draft.dataType,
+    memberId,
+    tagKind: tagKindForArea(draft.area),
+  };
+  if (draft.addressIntent === "explicit" && draft.area !== "M") {
+    if (validation.parsedAddress === null) {
+      return null;
+    }
+    payload.byteOffset = unsignedPayload(validation.parsedAddress.byteOffset);
+    payload.bitOffset = unsignedPayload(validation.parsedAddress.bitOffset);
+  } else {
+    delete payload.byteOffset;
+    delete payload.bitOffset;
+  }
+  return payload;
+};
+
+const withBinding = (
+  draft: TagWithMemberCreationDraft,
+  selectedBindingKey: string | null,
+): TagConfigurationDraft => ({
+  addressIntent: draft.addressIntent,
+  addressText: draft.addressText,
+  area: draft.area,
+  bindingKey: selectedBindingKey,
+  dataType: draft.dataType,
+  description: draft.description,
+  name: draft.name,
+});
+
+const interfaceMemberPayload = (
+  id: string,
+  name: string,
+  dataType: string,
+  order: number,
+): ProjectPayloadValue => ({
+  $type: "record",
+  value: {
+    id,
+    name,
+    order: unsignedPayload(order),
+    requiredOutput: false,
+    retentive: false,
+    role: "temp",
+    type: dataType,
+  },
+});
+
+const nextInterfaceOrder = (members: readonly ProjectPayloadValue[]): number => {
+  let maximum = -1;
+  for (const member of members) {
+    const order = recordFields(member);
+    const parsed = order === null ? null : canonicalUnsigned(order.order);
+    if (parsed !== null && parsed > maximum) {
+      maximum = parsed;
+    }
+  }
+  const next = maximum + 1;
+  return Number.isSafeInteger(next) ? next : members.length;
+};
+
+const unsignedPayload = (value: number): ProjectPayloadValue => ({
+  $type: "u64",
+  value: value.toString(10),
+});

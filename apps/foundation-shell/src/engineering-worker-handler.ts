@@ -675,6 +675,26 @@ class EngineeringWorkerEngine {
           ),
         };
       }
+      case "project.replace-semantic-payload": {
+        const revisions = expected([operation.objectId]);
+        return {
+          contractCommand: {
+            commandKind: operation.kind,
+            objectId: operation.objectId,
+            semanticPayload: operation.semanticPayload,
+          },
+          expectedObjectRevisions: revisions,
+          historyToken: "",
+          kernelRequest: envelope(
+            {
+              kind: "replace-semantic-payload",
+              objectId: operation.objectId,
+              semanticPayload: operation.semanticPayload,
+            },
+            revisions,
+          ),
+        };
+      }
       case "project.delete-object": {
         const revisions = expected([operation.objectId]);
         return {
@@ -1558,6 +1578,21 @@ const parseWorkbenchOperation = (input: unknown): WorkbenchOperation => {
         value,
       };
     }
+    case "project.replace-semantic-payload":
+      requireExactKeys(
+        record,
+        ["kind", "objectId", "semanticPayload"],
+        "replace semantic payload operation",
+      );
+      return {
+        kind,
+        objectId: requireUuid(record.objectId, "object ID"),
+        semanticPayload: parseProjectPayload(
+          record.semanticPayload,
+          "semantic payload",
+          { remaining: 8_192 },
+        ),
+      };
     case "project.delete-object":
       requireExactKeys(record, ["kind", "objectId"], "delete operation");
       return { kind, objectId: requireUuid(record.objectId, "object ID") };

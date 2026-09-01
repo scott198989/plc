@@ -1,5 +1,7 @@
 @import url("./VirtualTrainer.css");
 @import url("./TagConfigurationEditor.css");
+@import url("./HardwareConfigurationEditor.css");
+@import url("./TagTableEditor.css");
 
 :root {
   color: #172235;
@@ -34,6 +36,18 @@
 }
 
 * { box-sizing: border-box; }
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
 
 html,
 body,
@@ -2060,6 +2074,10 @@ code { font-family: "Cascadia Mono", "Consolas", monospace; }
 
 .object-actions button:hover:not(:disabled) { background: #f0f3f3; }
 .object-actions .danger-action { color: var(--danger); }
+.property-delete-confirm { display: grid; gap: 7px; border-left: 3px solid var(--danger); padding: 8px; background: rgb(179 47 67 / 8%); }
+.property-delete-confirm > span { color: var(--muted); font-size: 8px; line-height: 1.4; }
+.property-delete-confirm > div { display: flex; gap: 4px; }
+.property-delete-confirm > div button { min-width: 0; text-align: center; }
 
 .properties-foot {
   border-top: 1px solid var(--line);

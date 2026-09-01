@@ -158,7 +158,8 @@
 }
 
 .tag-config__field input,
-.tag-config__field select {
+.tag-config__field select,
+.tag-config__field textarea {
   width: 100%;
   min-height: 38px;
   border: 1px solid #a4b3c7;
@@ -169,8 +170,18 @@
   font-size: 12px;
 }
 
+.tag-config__field textarea {
+  min-height: 76px;
+  padding-block: 9px;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.tag-config__field--description { margin-top: 14px; }
+
 .tag-config__field input[aria-invalid="true"],
-.tag-config__field select[aria-invalid="true"] { border-color: var(--danger, #b12d36); }
+.tag-config__field select[aria-invalid="true"],
+.tag-config__field textarea[aria-invalid="true"] { border-color: var(--danger, #b12d36); }
 
 .tag-config__field input:hover:not(:disabled),
 .tag-config__field select:hover:not(:disabled) { border-color: #6686b0; }
@@ -295,6 +306,7 @@
 .tag-config__field--address em { grid-column: 2; }
 
 .tag-config__field--binding select { font-family: "Cascadia Mono", "Consolas", monospace; font-size: 10px; }
+.tag-config__binding-stack { display: grid; gap: 12px; }
 .tag-config__binding-warning { border-left-color: #a66a12; background: #fff8ed; }
 .tag-config__binding-warning code { overflow-wrap: anywhere; color: #71501f; font-size: 9px; }
 

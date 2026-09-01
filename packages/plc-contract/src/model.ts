@@ -417,6 +417,8 @@ export type ProjectPayloadValue =
       value: Readonly<Record<string, ProjectPayloadValue>>;
     }>;
 
+export type ProjectPayload = Readonly<Record<string, ProjectPayloadValue>>;
+
 export type ProjectCommand =
   | Readonly<{
       commandKind: "project.create";
@@ -455,6 +457,11 @@ export type ProjectCommand =
       key: string;
       objectId: Uuid;
       value: ProjectPayloadValue;
+    }>
+  | Readonly<{
+      commandKind: "project.replace-semantic-payload";
+      objectId: Uuid;
+      semanticPayload: ProjectPayload;
     }>
   | Readonly<{
       commandKind: "project.move-object";

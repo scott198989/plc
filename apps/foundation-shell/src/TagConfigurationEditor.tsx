@@ -3,9 +3,11 @@ import { useEffect, useId, useMemo, useState } from "react";
 import {
   addressHelp,
   buildTagConfigurationOperations,
+  compatibleTagBindings,
+  dataTypesForTagArea,
   discoverTagBindings,
   readTagConfiguration,
-  sequentiallySafeTagBindings,
+  TAG_DESCRIPTION_MAX_LENGTH,
   tagAddressAreas,
   tagConfigurationChanged,
   tagKindForArea,
@@ -67,8 +69,8 @@ export const TagConfigurationEditor = ({
   }, [source]);
 
   const compatibleBindings = useMemo(
-    () => sequentiallySafeTagBindings(bindings, source),
-    [bindings, source],
+    () => compatibleTagBindings(bindings, draft.area, draft.dataType),
+    [bindings, draft.area, draft.dataType],
   );
   const bindingUnavailable =
     source.bindingKey !== null && !bindings.some((candidate) => candidate.key === source.bindingKey);
@@ -174,18 +176,50 @@ export const TagConfigurationEditor = ({
 
             <label className="tag-config__field" htmlFor={`${fieldId}-type`}>
               <span>Data type</span>
-              <input
-                aria-describedby={`${fieldId}-type-help`}
-                disabled
+              <select
+                aria-describedby={validation.errors.dataType === undefined ? `${fieldId}-type-help` : `${fieldId}-type-error`}
+                aria-invalid={validation.errors.dataType !== undefined}
+                disabled={disabled}
                 id={`${fieldId}-type`}
-                readOnly
+                onChange={(event) => setDraft((current) => ({
+                  ...current,
+                  addressText: current.addressIntent === "explicit"
+                    ? manualAddress(current.area, event.target.value)
+                    : current.addressText,
+                  bindingKey: compatibleTagBindings(bindings, current.area, event.target.value)
+                    .some((candidate) => candidate.key === current.bindingKey)
+                      ? current.bindingKey
+                      : null,
+                  dataType: event.target.value,
+                }))}
                 value={draft.dataType}
-              />
+              >
+                {dataTypesForTagArea(draft.area).map((dataType) => (
+                  <option key={dataType} value={dataType}>{dataType}</option>
+                ))}
+              </select>
               <small id={`${fieldId}-type-help`}>
-                Fixed for this existing tag so every saved project state remains valid.
+                {draft.area === "M" ? "PLC scalar stored in program memory." : "Digital BOOL or word-sized INT I/O."}
               </small>
+              {validation.errors.dataType !== undefined && <em id={`${fieldId}-type-error`}>{validation.errors.dataType}</em>}
             </label>
           </div>
+          <label className="tag-config__field tag-config__field--description" htmlFor={`${fieldId}-description`}>
+            <span>Description</span>
+            <textarea
+              aria-describedby={validation.errors.description === undefined ? `${fieldId}-description-help` : `${fieldId}-description-error`}
+              aria-invalid={validation.errors.description !== undefined}
+              disabled={disabled}
+              id={`${fieldId}-description`}
+              maxLength={TAG_DESCRIPTION_MAX_LENGTH}
+              onChange={(event) => setDraft((current) => ({ ...current, description: event.target.value }))}
+              placeholder="What this tag represents in the machine"
+              rows={3}
+              value={draft.description}
+            />
+            <small id={`${fieldId}-description-help`}>{draft.description.length}/{TAG_DESCRIPTION_MAX_LENGTH} characters · shown in the tag table.</small>
+            {validation.errors.description !== undefined && <em id={`${fieldId}-description-error`}>{validation.errors.description}</em>}
+          </label>
         </section>
 
         <section className="tag-config__section">
@@ -196,14 +230,27 @@ export const TagConfigurationEditor = ({
               <p>Choose where the value enters, leaves, or lives inside the simulated PLC.</p>
             </div>
           </header>
-          <fieldset className="tag-config__areas" disabled>
+          <fieldset className="tag-config__areas" disabled={disabled}>
             <legend>Tag kind and address area</legend>
             {tagAddressAreas.map((area) => (
               <label data-selected={draft.area === area} key={area}>
                 <input
                   checked={draft.area === area}
                   name={`${fieldId}-area`}
-                  readOnly
+                  onChange={() => setDraft((current) => {
+                    const availableTypes = dataTypesForTagArea(area) as readonly string[];
+                    const dataType = availableTypes.includes(current.dataType) ? current.dataType : "BOOL";
+                    const bindingStillCompatible = compatibleTagBindings(bindings, area, dataType)
+                      .some((candidate) => candidate.key === current.bindingKey);
+                    return {
+                      ...current,
+                      addressIntent: area === "M" ? "auto" : current.addressIntent,
+                      addressText: area === "M" ? "" : manualAddress(area, dataType),
+                      area,
+                      bindingKey: bindingStillCompatible ? current.bindingKey : null,
+                      dataType,
+                    };
+                  })}
                   type="radio"
                   value={area}
                 />
@@ -215,7 +262,7 @@ export const TagConfigurationEditor = ({
               </label>
             ))}
           </fieldset>
-          <p className="tag-config__locked-note">Area and type are fixed for an existing tag until the project engine supports one atomic multi-field tag update.</p>
+          <p className="tag-config__locked-note">Changing area or type may require choosing another compatible program variable below. The complete tag payload is applied as one undoable project edit.</p>
         </section>
 
         <section className="tag-config__section">
@@ -288,13 +335,14 @@ export const TagConfigurationEditor = ({
               <p>The tag and the PLC variable share one value; no duplicate simulator state is created.</p>
             </div>
           </header>
-          {bindingUnavailable ? (
-            <div className="tag-config__binding-warning" role="status">
+          <div className="tag-config__binding-stack">
+            {bindingUnavailable && (
+              <div className="tag-config__binding-warning" role="status">
               <strong>Current binding is preserved</strong>
-              <p>The referenced program variable is not safely discoverable in this project view. Its canonical IDs remain unchanged; type and area editing are locked.</p>
+              <p>The referenced program variable is not discoverable in this project view. Keep this tag’s current area and type, or choose a compatible variable below.</p>
               <code>{source.bindingKey}</code>
-            </div>
-          ) : (
+              </div>
+            )}
             <label className="tag-config__field tag-config__field--binding" htmlFor={`${fieldId}-binding`}>
               <span>Program variable</span>
               <select
@@ -318,12 +366,12 @@ export const TagConfigurationEditor = ({
               </select>
               <small id={`${fieldId}-binding-help`}>
                 {compatibleBindings.length === 0
-                  ? `No safely editable ${draft.dataType} bindings were found in this tag's current program block.`
-                  : `${compatibleBindings.length} compatible variable${compatibleBindings.length === 1 ? "" : "s"} found in this tag's current program block.`}
+                  ? `No compatible ${draft.dataType} variables were found. Create one from the PLC tag table first.`
+                  : `${compatibleBindings.length} compatible variable${compatibleBindings.length === 1 ? "" : "s"} found in this controller.`}
               </small>
               {validation.errors.binding !== undefined && <em id={`${fieldId}-binding-error`}>{validation.errors.binding}</em>}
             </label>
-          )}
+          </div>
         </section>
 
         <footer className="tag-config__footer">

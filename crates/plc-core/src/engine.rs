@@ -405,6 +405,7 @@ fn required_precondition_ids(command: &DomainCommand) -> BTreeSet<ObjectId> {
         DomainCommand::Create(spec) => BTreeSet::from([spec.parent_id]),
         DomainCommand::Rename { object_id, .. }
         | DomainCommand::SetSemanticField { object_id, .. }
+        | DomainCommand::ReplaceSemanticPayload { object_id, .. }
         | DomainCommand::SetPresentationField { object_id, .. }
         | DomainCommand::Delete { object_id } => BTreeSet::from([*object_id]),
         DomainCommand::Move {
@@ -529,6 +530,16 @@ fn apply_command(
             validate_field_key(key, *object_id)?;
             let object = active_object_mut(project, *object_id)?;
             object.payload.semantic.insert(key.clone(), value.clone());
+            bump_object(object, true)?;
+            events.push(DomainEvent::Changed(*object_id));
+            true
+        }
+        DomainCommand::ReplaceSemanticPayload {
+            object_id,
+            semantic_payload,
+        } => {
+            let object = active_object_mut(project, *object_id)?;
+            object.payload.semantic.clone_from(semantic_payload);
             bump_object(object, true)?;
             events.push(DomainEvent::Changed(*object_id));
             true
@@ -1500,8 +1511,9 @@ mod tests {
     use super::Engine;
     use crate::hash::sha256;
     use crate::model::{
-        CommandContext, CommandEnvelope, CommandOutcome, DomainCommand, NewObject, ObjectId,
-        Payload, ProfilePin, Project, ProjectObjectKind, TransactionId, Uuid,
+        CommandContext, CommandEnvelope, CommandOutcome, DomainCommand, DomainEvent, NewObject,
+        ObjectId, Payload, PayloadValue, ProfilePin, Project, ProjectObjectKind, TransactionId,
+        Uuid,
     };
 
     fn id(n: u64) -> Uuid {
@@ -1639,6 +1651,130 @@ mod tests {
         assert_eq!(engine.execute(&rename).outcome, CommandOutcome::Committed);
         assert_eq!(engine.project().semantic_fingerprint(), baseline);
         assert_eq!(engine.project().semantic_revision(), baseline_revision);
+    }
+
+    #[test]
+    fn semantic_payload_replacement_is_atomic_revisioned_and_reversible() {
+        let (project, root) = fixture();
+        let mut engine = Engine::new(project).expect("engine");
+        let target = ObjectId(id(55));
+        let original_payload = BTreeMap::from([
+            ("keep".to_owned(), PayloadValue::from("old")),
+            ("remove".to_owned(), PayloadValue::Bool(true)),
+        ]);
+        let create = envelope(
+            engine.project(),
+            DomainCommand::Create(NewObject {
+                id: target,
+                kind: ProjectObjectKind::Generic,
+                parent_id: root,
+                display_name: "Atomic target".to_owned(),
+                payload_schema: "edu.atomic/1".to_owned(),
+                payload: Payload {
+                    semantic: original_payload.clone(),
+                    presentation: BTreeMap::new(),
+                },
+            }),
+            55,
+        );
+        assert_eq!(engine.execute(&create).outcome, CommandOutcome::Committed);
+
+        let replacement = BTreeMap::from([
+            ("keep".to_owned(), PayloadValue::from("new")),
+            (
+                "nested".to_owned(),
+                PayloadValue::Record(BTreeMap::from([(
+                    "enabled".to_owned(),
+                    PayloadValue::Bool(true),
+                )])),
+            ),
+        ]);
+        let semantic_fingerprint_before = engine.project().semantic_fingerprint();
+        let semantic_revision_before = engine.project().semantic_revision();
+        let target_before = engine.project().object(target).expect("target").clone();
+
+        let missing_precondition = envelope(
+            engine.project(),
+            DomainCommand::ReplaceSemanticPayload {
+                object_id: target,
+                semantic_payload: replacement.clone(),
+            },
+            56,
+        );
+        let rejected = engine.execute(&missing_precondition);
+        assert_eq!(rejected.outcome, CommandOutcome::Rejected);
+        assert_eq!(
+            rejected.diagnostics[0].code,
+            "KRN_MISSING_OBJECT_PRECONDITION"
+        );
+        assert_eq!(engine.project().object(target), Some(&target_before));
+
+        let replace = CommandEnvelope {
+            command_id: id(157),
+            transaction_id: TransactionId(id(257)),
+            expected_document_revision: engine.project().document_revision(),
+            expected_object_revisions: BTreeMap::from([(
+                target,
+                engine
+                    .project()
+                    .object(target)
+                    .expect("target")
+                    .object_revision,
+            )]),
+            context: CommandContext {
+                actor_id: "test".to_owned(),
+                can_mutate: true,
+            },
+            command: DomainCommand::ReplaceSemanticPayload {
+                object_id: target,
+                semantic_payload: replacement.clone(),
+            },
+        };
+        let committed = engine.execute(&replace);
+        assert_eq!(committed.outcome, CommandOutcome::Committed);
+        assert_eq!(committed.affected_object_ids, vec![target]);
+        assert_eq!(committed.domain_events, vec![DomainEvent::Changed(target)]);
+        let replaced = engine.project().object(target).expect("target");
+        assert_eq!(replaced.payload.semantic, replacement);
+        assert!(!replaced.payload.semantic.contains_key("remove"));
+        assert_eq!(replaced.object_revision, target_before.object_revision + 1);
+        assert_eq!(
+            replaced.semantic_revision,
+            target_before.semantic_revision + 1
+        );
+        assert_eq!(
+            engine.project().semantic_revision(),
+            semantic_revision_before + 1
+        );
+        assert_ne!(
+            engine.project().semantic_fingerprint(),
+            semantic_fingerprint_before
+        );
+
+        let undo_token = committed.undo_token.expect("undo token");
+        let undone = engine.undo(TransactionId(id(258)), undo_token);
+        assert_eq!(undone.outcome, CommandOutcome::Committed);
+        assert_eq!(
+            engine
+                .project()
+                .object(target)
+                .expect("target")
+                .payload
+                .semantic,
+            original_payload
+        );
+
+        let redone = engine.redo(TransactionId(id(259)));
+        assert_eq!(redone.outcome, CommandOutcome::Committed);
+        assert_eq!(
+            engine
+                .project()
+                .object(target)
+                .expect("target")
+                .payload
+                .semantic,
+            replacement
+        );
     }
 
     #[test]

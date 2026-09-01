@@ -104,6 +104,11 @@ export type WorkbenchOperation =
       objectId: string;
       value: ProjectPayloadValue;
     }>
+  | Readonly<{
+      kind: "project.replace-semantic-payload";
+      objectId: string;
+      semanticPayload: ProjectPayload;
+    }>
   | Readonly<{ kind: "project.undo" }>
   | Readonly<{ kind: "project.redo" }>;
 

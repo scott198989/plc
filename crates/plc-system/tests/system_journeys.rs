@@ -1531,6 +1531,47 @@ fn restore_approval_is_invalidated_by_an_intervening_target_mapping_change() {
 }
 
 #[test]
+fn whole_semantic_payload_replacement_invalidates_the_current_build() {
+    let mut fixture = Fixture::canonical_scl();
+    let mut session = loaded_session(&fixture);
+    assert!(session.status().build_current);
+    assert!(session.status().loaded);
+
+    let target = fixture.output_tag;
+    let mut replacement = fixture
+        .engine
+        .project()
+        .object(target)
+        .expect("output tag")
+        .payload
+        .semantic
+        .clone();
+    replacement.insert(
+        "description".to_owned(),
+        PayloadValue::from("Updated atomically"),
+    );
+    fixture.commit(
+        DomainCommand::ReplaceSemanticPayload {
+            object_id: target,
+            semantic_payload: replacement,
+        },
+        &[target],
+    );
+
+    let refresh = session
+        .refresh_project(fixture.engine.project().clone())
+        .expect("adopt semantic replacement");
+    assert!(refresh.semantic_changed);
+    assert!(refresh.build_invalidated);
+    assert!(refresh.loaded_runtime_preserved);
+    assert!(!session.status().build_current);
+    assert!(matches!(
+        session.preview_load(PostLoadMode::Stop),
+        Err(SystemError::CurrentBuildStale)
+    ));
+}
+
+#[test]
 fn invalid_offline_edit_remains_visible_while_loaded_run_state_is_preserved() {
     let mut fixture = Fixture::canonical_scl();
     let mut session = loaded_session(&fixture);

@@ -22,6 +22,9 @@ const IDS = {
   createProgram: "32900000-0000-4000-8000-000000000001",
   program: "32a00000-0000-4000-8000-000000000001",
   editProgram: "32b00000-0000-4000-8000-000000000001",
+  replaceProgram: "32c00000-0000-4000-8000-000000000001",
+  undoReplaceProgram: "32d00000-0000-4000-8000-000000000001",
+  redoReplaceProgram: "32e00000-0000-4000-8000-000000000001",
   createFolder: "33000000-0000-4000-8000-000000000001",
   folder: "34000000-0000-4000-8000-000000000001",
   copyFolder: "35000000-0000-4000-8000-000000000001",
@@ -168,6 +171,7 @@ describe("real engineering worker and WASM kernel", () => {
           blockKind: "OB",
           engineeringNumber: { $type: "u64", value: "1" },
           language: "SCL",
+          obsoleteDraft: "discard me",
           obRole: "CyclicMain",
           sourceText: "",
         },
@@ -188,6 +192,55 @@ describe("real engineering worker and WASM kernel", () => {
     }));
     expect(programEdited.outcome).toBe("committed");
     expect(programEdited.snapshot.objects[IDS.program]?.semanticPayload.sourceText).toBe(source);
+
+    const replacementSource = "InputValue := 12;\nOutputValue := InputValue + 1;";
+    const programReplaced = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: {
+        kind: "project.replace-semantic-payload",
+        objectId: IDS.program,
+        semanticPayload: {
+          blockKind: "OB",
+          description: "Atomic semantic edit",
+          engineeringNumber: { $type: "u64", value: "1" },
+          language: "SCL",
+          obRole: "CyclicMain",
+          sourceText: replacementSource,
+        },
+      },
+      requestId: IDS.replaceProgram,
+    }));
+    expect(programReplaced.outcome).toBe("committed");
+    expect(programReplaced.snapshot.objects[IDS.program]?.semanticPayload.sourceText).toBe(
+      replacementSource,
+    );
+    expect(
+      programReplaced.snapshot.objects[IDS.program]?.semanticPayload.obsoleteDraft,
+    ).toBeUndefined();
+
+    const replacementUndone = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: { kind: "project.undo" },
+      requestId: IDS.undoReplaceProgram,
+    }));
+    expect(replacementUndone.outcome).toBe("committed");
+    expect(replacementUndone.snapshot.objects[IDS.program]?.semanticPayload.sourceText).toBe(source);
+    expect(replacementUndone.snapshot.objects[IDS.program]?.semanticPayload.obsoleteDraft).toBe(
+      "discard me",
+    );
+
+    const replacementRedone = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: { kind: "project.redo" },
+      requestId: IDS.redoReplaceProgram,
+    }));
+    expect(replacementRedone.outcome).toBe("committed");
+    expect(replacementRedone.snapshot.objects[IDS.program]?.semanticPayload.sourceText).toBe(
+      replacementSource,
+    );
+    expect(
+      replacementRedone.snapshot.objects[IDS.program]?.semanticPayload.obsoleteDraft,
+    ).toBeUndefined();
 
     const folderCreated = operationValue(await executeEngineeringRequest({
       kind: "engineering.project.command",

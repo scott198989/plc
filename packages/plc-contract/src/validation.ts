@@ -1083,6 +1083,22 @@ const validateProjectPayloadValue = (
   }
 };
 
+const validateProjectPayload = (
+  input: unknown,
+  path: string,
+  budget: ProjectPayloadBudget,
+): void => {
+  const fields = requireRecord(input, path);
+  const entries = Object.entries(fields);
+  if (entries.length > 100_000) {
+    fail(path, "canonical project payload record exceeds its field limit");
+  }
+  for (const [key, value] of entries) {
+    requirePayloadKey(key, `${path}.${key}`);
+    validateProjectPayloadValue(value, `${path}.${key}`, budget);
+  }
+};
+
 const validateProjectCommand = (record: PlainRecord, path: string): void => {
   switch (record.commandKind) {
     case "project.create":
@@ -1156,6 +1172,16 @@ const validateProjectCommand = (record: PlainRecord, path: string): void => {
       requirePayloadKey(record.key, `${path}.key`);
       const budget = { remaining: 1_000_000 };
       validateProjectPayloadValue(record.value, `${path}.value`, budget);
+      break;
+    }
+    case "project.replace-semantic-payload": {
+      requireExactKeys(record, ["commandKind", "objectId", "semanticPayload"], path);
+      requireUuid(record.objectId, `${path}.objectId`);
+      validateProjectPayload(
+        record.semanticPayload,
+        `${path}.semanticPayload`,
+        { remaining: 1_000_000 },
+      );
       break;
     }
     case "project.move-object":
@@ -1602,6 +1628,7 @@ const DOMAIN_COMMAND_KINDS = [
   "project.create-object",
   "project.rename-object",
   "project.set-semantic-field",
+  "project.replace-semantic-payload",
   "project.set-presentation-field",
   "project.move-object",
   "project.delete-object",

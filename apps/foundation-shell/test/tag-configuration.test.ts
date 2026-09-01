@@ -1,15 +1,26 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildTagCreationOperation,
   buildTagConfigurationOperations,
+  buildTagWithMemberCreationPlan,
   compatibleTagBindings,
+  createTagDraftDefaults,
+  createTagWithMemberDraftDefaults,
+  discoverLadTagPrograms,
   discoverTagBindings,
   parseManualTagAddress,
   readTagConfiguration,
   sequentiallySafeTagBindings,
+  TAG_DESCRIPTION_MAX_LENGTH,
+  validateTagCreation,
   validateTagConfiguration,
+  validateTagWithMemberCreation,
 } from "../src/tag-configuration";
-import type { TagConfigurationDraft } from "../src/tag-configuration";
+import type {
+  TagConfigurationDraft,
+  TagWithMemberCreationDraft,
+} from "../src/tag-configuration";
 import type {
   ProjectPayload,
   ProjectPayloadValue,
@@ -29,6 +40,8 @@ const MEMORY_MEMBER_ID = "00000000-0000-4000-8000-000000000009";
 const OTHER_CONTROLLER_ID = "00000000-0000-4000-8000-000000000010";
 const OTHER_OB_ID = "00000000-0000-4000-8000-000000000011";
 const OTHER_MEMBER_ID = "00000000-0000-4000-8000-000000000012";
+const NEW_MEMBER_ID = "00000000-0000-4000-8000-000000000014";
+const NEW_TAG_ID = "00000000-0000-4000-8000-000000000015";
 
 describe("tag configuration", () => {
   it("reads an explicit canonical BOOL input tag", () => {
@@ -40,6 +53,7 @@ describe("tag configuration", () => {
         addressIntent: "explicit",
         bitOffset: unsigned(3),
         byteOffset: unsigned(12),
+        comment: "Normally open start button",
       },
     });
 
@@ -49,6 +63,7 @@ describe("tag configuration", () => {
       area: "I",
       bindingKey: `${OB_ID}:${INPUT_MEMBER_ID}`,
       dataType: "BOOL",
+      description: "Normally open start button",
       name: "Start_PB",
     });
   });
@@ -101,6 +116,7 @@ describe("tag configuration", () => {
       area: "Q",
       bindingKey: `${OB_ID}:${INPUT_MEMBER_ID}`,
       dataType: "DINT",
+      description: "x".repeat(TAG_DESCRIPTION_MAX_LENGTH + 1),
       name: "Bad tag name",
     };
     const result = validateTagConfiguration(invalid, source, bindings, snapshot, tag);
@@ -110,12 +126,13 @@ describe("tag configuration", () => {
       address: expect.any(String),
       binding: expect.any(String),
       dataType: expect.any(String),
+      description: expect.any(String),
       name: expect.any(String),
     });
     expect(buildTagConfigurationOperations(invalid, source, result, bindings, tag)).toEqual([]);
   });
 
-  it("emits only individually valid canonical operations for a name and input-address edit", () => {
+  it("atomically replaces tag semantics for a name and input-address edit", () => {
     const { snapshot, tag } = fixture();
     const source = readTagConfiguration(tag);
     const bindings = discoverTagBindings(snapshot, tag);
@@ -125,6 +142,7 @@ describe("tag configuration", () => {
       area: "I",
       bindingKey: `${OB_ID}:${INPUT_MEMBER_ID}`,
       dataType: "BOOL",
+      description: "Motor run command",
       name: "Motor_Run",
     };
     const validation = validateTagConfiguration(draft, source, bindings, snapshot, tag);
@@ -137,24 +155,269 @@ describe("tag configuration", () => {
     expect(operations).toEqual([
       { displayName: "Motor_Run", kind: "project.rename-object", objectId: TAG_ID },
       {
-        key: "byteOffset",
-        kind: "project.set-semantic-field",
+        kind: "project.replace-semantic-payload",
         objectId: TAG_ID,
-        value: unsigned(2),
-      },
-      {
-        key: "bitOffset",
-        kind: "project.set-semantic-field",
-        objectId: TAG_ID,
-        value: unsigned(5),
-      },
-      {
-        key: "addressIntent",
-        kind: "project.set-semantic-field",
-        objectId: TAG_ID,
-        value: "explicit",
+        semanticPayload: {
+          addressArea: "I",
+          addressIntent: "explicit",
+          bitOffset: unsigned(5),
+          blockId: OB_ID,
+          byteOffset: unsigned(2),
+          comment: "Motor run command",
+          dataType: "BOOL",
+          memberId: INPUT_MEMBER_ID,
+          tagKind: "Input",
+        },
       },
     ]);
+  });
+
+  it("changes area, type, and binding across blocks while preserving extensions and clearing stale addresses", () => {
+    const { snapshot, tag } = fixture();
+    const configuredTag: WorkbenchObjectView = {
+      ...tag,
+      semanticPayload: {
+        ...tag.semanticPayload,
+        addressIntent: "explicit",
+        bitOffset: unsigned(7),
+        byteOffset: unsigned(6),
+        extensionField: "preserve-me",
+      },
+    };
+    const configuredSnapshot = replaceObject(snapshot, configuredTag);
+    const source = readTagConfiguration(configuredTag);
+    const bindings = discoverTagBindings(configuredSnapshot, configuredTag);
+    const draft: TagConfigurationDraft = {
+      addressIntent: "auto",
+      addressText: "",
+      area: "M",
+      bindingKey: `${DB_ID}:${MEMORY_MEMBER_ID}`,
+      dataType: "DINT",
+      description: "Retained cycle count",
+      name: source.name,
+    };
+    const validation = validateTagConfiguration(
+      draft,
+      source,
+      bindings,
+      configuredSnapshot,
+      configuredTag,
+    );
+    const operations = buildTagConfigurationOperations(
+      draft,
+      source,
+      validation,
+      bindings,
+      configuredTag,
+    );
+
+    expect(validation.valid).toBe(true);
+    expect(operations).toHaveLength(1);
+    expect(operations[0]).toEqual({
+      kind: "project.replace-semantic-payload",
+      objectId: TAG_ID,
+      semanticPayload: {
+        addressArea: "M",
+        addressIntent: "auto",
+        blockId: DB_ID,
+        comment: "Retained cycle count",
+        dataType: "DINT",
+        extensionField: "preserve-me",
+        memberId: MEMORY_MEMBER_ID,
+        tagKind: "Memory",
+      },
+    });
+  });
+
+  it("rejects duplicate explicit sibling addresses", () => {
+    const { snapshot, tag } = fixture();
+    const occupied = object({
+      displayName: "Occupied_Input",
+      id: "00000000-0000-4000-8000-000000000016",
+      kind: "Tag",
+      parentId: SYMBOL_TABLE_ID,
+      payloadSchema: "edu.tag/1",
+      semanticPayload: {
+        addressArea: "I",
+        addressIntent: "explicit",
+        bitOffset: unsigned(5),
+        blockId: OB_ID,
+        byteOffset: unsigned(2),
+        dataType: "BOOL",
+        memberId: INPUT_MEMBER_ID,
+        tagKind: "Input",
+      },
+    });
+    const occupiedSnapshot = addObject(snapshot, occupied);
+    const source = readTagConfiguration(tag);
+    const bindings = discoverTagBindings(occupiedSnapshot, tag);
+    const validation = validateTagConfiguration(
+      { ...source, addressIntent: "explicit", addressText: "%I2.5" },
+      source,
+      bindings,
+      occupiedSnapshot,
+      tag,
+    );
+
+    expect(validation.valid).toBe(false);
+    expect(validation.errors.address).toContain("Occupied_Input");
+  });
+
+  it("creates one complete canonical tag from a discovered program variable", () => {
+    const { snapshot } = fixture();
+    const symbolTable = snapshot.objects[SYMBOL_TABLE_ID]!;
+    const draft: TagConfigurationDraft = {
+      ...createTagDraftDefaults("I"),
+      addressIntent: "explicit",
+      addressText: "%I4.2",
+      bindingKey: `${OB_ID}:${INPUT_MEMBER_ID}`,
+      description: "Photoeye at the infeed",
+      name: "Infeed_PE",
+    };
+    const validation = validateTagCreation(draft, snapshot, symbolTable);
+    const operation = buildTagCreationOperation(
+      draft,
+      validation,
+      snapshot,
+      symbolTable,
+      () => NEW_TAG_ID,
+    );
+
+    expect(validation.valid).toBe(true);
+    expect(operation).toEqual({
+      displayName: "Infeed_PE",
+      kind: "project.create-object",
+      objectId: NEW_TAG_ID,
+      objectKind: "tag",
+      parentId: SYMBOL_TABLE_ID,
+      payloadSchema: "edu.tag/1",
+      presentationPayload: {},
+      semanticPayload: {
+        addressArea: "I",
+        addressIntent: "explicit",
+        bitOffset: unsigned(2),
+        blockId: OB_ID,
+        byteOffset: unsigned(4),
+        comment: "Photoeye at the infeed",
+        dataType: "BOOL",
+        memberId: INPUT_MEMBER_ID,
+        tagKind: "Input",
+      },
+    });
+  });
+
+  it("keeps newly created memory tags automatic and without hardware offsets", () => {
+    const { snapshot } = fixture();
+    const symbolTable = snapshot.objects[SYMBOL_TABLE_ID]!;
+    const draft: TagConfigurationDraft = {
+      ...createTagDraftDefaults("M"),
+      bindingKey: `${DB_ID}:${MEMORY_MEMBER_ID}`,
+      dataType: "DINT",
+      description: "Production counter",
+      name: "Part_Count",
+    };
+    const validation = validateTagCreation(draft, snapshot, symbolTable);
+    const operation = buildTagCreationOperation(
+      draft,
+      validation,
+      snapshot,
+      symbolTable,
+      () => NEW_TAG_ID,
+    );
+
+    expect(validation.valid).toBe(true);
+    expect(operation).toMatchObject({
+      semanticPayload: {
+        addressArea: "M",
+        addressIntent: "auto",
+        dataType: "DINT",
+        tagKind: "Memory",
+      },
+    });
+    expect(operation).not.toBeNull();
+    if (operation?.kind === "project.create-object") {
+      expect(operation.semanticPayload).not.toHaveProperty("byteOffset");
+      expect(operation.semanticPayload).not.toHaveProperty("bitOffset");
+    }
+  });
+
+  it("plans a valid temporary LAD member before its bound tag for blank-project authoring", () => {
+    const { snapshot } = fixture();
+    const symbolTable = snapshot.objects[SYMBOL_TABLE_ID]!;
+    expect(discoverLadTagPrograms(snapshot, symbolTable)).toEqual([{ id: OB_ID, name: "Main" }]);
+    const draft: TagWithMemberCreationDraft = {
+      ...createTagWithMemberDraftDefaults(OB_ID, "Q"),
+      addressIntent: "explicit",
+      addressText: "%Q2.0",
+      description: "Conveyor motor output",
+      name: "Conveyor_Motor",
+    };
+    const validation = validateTagWithMemberCreation(draft, snapshot, symbolTable);
+    const ids = [NEW_MEMBER_ID, NEW_TAG_ID];
+    const plan = buildTagWithMemberCreationPlan(
+      draft,
+      validation,
+      snapshot,
+      symbolTable,
+      () => ids.shift()!,
+    );
+
+    expect(validation.valid).toBe(true);
+    expect(plan).toMatchObject({ memberId: NEW_MEMBER_ID, tagId: NEW_TAG_ID });
+    expect(plan?.operations).toHaveLength(2);
+    expect(plan?.operations[0]).toMatchObject({
+      key: "interface",
+      kind: "project.set-semantic-field",
+      objectId: OB_ID,
+    });
+    const memberOperation = plan?.operations[0];
+    if (memberOperation?.kind === "project.set-semantic-field") {
+      expect(Array.isArray(memberOperation.value)).toBe(true);
+      expect((memberOperation.value as readonly ProjectPayloadValue[]).at(-1)).toEqual(record({
+        id: NEW_MEMBER_ID,
+        name: "Conveyor_Motor",
+        order: unsigned(2),
+        requiredOutput: false,
+        retentive: false,
+        role: "temp",
+        type: "BOOL",
+      }));
+    }
+    expect(plan?.operations[1]).toMatchObject({
+      displayName: "Conveyor_Motor",
+      kind: "project.create-object",
+      objectId: NEW_TAG_ID,
+      semanticPayload: {
+        addressArea: "Q",
+        blockId: OB_ID,
+        comment: "Conveyor motor output",
+        dataType: "BOOL",
+        memberId: NEW_MEMBER_ID,
+        tagKind: "Output",
+      },
+    });
+  });
+
+  it("does not emit create commands until names, descriptions, addresses, and targets validate", () => {
+    const { snapshot } = fixture();
+    const symbolTable = snapshot.objects[SYMBOL_TABLE_ID]!;
+    const invalid: TagConfigurationDraft = {
+      ...createTagDraftDefaults("I"),
+      addressIntent: "explicit",
+      addressText: "%I0.8",
+      description: "x".repeat(TAG_DESCRIPTION_MAX_LENGTH + 1),
+      name: "Existing_Tag",
+    };
+    const validation = validateTagCreation(invalid, snapshot, symbolTable);
+
+    expect(validation.valid).toBe(false);
+    expect(validation.errors).toMatchObject({
+      address: expect.any(String),
+      binding: expect.any(String),
+      description: expect.any(String),
+      name: expect.any(String),
+    });
+    expect(buildTagCreationOperation(invalid, validation, snapshot, symbolTable)).toBeNull();
   });
 
   it("allows a safely preserved opaque binding only while type and area stay unchanged", () => {
@@ -232,8 +495,8 @@ const fixture = (): Readonly<{
     parentId: CONTROLLER_ID,
     semanticPayload: {
       interface: [
-        member(INPUT_MEMBER_ID, "Start", "input", "BOOL"),
-        member(OUTPUT_MEMBER_ID, "Motor", "output", "BOOL"),
+        member(INPUT_MEMBER_ID, "Start", "input", "BOOL", 0),
+        member(OUTPUT_MEMBER_ID, "Motor", "output", "BOOL", 1),
         record({ id: "malformed", name: "Ignored", role: "temp", type: "BOOL" }),
       ],
       language: "LAD",
@@ -293,6 +556,16 @@ const fixture = (): Readonly<{
   };
 };
 
+const replaceObject = (
+  snapshot: WorkbenchSnapshot,
+  replacement: WorkbenchObjectView,
+): WorkbenchSnapshot => ({
+  ...snapshot,
+  objects: { ...snapshot.objects, [replacement.id]: replacement },
+});
+
+const addObject = replaceObject;
+
 const object = (values: Readonly<{
   displayName: string;
   id: string;
@@ -320,7 +593,8 @@ const member = (
   name: string,
   role: string,
   type: string,
-): ProjectPayloadValue => record({ id, name, order: unsigned(0), role, type });
+  order = 0,
+): ProjectPayloadValue => record({ id, name, order: unsigned(order), role, type });
 
 const record = (value: Readonly<Record<string, ProjectPayloadValue>>): ProjectPayloadValue => ({
   $type: "record",

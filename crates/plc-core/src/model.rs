@@ -1092,6 +1092,10 @@ pub enum DomainCommand {
         key: String,
         value: PayloadValue,
     },
+    ReplaceSemanticPayload {
+        object_id: ObjectId,
+        semantic_payload: BTreeMap<String, PayloadValue>,
+    },
     SetPresentationField {
         object_id: ObjectId,
         key: String,
@@ -1119,6 +1123,7 @@ impl DomainCommand {
             Self::Rename { .. } => "rename",
             Self::Move { .. } => "move",
             Self::SetSemanticField { .. } => "set-semantic-field",
+            Self::ReplaceSemanticPayload { .. } => "replace-semantic-payload",
             Self::SetPresentationField { .. } => "set-presentation-field",
             Self::Delete { .. } => "delete",
             Self::CopyClosure { .. } => "copy-closure",
@@ -1761,6 +1766,23 @@ pub(crate) fn command_to_json(command: &DomainCommand) -> JsonValue {
             key,
             value,
         } => field_command_json("set-semantic-field", *object_id, key, value),
+        DomainCommand::ReplaceSemanticPayload {
+            object_id,
+            semantic_payload,
+        } => JsonValue::object([
+            (
+                "kind".to_owned(),
+                JsonValue::from("replace-semantic-payload"),
+            ),
+            (
+                "objectId".to_owned(),
+                JsonValue::from(object_id.to_string()),
+            ),
+            (
+                "semanticPayload".to_owned(),
+                payload_map_to_json(semantic_payload),
+            ),
+        ]),
         DomainCommand::SetPresentationField {
             object_id,
             key,
@@ -1907,6 +1929,13 @@ pub(crate) fn command_from_json(value: &JsonValue) -> Result<DomainCommand, Json
                     value,
                 })
             }
+        }
+        "replace-semantic-payload" => {
+            require_only_fields(object, &["kind", "objectId", "semanticPayload"])?;
+            Ok(DomainCommand::ReplaceSemanticPayload {
+                object_id: parse_object_id(required(object, "objectId")?)?,
+                semantic_payload: payload_map_from_json(required(object, "semanticPayload")?)?,
+            })
         }
         "delete" => {
             require_only_fields(object, &["kind", "objectId"])?;
@@ -2075,7 +2104,10 @@ fn decimal_u64(value: &JsonValue) -> Result<u64, JsonError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{ObjectId, Uuid};
+    use std::collections::BTreeMap;
+
+    use super::{DomainCommand, ObjectId, PayloadValue, Uuid, command_from_json, command_to_json};
+    use crate::json::canonical_json;
 
     #[test]
     fn deterministic_ids_are_v4_shaped_and_parse() {
@@ -2086,5 +2118,26 @@ mod tests {
             ObjectId(id),
             ObjectId(Uuid::deterministic_v4(b"project-seed", 8))
         );
+    }
+
+    #[test]
+    fn semantic_payload_replacement_has_stable_json_and_round_trips() {
+        let object_id = ObjectId(Uuid::deterministic_v4(b"replace-payload", 1));
+        let command = DomainCommand::ReplaceSemanticPayload {
+            object_id,
+            semantic_payload: BTreeMap::from([
+                ("enabled".to_owned(), PayloadValue::Bool(true)),
+                ("name".to_owned(), PayloadValue::from("Motor")),
+            ]),
+        };
+        let json = command_to_json(&command);
+        assert_eq!(
+            canonical_json(&json),
+            format!(
+                "{{\"kind\":\"replace-semantic-payload\",\"objectId\":\"{object_id}\",\"semanticPayload\":{{\"enabled\":true,\"name\":\"Motor\"}}}}"
+            )
+            .as_bytes()
+        );
+        assert_eq!(command_from_json(&json), Ok(command));
     }
 }

@@ -555,6 +555,15 @@ const DOMAIN_COMMANDS = [
     value: "Output := Input;",
   },
   {
+    commandKind: "project.replace-semantic-payload",
+    objectId: uuid(2),
+    semanticPayload: {
+      language: "LAD",
+      sourceText: "Output := Input;",
+      version: { $type: "u64", value: "2" },
+    },
+  },
+  {
     commandKind: "project.set-presentation-field",
     key: "canvas.x",
     objectId: uuid(2),
@@ -896,6 +905,16 @@ describe("domain command and query vocabulary", () => {
       key: "canvas.x",
       objectId: uuid(2),
       value: { $type: "i64", value: "01" },
+    }));
+    expectInvalid(() => validateDomainCommand({
+      commandKind: "project.replace-semantic-payload",
+      objectId: uuid(2),
+      semanticPayload: { "not allowed": "text" },
+    }));
+    expectInvalid(() => validateDomainCommand({
+      commandKind: "project.replace-semantic-payload",
+      objectId: uuid(2),
+      semanticPayload: { version: 2 },
     }));
   });
 

@@ -39,10 +39,16 @@ import { projectMotorStarterGuide } from "./motor-starter-guide";
 import type { MotorStarterGuideProjection } from "./motor-starter-guide";
 import { TutorialLaunchButton } from "./GuidedTutorial";
 import type { GuidedTutorialStep } from "./guided-tutorial";
+import { HardwareConfigurationEditor } from "./HardwareConfigurationEditor";
+import { firstFreeModuleSlot } from "./hardware-configuration";
+import { createPlcSetupPlan } from "./plc-setup";
+import type { VirtualPlcCatalogId } from "./plc-setup";
+import { ProjectSetupPanel } from "./ProjectSetupPanel";
 import { RuntimeInspector, RuntimeToolbar } from "./RuntimeWorkbench";
 import type { ReplayVerificationReceipt } from "./replay-types";
 import type { EngineeringRuntimeView, RuntimeOperation } from "./runtime-types";
 import { TagConfigurationEditor } from "./TagConfigurationEditor";
+import { TagTableEditor } from "./TagTableEditor";
 import { ThemeToggle } from "./ThemeToggle";
 import type { AppTheme } from "./ThemeToggle";
 import { VirtualTrainerTutorialProvider } from "./VirtualTrainer";
@@ -205,7 +211,10 @@ export const EngineeringWorkbench = ({
 
   const selectObject = (objectId: string): void => {
     const object = snapshot.objects[objectId];
-    if (object === undefined || object.lifecycle !== "active") {
+    // A freshly created object can arrive in the parent snapshot in the same
+    // React batch as this selection request. Allow that known new identity;
+    // the snapshot-lifecycle effect still rejects tombstoned objects.
+    if (object !== undefined && object.lifecycle !== "active") {
       return;
     }
     setSelectedId(objectId);
@@ -288,6 +297,14 @@ export const EngineeringWorkbench = ({
       await onOperation(operation);
     }
     openLadderProgram(plan.programId);
+  };
+
+  const createPlcWorkspace = async (catalogId: VirtualPlcCatalogId): Promise<void> => {
+    const plan = createPlcSetupPlan(snapshot, catalogId);
+    for (const operation of plan.operations) {
+      await onOperation(operation);
+    }
+    selectObject(plan.rackId);
   };
 
   const startAndOpenSimulation = async (): Promise<void> => {
@@ -478,15 +495,33 @@ export const EngineeringWorkbench = ({
                 busy={busy}
                 canCreateLadderLab={activeObjects.length === 1}
                 ladderProgramName={learnerLadProgram?.displayName ?? null}
+                onCreatePlc={createPlcWorkspace}
                 onLadderAction={() => void startLadderLab()}
+                onOpenObject={selectObject}
                 snapshot={snapshot}
                 tombstoneCount={tombstoneCount}
+              />
+            ) : selected.kind === "Controller" || selected.kind === "Rack" || selected.kind === "Module" ? (
+              <HardwareConfigurationEditor
+                busy={busy}
+                object={selected}
+                onOperation={onOperation}
+                onSelectObject={selectObject}
+                snapshot={snapshot}
               />
             ) : selected.kind === "Tag" ? (
               <TagConfigurationEditor
                 busy={busy}
                 object={selected}
                 onOperation={onOperation}
+                snapshot={snapshot}
+              />
+            ) : selected.kind === "SymbolTable" ? (
+              <TagTableEditor
+                busy={busy}
+                object={selected}
+                onOperation={onOperation}
+                onSelectObject={selectObject}
                 snapshot={snapshot}
               />
             ) : isEditableMemberContainer(selected) ? (
@@ -683,7 +718,9 @@ type ProjectOverviewProps = Readonly<{
   busy: boolean;
   canCreateLadderLab: boolean;
   ladderProgramName: string | null;
+  onCreatePlc: (catalogId: VirtualPlcCatalogId) => Promise<void>;
   onLadderAction: () => void;
+  onOpenObject: (objectId: string) => void;
   snapshot: WorkbenchSnapshot;
   tombstoneCount: number;
 }>;
@@ -694,7 +731,9 @@ const ProjectOverview = ({
   busy,
   canCreateLadderLab,
   ladderProgramName,
+  onCreatePlc,
   onLadderAction,
+  onOpenObject,
   snapshot,
   tombstoneCount,
 }: ProjectOverviewProps): React.JSX.Element => {
@@ -706,6 +745,12 @@ const ProjectOverview = ({
         <h1>{snapshot.projectName}</h1>
         <p>Build a ladder program, run it on the virtual PLC, and watch the logic respond.</p>
       </header>
+      <ProjectSetupPanel
+        busy={busy}
+        onCreatePlc={onCreatePlc}
+        onOpenObject={onOpenObject}
+        snapshot={snapshot}
+      />
       {ladderActionAvailable && (
         <section className="learning-start-card" aria-labelledby="learning-start-title">
           <div className="learning-start-card__symbol" aria-hidden="true">
@@ -2385,8 +2430,17 @@ const PropertiesPane = ({
   projectRootId,
 }: PropertiesPaneProps): React.JSX.Element => {
   const [name, setName] = useState(object.displayName);
-  useEffect(() => setName(object.displayName), [object.displayName, object.id]);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  useEffect(() => {
+    setName(object.displayName);
+    setConfirmDelete(false);
+  }, [object.displayName, object.id]);
   const isRoot = object.id === projectRootId;
+  const canDuplicate = object.kind !== "Controller" &&
+    object.kind !== "Rack" &&
+    object.kind !== "Module" &&
+    object.kind !== "SymbolTable" &&
+    object.kind !== "Tag";
 
   return (
     <aside className="properties-pane" aria-label="Properties">
@@ -2428,25 +2482,42 @@ const PropertiesPane = ({
       {!isRoot && (
         <div className="object-actions">
           <p className="property-section-title">Object actions</p>
-          <button
-            disabled={busy || object.parentId === null}
-            onClick={() => {
-              if (object.parentId !== null) {
-                void onOperation({
-                  kind: "project.copy-objects",
-                  sourceObjectIds: [object.id],
-                  targetParentId: object.parentId,
-                });
-              }
-            }}
-            type="button"
-          >Duplicate with new identity</button>
-          <button
-            className="danger-action"
-            disabled={busy}
-            onClick={() => void onOperation({ kind: "project.delete-object", objectId: object.id })}
-            type="button"
-          >Delete object</button>
+          {canDuplicate && (
+            <button
+              disabled={busy || object.parentId === null}
+              onClick={() => {
+                if (object.parentId !== null) {
+                  void onOperation({
+                    kind: "project.copy-objects",
+                    sourceObjectIds: [object.id],
+                    targetParentId: object.parentId,
+                  });
+                }
+              }}
+              type="button"
+            >Duplicate with new identity</button>
+          )}
+          {confirmDelete ? (
+            <div className="property-delete-confirm">
+              <span>Delete {object.displayName}? Undo remains available.</span>
+              <div>
+                <button disabled={busy} onClick={() => setConfirmDelete(false)} type="button">Cancel</button>
+                <button
+                  className="danger-action"
+                  disabled={busy}
+                  onClick={() => void onOperation({ kind: "project.delete-object", objectId: object.id })}
+                  type="button"
+                >Confirm delete</button>
+              </div>
+            </div>
+          ) : (
+            <button
+              className="danger-action"
+              disabled={busy}
+              onClick={() => setConfirmDelete(true)}
+              type="button"
+            >Delete object</button>
+          )}
         </div>
       )}
       <div className="properties-foot">
@@ -2650,38 +2721,19 @@ const creationOptions = (
       ];
     }
     case "Rack": {
-      const slot = parent.children.filter((id) => snapshot.objects[id]?.kind === "Module").length + 1;
+      const slot = firstFreeModuleSlot(snapshot, parent);
+      if (slot === null) {
+        return [];
+      }
       return [
         moduleTemplate("Digital input module", "VDI16", "vdi16", slot),
         moduleTemplate("Digital output module", "VDO16", "vdo16", slot),
-        moduleTemplate("Analog input module", "VAI4", "vai4", slot),
-        moduleTemplate("Analog output module", "VAO4", "vao4", slot),
       ];
     }
+    // The tag-table editor owns tag creation because it validates the address
+    // and creates the matching LAD program binding as one learner workflow.
     case "SymbolTable":
-      {
-        const controllerId = parent.parentId;
-        const controllerBlocks = Object.values(snapshot.objects).filter(
-          (object) => object.lifecycle === "active" && object.parentId === controllerId,
-        );
-        const cyclic = controllerBlocks.find((object) => object.kind === "OB");
-        const globalData = controllerBlocks.find((object) => object.kind === "GlobalDB");
-        const binding = (
-          object: WorkbenchObjectView | undefined,
-          memberName: string,
-        ): Readonly<{ blockId: string; memberId: string }> | null => {
-          if (object === undefined) {
-            return null;
-          }
-          const memberId = interfaceMemberIdentity(object.semanticPayload, memberName);
-          return memberId === null ? null : { blockId: object.id, memberId };
-        };
-      return [
-        tagTemplate("Input tag", "I", "Input", binding(cyclic, "InputValue")),
-        tagTemplate("Output tag", "Q", "Output", binding(cyclic, "OutputValue")),
-        tagTemplate("Memory tag", "M", "Memory", binding(globalData, "MemoryValue")),
-      ];
-      }
+      return [];
     default:
       return [];
   }
@@ -2703,27 +2755,6 @@ const moduleTemplate = (
     addressIntent: "auto",
     catalogId,
     slot: unsignedValue(slot),
-  },
-});
-
-const tagTemplate = (
-  label: string,
-  area: "I" | "M" | "Q",
-  baseName: string,
-  programBinding: Readonly<{ blockId: string; memberId: string }> | null,
-): CreateObjectTemplate => ({
-  baseName,
-  description: `${area}-area BOOL with automatic allocation`,
-  glyph: area,
-  label,
-  objectKind: "tag",
-  payloadSchema: "edu.tag/1",
-  semanticPayload: {
-    addressArea: area,
-    addressIntent: "auto",
-    dataType: "BOOL",
-    ...(programBinding ?? {}),
-    tagKind: area === "I" ? "Input" : area === "Q" ? "Output" : "Memory",
   },
 });
 

@@ -206,6 +206,61 @@ fn canonical_project_projects_to_real_deterministic_hardware_artifact() {
 }
 
 #[test]
+fn modular_controller_projects_its_core_and_authored_power_supply() {
+    let mut fixture = Fixture::valid();
+    fixture.commit(
+        DomainCommand::SetSemanticField {
+            object_id: fixture.controller,
+            key: "catalogId".to_owned(),
+            value: PayloadValue::from("vctrl-m1"),
+        },
+        &[fixture.controller],
+    );
+    fixture.commit(
+        DomainCommand::SetSemanticField {
+            object_id: fixture.input,
+            key: "slot".to_owned(),
+            value: PayloadValue::Unsigned(2),
+        },
+        &[fixture.input],
+    );
+    fixture.commit(
+        DomainCommand::SetSemanticField {
+            object_id: fixture.output,
+            key: "slot".to_owned(),
+            value: PayloadValue::Unsigned(3),
+        },
+        &[fixture.output],
+    );
+    let power = object_id(15);
+    fixture.create(
+        power,
+        ProjectObjectKind::Module,
+        fixture.rack,
+        "Virtual power supply",
+        module_payload("vpwr1", 0, "auto", None),
+    );
+
+    let projection = project_hardware(fixture.engine.project());
+    assert!(projection.can_build(), "{:?}", projection.diagnostics());
+    let rack = &projection
+        .hardware_project()
+        .controllers()
+        .get(&plc_hardware::ControllerId::from(fixture.controller.0))
+        .expect("projected modular controller")
+        .local_rack;
+    assert!(matches!(
+        rack.slots.get(&1).and_then(|slot| slot.installed.as_ref()),
+        Some(plc_hardware::InstalledOccupant::ControllerCore(id)) if *id == plc_hardware::ControllerId::from(fixture.controller.0)
+    ));
+    assert!(matches!(
+        rack.slots.get(&0).and_then(|slot| slot.installed.as_ref()),
+        Some(plc_hardware::InstalledOccupant::Module(module))
+            if module.catalog_id == plc_hardware::ModuleCatalogId::Vpwr1
+    ));
+}
+
+#[test]
 fn semantic_edits_change_projection_while_presentation_edits_do_not() {
     let mut fixture = Fixture::valid();
     let baseline = project_hardware(fixture.engine.project());

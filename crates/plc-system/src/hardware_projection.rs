@@ -153,6 +153,7 @@ pub fn project_hardware(project: &Project) -> CanonicalHardwareProjection {
         add_controller_network(
             &mut network,
             controller,
+            &profile,
             subnet,
             &mut origins,
             &mut diagnostics,
@@ -287,6 +288,7 @@ fn add_canonical_subnet(
 fn add_controller_network(
     network: &mut VirtualNetwork,
     controller: &ProjectObject,
+    profile: &TrainingProfile,
     subnet: Option<VirtualSubnetId>,
     origins: &mut BTreeMap<Uuid, ObjectId>,
     diagnostics: &mut Vec<ProjectDiagnostic>,
@@ -309,45 +311,56 @@ fn add_controller_network(
         return;
     }
 
-    let interface_id = VirtualInterfaceId::from(derived_uuid(controller.id.0, b"interface", 1));
-    let port_id = VirtualPortId::from(derived_uuid(controller.id.0, b"port", 1));
-    origins.insert(interface_id.uuid(), controller.id);
-    origins.insert(port_id.uuid(), controller.id);
-    let host = u8::try_from(1 + controller.creation_ordinal % 253).expect("host octet");
-    let address = subnet.map(|_| VirtualIpAddress::from_u32(u32::from_be_bytes([192, 0, 2, host])));
-    if let Err(error) = network.add_interface(VirtualInterface {
-        id: interface_id,
-        creation_ordinal: controller.creation_ordinal,
-        owner_device_id: device_id,
-        provider_module_id: None,
-        name: "edu-link-1".to_owned(),
-        address,
-        subnet_id: subnet,
-        port_class: PortClass::EduLink,
-        role: DeviceRole::Controller,
-        configured_state: ConfiguredState::Enabled,
-        runtime_state: RuntimeState::Available,
-    }) {
-        diagnostics.push(project_diagnostic(
-            "EDU-SYS-1202",
-            format!("The controller's virtual interface is invalid: {error:?}."),
-            controller.id,
-        ));
-        return;
-    }
-    if let Err(error) = network.add_port(VirtualPort {
-        id: port_id,
-        creation_ordinal: controller.creation_ordinal,
-        owner_interface_id: interface_id,
-        name: "port-1".to_owned(),
-        configured_state: ConfiguredState::Enabled,
-        runtime_state: RuntimeState::Available,
-    }) {
-        diagnostics.push(project_diagnostic(
-            "EDU-SYS-1203",
-            format!("The controller's virtual port is invalid: {error:?}."),
-            controller.id,
-        ));
+    let integrated_interfaces = payload_text(controller, "catalogId")
+        .and_then(controller_catalog)
+        .and_then(|catalog| profile.controller(catalog))
+        .map_or(1, |definition| definition.integrated_interfaces);
+    for index in 1..=integrated_interfaces {
+        let ordinal = u64::from(index);
+        let interface_id =
+            VirtualInterfaceId::from(derived_uuid(controller.id.0, b"interface", ordinal));
+        let port_id = VirtualPortId::from(derived_uuid(controller.id.0, b"port", ordinal));
+        origins.insert(interface_id.uuid(), controller.id);
+        origins.insert(port_id.uuid(), controller.id);
+        let host =
+            u8::try_from(1 + (controller.creation_ordinal.saturating_mul(4) + ordinal - 1) % 253)
+                .expect("host octet");
+        let address =
+            subnet.map(|_| VirtualIpAddress::from_u32(u32::from_be_bytes([192, 0, 2, host])));
+        if let Err(error) = network.add_interface(VirtualInterface {
+            id: interface_id,
+            creation_ordinal: controller.creation_ordinal,
+            owner_device_id: device_id,
+            provider_module_id: None,
+            name: format!("edu-link-{index}"),
+            address,
+            subnet_id: subnet,
+            port_class: PortClass::EduLink,
+            role: DeviceRole::Controller,
+            configured_state: ConfiguredState::Enabled,
+            runtime_state: RuntimeState::Available,
+        }) {
+            diagnostics.push(project_diagnostic(
+                "EDU-SYS-1202",
+                format!("The controller's virtual interface is invalid: {error:?}."),
+                controller.id,
+            ));
+            continue;
+        }
+        if let Err(error) = network.add_port(VirtualPort {
+            id: port_id,
+            creation_ordinal: controller.creation_ordinal,
+            owner_interface_id: interface_id,
+            name: format!("port-{index}"),
+            configured_state: ConfiguredState::Enabled,
+            runtime_state: RuntimeState::Available,
+        }) {
+            diagnostics.push(project_diagnostic(
+                "EDU-SYS-1203",
+                format!("The controller's virtual port is invalid: {error:?}."),
+                controller.id,
+            ));
+        }
     }
 }
 
@@ -420,7 +433,12 @@ fn project_rack(
         .controller(catalog)
         .expect("admitted controller catalog");
     let mut slots = BTreeMap::new();
-    for number in definition.local_first_expansion_slot..=definition.local_last_slot {
+    let first_slot = if catalog == ControllerCatalogId::VctrlC1 {
+        definition.local_first_expansion_slot
+    } else {
+        0
+    };
+    for number in first_slot..=definition.local_last_slot {
         let slot_id = SlotId::from(derived_uuid(
             rack_object.id.0,
             b"rack-slot",
@@ -432,7 +450,9 @@ fn project_rack(
             RackSlot {
                 id: slot_id,
                 number,
-                installed: None,
+                installed: (definition.controller_slot == Some(number)).then_some(
+                    InstalledOccupant::ControllerCore(ControllerId::from(controller.id.0)),
+                ),
             },
         );
     }
