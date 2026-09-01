@@ -10,7 +10,7 @@ import { createMomentaryPulseOperationSequence } from "./VirtualTrainerOperation
 
 export { createMomentaryPulseOperationSequence } from "./VirtualTrainerOperations";
 
-export type BooleanInputControl = "maintained" | "momentary";
+export type BooleanInputControl = "maintained" | "momentary" | "sensor";
 
 export type BooleanOutputDevice = "actuator" | "lamp";
 
@@ -114,7 +114,7 @@ export const VirtualTrainer = ({
               <div className="virtual-trainer__device-grid">
                 {inputs.map((probe) => {
                   const inputTutorialTarget = tutorialTargetForInput(probe.displayName);
-                  const configuredMode = controlModes[probe.id] ?? inputControls[probe.id] ?? inferredInputControl(probe);
+                  const configuredMode = controlModes[probe.id] ?? inputControls[probe.id] ?? inferBooleanInputControl(probe);
                   const mode = tutorialTarget === inputTutorialTarget ? "momentary" : configuredMode;
                   const rawValue = booleanValue(probe.rawInputValue);
                   const effectiveValue = booleanValue(probe.effectiveValue);
@@ -151,6 +151,16 @@ export const VirtualTrainer = ({
                         >
                           Pushbutton
                         </button>
+                        <button
+                          aria-pressed={mode === "sensor"}
+                          onClick={() => setControlModes((current) => ({
+                            ...current,
+                            [probe.id]: "sensor",
+                          }))}
+                          type="button"
+                        >
+                          Sensor
+                        </button>
                       </div>
                       {mode === "momentary" ? (
                         <button
@@ -167,6 +177,22 @@ export const VirtualTrainer = ({
                         >
                           <span aria-hidden="true" />
                           {pending ? "Pulsing…" : "Press"}
+                        </button>
+                      ) : mode === "sensor" ? (
+                        <button
+                          aria-checked={rawValue}
+                          aria-label={`${probe.displayName} simulated sensor`}
+                          className="virtual-trainer__sensor"
+                          disabled={controlsDisabled}
+                          onClick={() => void execute(
+                            probe.id,
+                            createMaintainedInputOperationSequence(probe.id, !rawValue),
+                          )}
+                          role="switch"
+                          type="button"
+                        >
+                          <span aria-hidden="true" />
+                          {rawValue ? "DETECTED" : "CLEAR"}
                         </button>
                       ) : (
                         <button
@@ -255,8 +281,11 @@ const isBooleanOutput = (probe: RuntimeProbeView): boolean =>
 const booleanValue = (value: RuntimeProbeView["effectiveValue"]): boolean =>
   value?.type === "BOOL" && value.value === true;
 
-const inferredInputControl = (probe: RuntimeProbeView): BooleanInputControl => {
+export const inferBooleanInputControl = (probe: Pick<RuntimeProbeView, "displayName">): BooleanInputControl => {
   const name = probe.displayName.toLocaleLowerCase("en-US");
+  if (/(?:sensor|prox|photoeye|photo[_\s-]?eye|limit[_\s-]?switch)/u.test(name)) {
+    return "sensor";
+  }
   return /(?:^|[_\s-])(?:pb|button)(?:$|[_\s-])/u.test(name) ||
     /(?:^|[_\s-])(?:start|stop|reset)(?:$|[_\s-])/u.test(name)
     ? "momentary"

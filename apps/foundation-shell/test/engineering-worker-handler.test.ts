@@ -38,6 +38,11 @@ const IDS = {
   saveAsDocument: "80000000-0000-4000-8000-000000000001",
   commitSaveAs: "90000000-0000-4000-8000-000000000001",
   firstGrant: "p2-native-v1:0000000000000001",
+  detachedOpen: "a1000000-0000-4000-8000-000000000001",
+  detachedInvalidName: "a2000000-0000-4000-8000-000000000001",
+  detachedInvalidHashCase: "a3000000-0000-4000-8000-000000000001",
+  detachedHashMismatch: "a4000000-0000-4000-8000-000000000001",
+  detachedRenameAfterMismatch: "a5000000-0000-4000-8000-000000000001",
   open: "b0000000-0000-4000-8000-000000000001",
   openGrant: "p2-native-v1:0000000000000002",
   prepareSave: "d0000000-0000-4000-8000-000000000001",
@@ -346,6 +351,61 @@ describe("real engineering worker and WASM kernel", () => {
     expect(firstCommitted.projectRootId).toBe(IDS.root);
     expect(firstCommitted.dirtyState).toBe("clean");
 
+    const firstPackageHash = await hash(firstPackage);
+    const detached = snapshot(successValue(await executeEngineeringRequest({
+      bytes: firstPackage.slice().buffer,
+      expectedPackageHash: firstPackageHash,
+      kind: "engineering.project.open-detached",
+      requestId: IDS.detachedOpen,
+      suggestedFileName: "Packaging Cell.vlabproj",
+    })));
+    expect(detached.documentId).toBe(IDS.saveAsDocument);
+    expect(detached.fileGrantId).toBeNull();
+    expect(detached.projectName).toBe("Packaging Cell");
+
+    const invalidDetachedName = await executeEngineeringRequest({
+      bytes: firstPackage.slice().buffer,
+      expectedPackageHash: firstPackageHash,
+      kind: "engineering.project.open-detached",
+      requestId: IDS.detachedInvalidName,
+      suggestedFileName: "../Packaging Cell.vlabproj",
+    });
+    expect(invalidDetachedName.ok).toBe(false);
+    expect(invalidDetachedName.error?.code).toBe("INVALID_REQUEST");
+
+    const invalidHashCase = await executeEngineeringRequest({
+      bytes: firstPackage.slice().buffer,
+      expectedPackageHash: firstPackageHash.toLocaleLowerCase("en-US"),
+      kind: "engineering.project.open-detached",
+      requestId: IDS.detachedInvalidHashCase,
+      suggestedFileName: "Packaging Cell.vlabproj",
+    });
+    expect(invalidHashCase.ok).toBe(false);
+    expect(invalidHashCase.error?.code).toBe("INVALID_REQUEST");
+
+    const hashMismatch = await executeEngineeringRequest({
+      bytes: firstPackage.slice().buffer,
+      expectedPackageHash: "0".repeat(64),
+      kind: "engineering.project.open-detached",
+      requestId: IDS.detachedHashMismatch,
+      suggestedFileName: "Packaging Cell.vlabproj",
+    });
+    expect(hashMismatch.ok).toBe(false);
+    expect(hashMismatch.error?.code).toBe("PROJECT_ARTIFACT_HASH_MISMATCH");
+
+    const preservedDetached = operationValue(await executeEngineeringRequest({
+      kind: "engineering.project.command",
+      operation: {
+        displayName: "Detached review copy",
+        kind: "project.rename-object",
+        objectId: IDS.root,
+      },
+      requestId: IDS.detachedRenameAfterMismatch,
+    }));
+    expect(preservedDetached.outcome).toBe("committed");
+    expect(preservedDetached.snapshot.fileGrantId).toBeNull();
+    expect(preservedDetached.snapshot.projectName).toBe("Detached review copy");
+
     const reopened = snapshot(successValue(await executeEngineeringRequest({
       bytes: firstPackage.slice().buffer,
       fileGrantId: IDS.openGrant,
@@ -426,6 +486,7 @@ const snapshot = (value: unknown): Readonly<Record<string, unknown>> & {
   diagnostics: readonly Readonly<{ code: string }>[];
   dirtyState: string;
   documentId: string;
+  fileGrantId: string | null;
   projectHash: string;
   projectName: string;
   projectRootId: string;
@@ -472,3 +533,11 @@ const preparedValue = (response: EngineeringResponse): {
 
 const isRecord = (value: unknown): value is Readonly<Record<string, unknown>> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
+
+const hash = async (bytes: Uint8Array<ArrayBuffer>): Promise<string> => {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return [...digest]
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("")
+    .toUpperCase();
+};

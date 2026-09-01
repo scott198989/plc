@@ -20,6 +20,7 @@ export type LadAuthoringErrorCode =
   | "invalid-graph"
   | "invalid-request"
   | "last-network"
+  | "network-order-boundary"
   | "network-not-found"
   | "node-not-found"
   | "not-a-coil"
@@ -67,6 +68,16 @@ export type AddLadNetworkRequest = Readonly<{
 }>;
 
 export type RemoveLadNetworkRequest = Readonly<{
+  networkId: string;
+}>;
+
+export type DuplicateLadNetworkRequest = Readonly<{
+  idFactory?: LadIdFactory;
+  networkId: string;
+}>;
+
+export type MoveLadNetworkRequest = Readonly<{
+  direction: "down" | "up";
   networkId: string;
 }>;
 
@@ -543,6 +554,105 @@ export const removeLadNetwork = (
   );
 };
 
+/**
+ * Duplicates one complete LAD rung immediately after the source rung.
+ *
+ * Every identity owned by the rung is freshly allocated, including node,
+ * port, operand, pin, branch, call-site, and state-invocation identities.
+ * References to program interface members, blocks, data blocks, and instance
+ * storage remain bound to their original project objects.
+ */
+export const duplicateLadNetwork = (
+  graph: ProjectPayloadValue,
+  request: DuplicateLadNetworkRequest,
+): LadAuthoringResult => {
+  const parsed = parseGraph(graph);
+  if (parsed === null) {
+    return invalidGraph();
+  }
+  const located = locateNetwork(parsed, request.networkId);
+  if (located.ok === false) {
+    return located.result;
+  }
+  const ordered = networksBySemanticOrder(parsed.networks);
+  if (ordered === null) {
+    return invalidGraph("LAD rung semantic order must contain unique canonical unsigned values.");
+  }
+  const sourceIndex = ordered.findIndex((network) => network.id === request.networkId);
+  if (sourceIndex < 0) {
+    return failure("network-not-found", "The selected LAD network does not exist exactly once.");
+  }
+
+  const source = recordValue(located.network.fields);
+  const ownedIds = collectGraphOwnedIdentities(source);
+  if (ownedIds === null || ownedIds.length === 0) {
+    return invalidGraph("The selected LAD rung contains malformed or duplicate owned identities.");
+  }
+  const allocator = createAllocator(graph, request.idFactory);
+  const createdIds = allocator.takeMany(ownedIds.length);
+  if (createdIds === null) {
+    return idExhausted();
+  }
+  const replacements = new Map<string, string>();
+  ownedIds.forEach((id, index) => {
+    const replacement = createdIds[index];
+    if (replacement !== undefined) {
+      replacements.set(id.toLocaleLowerCase("en-US"), replacement);
+    }
+  });
+  const duplicate = remapGraphOwnedIdentities(source, replacements);
+  if (duplicate === null || parseNetwork(duplicate) === null) {
+    return invalidGraph("Duplicating the LAD rung produced a malformed canonical network.");
+  }
+
+  const networks: ProjectPayloadValue[] = ordered.map((network) => recordValue(network.fields));
+  networks.splice(sourceIndex + 1, 0, duplicate);
+  return replaceNetworks(parsed, networks, createdIds);
+};
+
+/** Moves one LAD rung one position in canonical semantic order. */
+export const moveLadNetwork = (
+  graph: ProjectPayloadValue,
+  request: MoveLadNetworkRequest,
+): LadAuthoringResult => {
+  if (request.direction !== "up" && request.direction !== "down") {
+    return failure("invalid-request", "A LAD rung can only move up or down.");
+  }
+  const parsed = parseGraph(graph);
+  if (parsed === null) {
+    return invalidGraph();
+  }
+  const located = locateNetwork(parsed, request.networkId);
+  if (located.ok === false) {
+    return located.result;
+  }
+  const ordered = networksBySemanticOrder(parsed.networks);
+  if (ordered === null) {
+    return invalidGraph("LAD rung semantic order must contain unique canonical unsigned values.");
+  }
+  const sourceIndex = ordered.findIndex((network) => network.id === request.networkId);
+  if (sourceIndex < 0) {
+    return failure("network-not-found", "The selected LAD network does not exist exactly once.");
+  }
+  const targetIndex = sourceIndex + (request.direction === "up" ? -1 : 1);
+  if (targetIndex < 0 || targetIndex >= ordered.length) {
+    return failure(
+      "network-order-boundary",
+      `The selected LAD rung is already the ${request.direction === "up" ? "first" : "last"} rung.`,
+    );
+  }
+
+  const networks = ordered.map((network) => recordValue(network.fields));
+  const source = networks[sourceIndex];
+  const target = networks[targetIndex];
+  if (source === undefined || target === undefined) {
+    return invalidGraph("The selected LAD rung order could not be resolved.");
+  }
+  networks[sourceIndex] = target;
+  networks[targetIndex] = source;
+  return replaceNetworks(parsed, networks, []);
+};
+
 export const updateLadContact = (
   graph: ProjectPayloadValue,
   request: UpdateLadContactRequest,
@@ -869,6 +979,135 @@ const rewriteBranchEdgeReferences = (
   }
   return rewritten;
 };
+
+const GRAPH_OWNED_ID_FIELDS = new Set(["callSiteId", "id", "invocationId"]);
+const GRAPH_INTERNAL_REFERENCE_FIELDS = new Set([
+  "branchId",
+  "entryEdgeId",
+  "exitEdgeId",
+  "joinNodeId",
+  "sourcePortId",
+  "splitNodeId",
+  "targetPortId",
+]);
+
+const collectGraphOwnedIdentities = (
+  value: ProjectPayloadValue,
+): readonly string[] | null => {
+  const identities: string[] = [];
+  const seen = new Set<string>();
+  const visit = (candidate: ProjectPayloadValue): boolean => {
+    if (candidate === null || typeof candidate === "boolean" || typeof candidate === "string") {
+      return true;
+    }
+    if (isPayloadList(candidate)) {
+      return candidate.every((entry) => visit(entry));
+    }
+    if (candidate.$type !== "record") {
+      return true;
+    }
+    for (const [key, entry] of Object.entries(candidate.value)) {
+      if (GRAPH_OWNED_ID_FIELDS.has(key)) {
+        if (typeof entry !== "string" || !validIdentity(entry)) {
+          return false;
+        }
+        const canonical = entry.toLocaleLowerCase("en-US");
+        if (seen.has(canonical)) {
+          return false;
+        }
+        seen.add(canonical);
+        identities.push(entry);
+      }
+      if (!visit(entry)) {
+        return false;
+      }
+    }
+    return true;
+  };
+  return visit(value) ? identities : null;
+};
+
+const remapGraphOwnedIdentities = (
+  value: ProjectPayloadValue,
+  replacements: ReadonlyMap<string, string>,
+  fieldName?: string,
+): ProjectPayloadValue | null => {
+  if (typeof value === "string") {
+    if (
+      fieldName !== undefined &&
+      (GRAPH_OWNED_ID_FIELDS.has(fieldName) || GRAPH_INTERNAL_REFERENCE_FIELDS.has(fieldName))
+    ) {
+      return replacements.get(value.toLocaleLowerCase("en-US")) ??
+        (GRAPH_OWNED_ID_FIELDS.has(fieldName) ? null : value);
+    }
+    return value;
+  }
+  if (value === null || typeof value === "boolean") {
+    return value;
+  }
+  if (isPayloadList(value)) {
+    const remapped: ProjectPayloadValue[] = [];
+    for (const entry of value) {
+      const result = remapGraphOwnedIdentities(entry, replacements);
+      if (result === null && entry !== null) {
+        return null;
+      }
+      remapped.push(result);
+    }
+    return remapped;
+  }
+  if (value.$type !== "record") {
+    return value;
+  }
+  const fields: Record<string, ProjectPayloadValue> = {};
+  for (const [key, entry] of Object.entries(value.value)) {
+    const remapped = remapGraphOwnedIdentities(entry, replacements, key);
+    if (remapped === null && entry !== null) {
+      return null;
+    }
+    fields[key] = remapped;
+  }
+  return recordValue(fields);
+};
+
+const networksBySemanticOrder = (
+  networks: readonly ParsedNetwork[],
+): readonly ParsedNetwork[] | null => {
+  const ordered = networks.map((network) => {
+    const semanticOrder = canonicalUnsigned(network.fields.semanticOrder);
+    return semanticOrder === null ? null : { network, semanticOrder };
+  });
+  if (ordered.some((entry) => entry === null)) {
+    return null;
+  }
+  const complete = ordered.filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  const uniqueOrders = new Set(complete.map((entry) => entry.semanticOrder.toString(10)));
+  if (uniqueOrders.size !== complete.length) {
+    return null;
+  }
+  return complete
+    .sort((left, right) => left.semanticOrder < right.semanticOrder ? -1 : 1)
+    .map((entry) => entry.network);
+};
+
+const canonicalUnsigned = (value: ProjectPayloadValue | undefined): bigint | null => {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    isPayloadList(value) ||
+    !("$type" in value) ||
+    value.$type !== "u64" ||
+    !/^(?:0|[1-9][0-9]*)$/u.test(value.value)
+  ) {
+    return null;
+  }
+  const parsed = BigInt(value.value);
+  return parsed <= MAX_UNSIGNED_64 ? parsed : null;
+};
+
+const isPayloadList = (
+  value: ProjectPayloadValue,
+): value is readonly ProjectPayloadValue[] => Array.isArray(value);
 
 const replaceNetwork = (
   parsed: ParsedGraph,

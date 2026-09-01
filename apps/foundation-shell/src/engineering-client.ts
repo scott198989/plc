@@ -25,6 +25,13 @@ type EngineeringRequest =
       requestId: string;
     }>
   | Readonly<{
+      bytes: ArrayBuffer;
+      expectedPackageHash: string;
+      kind: "engineering.project.open-detached";
+      requestId: string;
+      suggestedFileName: string;
+    }>
+  | Readonly<{
       kind: "engineering.project.command";
       operation: WorkbenchOperation;
       requestId: string;
@@ -142,6 +149,25 @@ export class EngineeringClient {
         fileGrantId,
         kind: "engineering.project.open",
         requestId: crypto.randomUUID(),
+      },
+      isWorkbenchSnapshot,
+      [transferable],
+    );
+  }
+
+  public async openDetachedProjectArtifact(
+    bytes: Uint8Array<ArrayBuffer>,
+    suggestedFileName: string,
+    expectedPackageHash: string,
+  ): Promise<WorkbenchSnapshot> {
+    const transferable = bytes.slice().buffer;
+    return this.request(
+      {
+        bytes: transferable,
+        expectedPackageHash,
+        kind: "engineering.project.open-detached",
+        requestId: crypto.randomUUID(),
+        suggestedFileName,
       },
       isWorkbenchSnapshot,
       [transferable],

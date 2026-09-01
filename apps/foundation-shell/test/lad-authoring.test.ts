@@ -3,10 +3,13 @@ import { describe, expect, it } from "vitest";
 import {
   createLadProgramPayload,
   interfaceMemberIdentity,
+  recordValue,
 } from "../src/canonical-authoring";
 import {
   addLadNetwork,
+  duplicateLadNetwork,
   insertSeriesContact,
+  moveLadNetwork,
   removeContactAndReconnect,
   removeLadNetwork,
   updateLadCoil,
@@ -14,7 +17,7 @@ import {
   wrapContactWithParallelContact,
 } from "../src/lad-authoring";
 import type { LadAuthoringResult } from "../src/lad-authoring";
-import type { ProjectPayloadValue } from "../src/workbench-types";
+import type { ProjectPayload, ProjectPayloadValue } from "../src/workbench-types";
 
 describe("LAD authoring graph transforms", () => {
   it("inserts and removes a series contact without mutating the source graph", () => {
@@ -157,6 +160,106 @@ describe("LAD authoring graph transforms", () => {
     });
   });
 
+  it("duplicates a complete rung with fresh graph identities and stable project references", () => {
+    const fixture = referencedBranchFixture();
+    const sourceBefore = JSON.stringify(fixture.graph);
+    const duplicated = success(duplicateLadNetwork(fixture.graph, {
+      idFactory: deterministicIds(2_000),
+      networkId: fixture.networkId,
+    }));
+
+    expect(JSON.stringify(fixture.graph)).toBe(sourceBefore);
+    expect(semanticRevision(duplicated.graph)).toBe("2");
+    const networks = records(record(duplicated.graph).networks);
+    expect(networks).toHaveLength(2);
+    expect(networks.map((network) => network.semanticOrder)).toEqual([unsigned(0), unsigned(1)]);
+    const source = networks[0];
+    const copy = networks[1];
+    if (source === undefined || copy === undefined) {
+      throw new Error("Expected the source and duplicated LAD rungs.");
+    }
+
+    const sourceRecord = canonicalRecord(source);
+    const copyRecord = canonicalRecord(copy);
+    const sourceOwned = graphOwnedIds(sourceRecord);
+    const copyOwned = graphOwnedIds(copyRecord);
+    expect(copyOwned).toHaveLength(sourceOwned.length);
+    expect(new Set(copyOwned).size).toBe(copyOwned.length);
+    expect(copyOwned.some((id) => sourceOwned.includes(id))).toBe(false);
+    expect(new Set(duplicated.createdIds)).toEqual(new Set(copyOwned));
+    expect(externalReferenceSnapshot(copyRecord)).toEqual(externalReferenceSnapshot(sourceRecord));
+    expectInternalReferencesResolve(copyRecord, new Set(copyOwned));
+
+    const sourceBranches = records(source.branches);
+    const copyBranches = records(copy.branches);
+    expect(sourceBranches).toHaveLength(1);
+    expect(copyBranches).toHaveLength(1);
+    expect(copyBranches[0]?.id).not.toBe(sourceBranches[0]?.id);
+    expect(records(copyBranches[0]?.paths)).toHaveLength(2);
+  });
+
+  it("moves rungs using semantic order even when payload list order is scrambled", () => {
+    const fixture = linearFixture();
+    const second = success(addLadNetwork(fixture.graph, {
+      coilMemberId: fixture.outputMemberId,
+      idFactory: deterministicIds(3_000),
+    }));
+    const third = success(addLadNetwork(second.graph, {
+      coilMemberId: fixture.outputMemberId,
+      idFactory: deterministicIds(3_100),
+    }));
+    const ordered = records(record(third.graph).networks);
+    const firstNetworkId = text(ordered[0]?.id);
+    const secondNetworkId = text(ordered[1]?.id);
+    const thirdNetworkId = text(ordered[2]?.id);
+    const scrambled = recordValue({
+      ...(record(third.graph) as ProjectPayload),
+      networks: [
+        canonicalRecord(ordered[2]),
+        canonicalRecord(ordered[0]),
+        canonicalRecord(ordered[1]),
+      ],
+    });
+
+    const movedUp = success(moveLadNetwork(scrambled, {
+      direction: "up",
+      networkId: thirdNetworkId,
+    }));
+    expect(semanticRevision(movedUp.graph)).toBe("3");
+    const afterUp = records(record(movedUp.graph).networks);
+    expect(afterUp.map((network) => network.id)).toEqual([
+      firstNetworkId,
+      thirdNetworkId,
+      secondNetworkId,
+    ]);
+    expect(afterUp.map((network) => network.semanticOrder)).toEqual([
+      unsigned(0),
+      unsigned(1),
+      unsigned(2),
+    ]);
+    expect(movedUp.createdIds).toEqual([]);
+
+    const movedDown = success(moveLadNetwork(movedUp.graph, {
+      direction: "down",
+      networkId: firstNetworkId,
+    }));
+    expect(records(record(movedDown.graph).networks).map((network) => network.id)).toEqual([
+      thirdNetworkId,
+      firstNetworkId,
+      secondNetworkId,
+    ]);
+    expect(semanticRevision(movedDown.graph)).toBe("4");
+
+    expect(moveLadNetwork(movedDown.graph, {
+      direction: "up",
+      networkId: thirdNetworkId,
+    })).toMatchObject({ code: "network-order-boundary", ok: false });
+    expect(moveLadNetwork(movedDown.graph, {
+      direction: "down",
+      networkId: secondNetworkId,
+    })).toMatchObject({ code: "network-order-boundary", ok: false });
+  });
+
   it("updates contact and coil bindings immutably while preserving operand identities", () => {
     const fixture = linearFixture();
     const sourceBefore = JSON.stringify(fixture.graph);
@@ -271,6 +374,147 @@ describe("LAD authoring graph transforms", () => {
     expect(semanticRevision(removedNetwork.graph)).toBe("6");
   });
 });
+
+const referencedBranchFixture = (): Readonly<{
+  graph: ProjectPayloadValue;
+  networkId: string;
+}> => {
+  const externalBlockId = "e0000000-0000-4000-8000-000000000001";
+  const externalInputFormalId = "e0000000-0000-4000-8000-000000000002";
+  const externalOutputFormalId = "e0000000-0000-4000-8000-000000000003";
+  const externalDataBlockId = "e0000000-0000-4000-8000-000000000004";
+  const externalDataMemberId = "e0000000-0000-4000-8000-000000000005";
+  const payload = createLadProgramPayload(1, [{
+    inputFormalId: externalInputFormalId,
+    outputFormalId: externalOutputFormalId,
+    resultName: "Call_Result",
+    targetBlockId: externalBlockId,
+  }]);
+  if (payload.graph === undefined) {
+    throw new Error("Expected a canonical LAD graph with a referenced call.");
+  }
+  const network = firstNetwork(payload.graph);
+  const contact = records(network.nodes).find((node) => node.nodeKind === "contact");
+  const inputMemberId = interfaceMemberIdentity(payload, "InputValue");
+  if (contact === undefined || inputMemberId === null) {
+    throw new Error("Expected a contact and input member in the referenced LAD graph.");
+  }
+  const wrapped = success(wrapContactWithParallelContact(payload.graph, {
+    contactNodeId: text(contact.id),
+    idFactory: deterministicIds(1_900),
+    memberId: inputMemberId,
+    networkId: text(network.id),
+  }));
+  const wrappedGraph = record(wrapped.graph);
+  const wrappedNetwork = firstNetwork(wrapped.graph);
+  const nodes = records(wrappedNetwork.nodes).map((node) => {
+    if (node.nodeKind !== "call") {
+      return canonicalRecord(node);
+    }
+    return recordValue({
+      ...(node as ProjectPayload),
+      state: recordValue({
+        invocationId: "d0000000-0000-4000-8000-000000000001",
+        stateKind: "timer",
+        storage: recordValue({
+          dataBlockId: externalDataBlockId,
+          kind: "data-block-member",
+          memberId: externalDataMemberId,
+        }),
+      }),
+    });
+  });
+  const graph = recordValue({
+    ...(wrappedGraph as ProjectPayload),
+    networks: [recordValue({
+      ...(wrappedNetwork as ProjectPayload),
+      nodes,
+    })],
+  });
+  return { graph, networkId: text(wrappedNetwork.id) };
+};
+
+const GRAPH_OWNED_TEST_FIELDS = new Set(["callSiteId", "id", "invocationId"]);
+const GRAPH_INTERNAL_TEST_FIELDS = new Set([
+  "branchId",
+  "entryEdgeId",
+  "exitEdgeId",
+  "joinNodeId",
+  "sourcePortId",
+  "splitNodeId",
+  "targetPortId",
+]);
+const EXTERNAL_REFERENCE_TEST_FIELDS = new Set([
+  "dataBlockId",
+  "formalId",
+  "memberId",
+  "multiInstanceMemberIds",
+  "ownerFbId",
+  "rootInstanceDbId",
+  "staticMemberId",
+  "targetBlockId",
+]);
+
+const graphOwnedIds = (value: unknown): string[] => {
+  const result: string[] = [];
+  visitCanonical(value, (key, entry) => {
+    if (GRAPH_OWNED_TEST_FIELDS.has(key) && typeof entry === "string") {
+      result.push(entry);
+    }
+  });
+  return result;
+};
+
+const externalReferenceSnapshot = (value: unknown): readonly string[] => {
+  const result: string[] = [];
+  visitCanonical(value, (key, entry) => {
+    if (EXTERNAL_REFERENCE_TEST_FIELDS.has(key)) {
+      result.push(`${key}:${JSON.stringify(entry)}`);
+    }
+  });
+  return result.sort();
+};
+
+const expectInternalReferencesResolve = (value: unknown, owned: ReadonlySet<string>): void => {
+  visitCanonical(value, (key, entry) => {
+    if (GRAPH_INTERNAL_TEST_FIELDS.has(key) && typeof entry === "string") {
+      expect(owned.has(entry)).toBe(true);
+    }
+  });
+};
+
+const visitCanonical = (
+  value: unknown,
+  visitor: (key: string, value: unknown) => void,
+): void => {
+  if (Array.isArray(value)) {
+    value.forEach((entry) => visitCanonical(entry, visitor));
+    return;
+  }
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("$type" in value) ||
+    value.$type !== "record" ||
+    !("value" in value) ||
+    typeof value.value !== "object" ||
+    value.value === null ||
+    Array.isArray(value.value)
+  ) {
+    return;
+  }
+  for (const [key, entry] of Object.entries(value.value)) {
+    visitor(key, entry);
+    visitCanonical(entry, visitor);
+  }
+};
+
+const canonicalRecord = (value: Record<string, unknown> | undefined): ProjectPayloadValue => {
+  if (value === undefined) {
+    throw new Error("Expected a canonical record fixture.");
+  }
+  return recordValue(value as ProjectPayload);
+};
 
 const linearFixture = (): Readonly<{
   coil: Record<string, unknown>;

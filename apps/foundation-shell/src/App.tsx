@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EngineeringClient } from "./engineering-client";
 import { EngineeringWorkbench } from "./EngineeringWorkbench";
+import type { ProjectArtifactV1 } from "./education-contract";
+import { bytesToBase64, verifyProjectArtifact } from "./education-file-io";
 import { FileAccessBroker, FileAccessError } from "./file-access-broker";
 import { GuidedTutorial } from "./GuidedTutorial";
 import {
@@ -15,7 +17,7 @@ import type { GuidedTutorialStep } from "./guided-tutorial";
 import { projectWorkbenchMotorStarterGuide } from "./motor-starter-guide";
 import { ProjectHome } from "./ProjectHome";
 import type { ReplayVerificationReceipt } from "./replay-types";
-import type { RuntimeOperation } from "./runtime-types";
+import type { EngineeringRuntimeView, RuntimeOperation } from "./runtime-types";
 import { applyTheme, readInitialTheme } from "./ThemeToggle";
 import type { AppTheme } from "./ThemeToggle";
 import type { WorkbenchOperation, WorkbenchSnapshot } from "./workbench-types";
@@ -35,7 +37,9 @@ export const App = (): React.JSX.Element => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [replayReceipt, setReplayReceipt] = useState<ReplayVerificationReceipt | null>(null);
+  const [compileAttemptCount, setCompileAttemptCount] = useState(0);
   const [closeRequested, setCloseRequested] = useState(false);
+  const [deleteRequested, setDeleteRequested] = useState(false);
   const [theme, setTheme] = useState<AppTheme>(readInitialTheme);
   const [tutorialStep, setTutorialStep] = useState<GuidedTutorialStep | null>(() =>
     readGuidedTutorialStatus() === null ? "create-project" : null
@@ -125,7 +129,7 @@ export const App = (): React.JSX.Element => {
   }, [services]);
 
   useEffect(() => {
-    if (snapshot?.dirtyState === "clean") {
+    if (snapshot === null || snapshot.dirtyState === "clean") {
       return;
     }
     const protectDirtyProject = (event: BeforeUnloadEvent): void => {
@@ -155,6 +159,7 @@ export const App = (): React.JSX.Element => {
     if (created !== null) {
       setSnapshot(created);
       setReplayReceipt(null);
+      setCompileAttemptCount(0);
     }
   }, [runBusy, services]);
 
@@ -165,6 +170,7 @@ export const App = (): React.JSX.Element => {
         const next = await services.client.openProject(opened.bytes, opened.grantId);
         setSnapshot(next);
         setReplayReceipt(null);
+        setCompileAttemptCount(0);
       } catch (reason) {
         services.files.revoke(opened.grantId);
         throw reason;
@@ -196,7 +202,31 @@ export const App = (): React.JSX.Element => {
         tutorialRuntimeProof.current,
       );
       setSnapshot(next);
+      if (operation.kind === "runtime.build") {
+        setCompileAttemptCount((current) => current + 1);
+      }
     }
+  }, [runBusy, services]);
+
+  const executeEducationRuntimeOperation = useCallback(async (
+    operation: RuntimeOperation,
+  ): Promise<EngineeringRuntimeView> => {
+    setReplayReceipt(null);
+    const next = await runBusy(() => services.client.executeRuntime(operation));
+    if (next === null) {
+      throw new Error("The virtual PLC command did not complete.");
+    }
+    observeTutorialRuntimeOperation(
+      operation,
+      next,
+      tutorialStepRef.current,
+      tutorialRuntimeProof.current,
+    );
+    setSnapshot(next);
+    if (operation.kind === "runtime.build") {
+      setCompileAttemptCount((current) => current + 1);
+    }
+    return next.runtime;
   }, [runBusy, services]);
 
   const startSimulation = useCallback(async (): Promise<void> => {
@@ -208,6 +238,9 @@ export const App = (): React.JSX.Element => {
       const advance = async (operation: RuntimeOperation): Promise<void> => {
         current = await services.client.executeRuntime(operation);
         setSnapshot(current);
+        if (operation.kind === "runtime.build") {
+          setCompileAttemptCount((count) => count + 1);
+        }
       };
       const session = (): NonNullable<WorkbenchSnapshot["runtime"]["session"]> => {
         if (current.runtime.session === null) {
@@ -279,6 +312,106 @@ export const App = (): React.JSX.Element => {
     });
   }, [runBusy, services, snapshot]);
 
+  const resetEducationRuntime = useCallback(async (): Promise<EngineeringRuntimeView> => {
+    if (snapshot === null) {
+      throw new Error("Open a project before resetting the virtual PLC.");
+    }
+    const next = await runBusy(async () => {
+      let current = snapshot;
+      const advance = async (operation: RuntimeOperation): Promise<void> => {
+        current = await services.client.executeRuntime(operation);
+        setSnapshot(current);
+      };
+      const session = (): NonNullable<WorkbenchSnapshot["runtime"]["session"]> => {
+        if (current.runtime.session === null) {
+          throw new Error(current.runtime.reason ?? "The virtual controller is not ready yet.");
+        }
+        return current.runtime.session;
+      };
+
+      if (!session().snapshotAvailable) {
+        throw new Error("Start simulation once before running assignment checks.");
+      }
+      if (session().cpuState === "RUN") {
+        await advance({ kind: "runtime.request-stop" });
+      }
+      await advance({ kind: "runtime.restore-snapshot" });
+      if (session().monitorState !== "ACTIVE") {
+        await advance({ kind: "runtime.start-monitoring" });
+      }
+      if (session().cpuState === "STOP") {
+        await advance({ kind: "runtime.request-run" });
+      }
+      await advance({ kind: "runtime.run-scan" });
+      return current.runtime;
+    });
+    if (next === null) {
+      throw new Error("The virtual PLC could not be reset for the assignment check.");
+    }
+    return next;
+  }, [runBusy, services, snapshot]);
+
+  const exportEducationProjectArtifact = useCallback(async (): Promise<ProjectArtifactV1> => {
+    if (snapshot === null) {
+      throw new Error("Open a project before creating a submission.");
+    }
+    const artifact = await runBusy(async () => {
+      const prepared = await services.client.prepareSave("save");
+      try {
+        const bytes = new Uint8Array(prepared.bytes);
+        return {
+          fileName: prepared.suggestedName,
+          packageBase64: bytesToBase64(bytes),
+          sha256Hex: prepared.packageHash.toLocaleUpperCase("en-US"),
+        } satisfies ProjectArtifactV1;
+      } finally {
+        await services.client.abortSave(prepared.pendingSaveId);
+      }
+    });
+    if (artifact === null) {
+      throw new Error("The project package could not be prepared for submission.");
+    }
+    return artifact;
+  }, [runBusy, services, snapshot]);
+
+  const openEducationProjectArtifact = useCallback(async (
+    artifact: ProjectArtifactV1,
+    allowReplaceEmptyProject: boolean,
+  ): Promise<void> => {
+    const activeObjectCount = snapshot === null
+      ? 0
+      : Object.values(snapshot.objects).filter((object) => object.lifecycle === "active").length;
+    const replacingEmptyProject = allowReplaceEmptyProject && activeObjectCount === 1;
+    if (snapshot !== null && snapshot.dirtyState !== "clean" && !replacingEmptyProject) {
+      const reason = new Error("Save or close the current project before opening another education project.");
+      setError(reason.message);
+      throw reason;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      // Verify in the UI boundary first; the engineering worker independently verifies the same
+      // digest before parsing the canonical project bytes.
+      const verified = await verifyProjectArtifact(artifact);
+      const next = await services.client.openDetachedProjectArtifact(
+        verified.bytes,
+        verified.fileName,
+        verified.sha256Hex,
+      );
+      if (snapshot?.fileGrantId !== null && snapshot?.fileGrantId !== undefined) {
+        services.files.revoke(snapshot.fileGrantId);
+      }
+      setSnapshot(next);
+      setReplayReceipt(null);
+      setCompileAttemptCount(0);
+    } catch (reason) {
+      setError(errorMessage(reason));
+      throw reason;
+    } finally {
+      setBusy(false);
+    }
+  }, [services, snapshot]);
+
   const verifyReplay = useCallback(async (): Promise<void> => {
     const verified = await runBusy(async () => {
       const replayPackage = await services.client.exportReplayPackage();
@@ -308,6 +441,13 @@ export const App = (): React.JSX.Element => {
           saved.grantId,
           saved.verifiedBytes,
         );
+        if (
+          mode === "save-as" &&
+          snapshot.fileGrantId !== null &&
+          snapshot.fileGrantId !== saved.grantId
+        ) {
+          services.files.revoke(snapshot.fileGrantId);
+        }
         setSnapshot(committed);
         return true;
       } catch (reason) {
@@ -323,16 +463,29 @@ export const App = (): React.JSX.Element => {
       setCloseRequested(true);
       return;
     }
+    if (snapshot.fileGrantId !== null) {
+      services.files.revoke(snapshot.fileGrantId);
+    }
     setSnapshot(null);
     setError(null);
     setReplayReceipt(null);
-  }, [snapshot]);
+    setCompileAttemptCount(0);
+  }, [services, snapshot]);
 
   const discardAndClose = useCallback((): void => {
     setCloseRequested(false);
+    setDeleteRequested(false);
+    if (snapshot?.fileGrantId !== null && snapshot?.fileGrantId !== undefined) {
+      services.files.revoke(snapshot.fileGrantId);
+    }
     setSnapshot(null);
     setError(null);
     setReplayReceipt(null);
+    setCompileAttemptCount(0);
+  }, [services, snapshot]);
+
+  const requestProjectDeletion = useCallback((): void => {
+    setDeleteRequested(true);
   }, []);
 
   const saveAndClose = useCallback(async (): Promise<void> => {
@@ -438,8 +591,14 @@ export const App = (): React.JSX.Element => {
     <>
       <EngineeringWorkbench
         busy={busy}
+        compileAttemptCount={compileAttemptCount}
         error={error}
         onClose={closeProject}
+        onDeleteProject={requestProjectDeletion}
+        onEducationResetRuntime={resetEducationRuntime}
+        onEducationRuntimeOperation={executeEducationRuntimeOperation}
+        onExportProjectArtifact={exportEducationProjectArtifact}
+        onOpenEducationProject={openEducationProjectArtifact}
         onOperation={executeOperation}
         onResetSimulation={resetSimulation}
         onRuntimeOperation={executeRuntimeOperation}
@@ -473,6 +632,30 @@ export const App = (): React.JSX.Element => {
               <button disabled={busy} onClick={() => setCloseRequested(false)} type="button">Cancel</button>
               <button className="danger-action" disabled={busy} onClick={discardAndClose} type="button">Discard</button>
               <button className="primary-button" disabled={busy} onClick={() => void saveAndClose()} type="button">Save and close</button>
+            </div>
+          </section>
+        </div>
+      )}
+      {deleteRequested && (
+        <div className="dialog-backdrop" role="presentation">
+          <section
+            aria-describedby="delete-project-description"
+            aria-labelledby="delete-project-title"
+            aria-modal="true"
+            className="decision-dialog"
+            role="dialog"
+          >
+            <p className="action-kicker">Delete working copy</p>
+            <h2 id="delete-project-title">Remove {snapshot.projectName} from this workspace?</h2>
+            <p id="delete-project-description">
+              This closes the project and discards any unsaved changes. A previously saved .vlabproj file stays on
+              your computer and can be deleted with your normal file manager.
+            </p>
+            <div className="decision-dialog__actions">
+              <button disabled={busy} onClick={() => setDeleteRequested(false)} type="button">Cancel</button>
+              <button className="danger-action" disabled={busy} onClick={discardAndClose} type="button">
+                Delete working copy
+              </button>
             </div>
           </section>
         </div>

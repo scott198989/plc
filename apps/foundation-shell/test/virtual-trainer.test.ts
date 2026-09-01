@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   createMomentaryPulseOperationSequence,
+  inferBooleanInputControl,
   VirtualTrainer,
   VirtualTrainerTutorialProvider,
 } from "../src/VirtualTrainer";
@@ -101,6 +102,7 @@ describe("Virtual Trainer", () => {
     expect(markup).toContain('aria-label="Start button input behavior"');
     expect(markup).toContain("Switch");
     expect(markup).toContain("Pushbutton");
+    expect(markup).toContain("Sensor");
     expect(markup).toContain('aria-label="Pulse Start button"');
     expect(markup).toContain('aria-label="Conveyor motor actuator is on"');
     expect(markup).toContain("Controller reads <strong>FALSE</strong>");
@@ -165,5 +167,30 @@ describe("Virtual Trainer", () => {
 
     expect(markup).toContain('aria-label="Pulse Start button"');
     expect(markup).toContain('aria-label="Conveyor motor actuator is on"');
+  });
+
+  it("presents sensor-named inputs as simulated detectors", () => {
+    const sensorProbe = {
+      ...booleanProbe("sensor", "input", true),
+      displayName: "Entry photoeye sensor",
+    } satisfies RuntimeProbeView;
+    const sensorRuntime = {
+      ...runtime,
+      session: runtime.session === null ? null : {
+        ...runtime.session,
+        probes: [sensorProbe],
+      },
+    } satisfies EngineeringRuntimeView;
+
+    expect(inferBooleanInputControl(sensorProbe)).toBe("sensor");
+    const markup = renderToStaticMarkup(createElement(VirtualTrainer, {
+      busy: false,
+      onOperation: async () => undefined,
+      runtime: sensorRuntime,
+    }));
+
+    expect(markup).toContain('aria-label="Entry photoeye sensor simulated sensor"');
+    expect(markup).toContain('aria-checked="true"');
+    expect(markup).toContain("DETECTED");
   });
 });

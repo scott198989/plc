@@ -1798,6 +1798,7 @@ const PROJECT_OBJECT_KINDS = [
   "FB",
   "GlobalDB",
   "InstanceDB",
+  "HmiScreen",
   "WatchTable",
   "TraceConfiguration",
   "BuildRecord",

@@ -36,6 +36,23 @@ describe("LAD learner power-flow projection", () => {
     expect(result.rungState).toBe("unknown");
     expect(result.nodeStates.get("coil")?.incoming).toBe("unknown");
   });
+
+  it("carries incoming rung power through an instruction box ENO path", () => {
+    const result = projectLadPowerFlow({
+      ...topology(),
+      items: [
+        element("source", "power-source", null, "source-box"),
+        element("add", "box", "source-box", "box-coil"),
+        element("coil", "coil", "box-coil", null, MOTOR, "normal"),
+      ],
+    }, new Map());
+    expect(result.nodeStates.get("add")).toEqual({
+      condition: null,
+      incoming: "on",
+      outgoing: "on",
+    });
+    expect(result.rungState).toBe("on");
+  });
 });
 
 const topology = (): LadNetworkTopology => ({

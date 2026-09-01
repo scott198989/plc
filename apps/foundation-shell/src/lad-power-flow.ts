@@ -149,6 +149,7 @@ const contactCondition = (
 };
 
 const passesPower = (nodeKind: string): boolean =>
+  nodeKind === "box" ||
   nodeKind === "coil" ||
   nodeKind === "return";
 

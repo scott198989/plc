@@ -739,6 +739,7 @@ export type ProjectObjectKind =
   | "FB"
   | "GlobalDB"
   | "InstanceDB"
+  | "HmiScreen"
   | "WatchTable"
   | "TraceConfiguration"
   | "BuildRecord"

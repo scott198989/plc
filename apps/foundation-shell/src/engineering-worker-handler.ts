@@ -47,12 +47,15 @@ const PROFILE_VERSION = "1.0.0";
 const LOCAL_WORKBENCH_AUTHOR_ID = "6c6f6361-6c2d-4777-af72-6b62656e6368";
 const MAX_PROJECT_BYTES = 32 * 1024 * 1024;
 const MAX_PROJECT_OBJECTS = 16_384;
+const PROJECT_FILE_EXTENSION = ".vlabproj";
 const ZERO_HASH = "0".repeat(64);
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/u;
 const DECIMAL_UINT64_PATTERN = /^(?:0|[1-9][0-9]*)$/u;
 const HASH_PATTERN = /^[A-Fa-f0-9]{64}$/u;
+const UPPER_HASH_PATTERN = /^[A-F0-9]{64}$/u;
 const NATIVE_FILE_GRANT_PATTERN = /^p2-native-v1:[0-9a-f]{16}$/u;
+const UNSAFE_PROJECT_FILE_NAME = /[\\/:*?"<>|\u0000-\u001f\u007f]/u;
 const SIGNED_DECIMAL_PATTERN = /^(?:0|-[1-9][0-9]*|[1-9][0-9]*)$/u;
 const PROJECT_STORAGE_KINDS = new Set<ProjectStorageKind>([
   "folder",
@@ -84,6 +87,13 @@ type EngineeringRequest =
       fileGrantId: string;
       kind: "engineering.project.open";
       requestId: string;
+    }>
+  | Readonly<{
+      bytes: ArrayBuffer;
+      expectedPackageHash: string;
+      kind: "engineering.project.open-detached";
+      requestId: string;
+      suggestedFileName: string;
     }>
   | Readonly<{
       kind: "engineering.project.command";
@@ -299,6 +309,8 @@ class EngineeringWorkerEngine {
         return this.createProject(request);
       case "engineering.project.open":
         return this.openProject(request);
+      case "engineering.project.open-detached":
+        return this.openDetachedProject(request);
       case "engineering.project.command":
         return this.executeProjectOperation(request.requestId, request.operation);
       case "engineering.runtime.command":
@@ -380,6 +392,36 @@ class EngineeringWorkerEngine {
       documentRevision: query.project.documentRevision,
       domain: "persistence",
       packageHash: (await sha256(new Uint8Array(request.bytes))).hex,
+      projectRootId: query.project.rootId,
+      recoveryStatus: "not-applicable",
+      schemaVersion: "1",
+    };
+    validateDomainReceipt(receipt);
+    return this.snapshot(query, await deriveUuid(`${request.requestId}:snapshot`));
+  }
+
+  private async openDetachedProject(
+    request: Extract<EngineeringRequest, { kind: "engineering.project.open-detached" }>,
+  ): Promise<WorkbenchSnapshot> {
+    const packageBytes = new Uint8Array(request.bytes);
+    const digest = await sha256(packageBytes);
+    if (digest.hex !== request.expectedPackageHash) {
+      throw new EngineeringWorkerError(
+        "PROJECT_ARTIFACT_HASH_MISMATCH",
+        "The submitted project bytes do not match the verified submission digest.",
+      );
+    }
+
+    // A submission artifact has no native-file capability. Opening it as a detached project
+    // deliberately leaves fileGrantId null so every durable write must travel through Save As.
+    const query = parseKernelQuery((await this.#kernelPromise).open(packageBytes));
+    this.resetSession(query, null);
+    const receipt: PersistenceReceipt = {
+      action: "open",
+      documentId: query.project.documentId,
+      documentRevision: query.project.documentRevision,
+      domain: "persistence",
+      packageHash: digest.hex,
       projectRootId: query.project.rootId,
       recoveryStatus: "not-applicable",
       schemaVersion: "1",
@@ -1381,6 +1423,9 @@ const mapRawKind = (
     case "data-block":
       return object?.semanticPayload.dbKind === "InstanceDB" ? "InstanceDB" : "GlobalDB";
     case "generic":
+      if (object?.payloadSchema === "edu.hmi-screen/1") {
+        return "HmiScreen";
+      }
       if (object?.payloadSchema === "edu.watch-table/1") {
         return "WatchTable";
       }
@@ -1439,6 +1484,22 @@ const parseEngineeringRequest = (input: unknown): EngineeringRequest => {
         fileGrantId: requireNativeFileGrantId(record.fileGrantId),
         kind,
         requestId,
+      };
+    case "engineering.project.open-detached":
+      requireExactKeys(
+        record,
+        ["bytes", "expectedPackageHash", "kind", "requestId", "suggestedFileName"],
+        "engineering detached open request",
+      );
+      if (!(record.bytes instanceof ArrayBuffer) || record.bytes.byteLength < 1 || record.bytes.byteLength > MAX_PROJECT_BYTES) {
+        throw new EngineeringWorkerError("INVALID_REQUEST", "The detached project package violates its byte limit.");
+      }
+      return {
+        bytes: record.bytes,
+        expectedPackageHash: requireUpperHash(record.expectedPackageHash, "detached project package hash"),
+        kind,
+        requestId,
+        suggestedFileName: requireProjectFileName(record.suggestedFileName),
       };
     case "engineering.project.command":
       requireExactKeys(record, ["kind", "operation", "requestId"], "engineering command request");
@@ -2151,6 +2212,21 @@ const requireNativeFileGrantId = (input: unknown): string => {
   return input;
 };
 
+const requireProjectFileName = (input: unknown): string => {
+  const fileName = requireString(input, "detached project file name", 255);
+  if (
+    fileName !== fileName.trim()
+    || !fileName.toLocaleLowerCase("en-US").endsWith(PROJECT_FILE_EXTENSION)
+    || UNSAFE_PROJECT_FILE_NAME.test(fileName)
+  ) {
+    throw new EngineeringWorkerError(
+      "INVALID_REQUEST",
+      "The detached project file name must be one safe .vlabproj name.",
+    );
+  }
+  return fileName;
+};
+
 const correlatedRequestId = (input: unknown): string => {
   if (
     typeof input !== "object" ||
@@ -2172,6 +2248,13 @@ const correlatedRequestId = (input: unknown): string => {
 const requireHash = (input: unknown, label: string): string => {
   if (typeof input !== "string" || !HASH_PATTERN.test(input)) {
     throw new EngineeringWorkerError("INVALID_REQUEST", `${label} must be a SHA-256 digest.`);
+  }
+  return input;
+};
+
+const requireUpperHash = (input: unknown, label: string): string => {
+  if (typeof input !== "string" || !UPPER_HASH_PATTERN.test(input)) {
+    throw new EngineeringWorkerError("INVALID_REQUEST", `${label} must be an uppercase SHA-256 digest.`);
   }
   return input;
 };

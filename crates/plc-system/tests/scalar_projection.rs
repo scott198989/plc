@@ -7,7 +7,7 @@ use plc_core::{
     Payload, PayloadValue, ProfilePin, Project, ProjectObjectKind, TransactionId, Uuid,
 };
 use plc_hardware::TrainingProfile;
-use plc_program::{BlockId, CanonicalValue, DataType, InterfaceMemberId};
+use plc_program::{BlockId, CanonicalValue, DataType, InterfaceMemberId, StateKind};
 use plc_system::{CanonicalSoftwareProjection, project_software};
 
 const DATA_BLOCK_SCHEMA: &str = "edu.data-block/1";
@@ -480,5 +480,50 @@ fn malformed_or_mismatched_scalar_payloads_fail_closed_at_projection() {
             "case '{name}' did not emit '{expected_message}': {:#?}",
             projection.diagnostics()
         );
+    }
+}
+
+#[test]
+fn instruction_state_members_project_in_global_data_blocks() {
+    let cases = [
+        ("Edge_1_State", "EDGESTATE", StateKind::Edge),
+        ("Timer_1_State", "TIMERSTATE", StateKind::Timer),
+        ("Counter_1_State", "COUNTERSTATE", StateKind::Counter),
+    ];
+    let mut fixture = Fixture::new();
+    let db_id = object_id(400);
+    fixture.create_global_db(
+        db_id,
+        cases
+            .iter()
+            .enumerate()
+            .map(|(index, (name, type_id, _))| {
+                record([
+                    (
+                        "id",
+                        PayloadValue::from(member_id(400 + index as u64).to_string()),
+                    ),
+                    ("name", PayloadValue::from(*name)),
+                    ("role", PayloadValue::from("Static")),
+                    ("typeId", PayloadValue::from(*type_id)),
+                    ("declaredOrder", PayloadValue::Unsigned(index as u64)),
+                ])
+            })
+            .collect(),
+    );
+
+    let projection = fixture.projection();
+    assert!(projection.can_compile(), "{:#?}", projection.diagnostics());
+    let db =
+        &projection.program().blocks()[&BlockId::new(u128::from_be_bytes(db_id.0.into_bytes()))];
+    for (index, (_, _, expected_kind)) in cases.iter().enumerate() {
+        let member = db
+            .interface
+            .member(InterfaceMemberId::new(u128::from_be_bytes(
+                member_id(400 + index as u64).into_bytes(),
+            )))
+            .expect("projected instruction-state member");
+        assert_eq!(member.data_type, DataType::InstructionState(*expected_kind));
+        assert_eq!(member.default_value, None);
     }
 }

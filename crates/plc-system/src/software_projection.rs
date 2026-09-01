@@ -1181,6 +1181,9 @@ pub(crate) fn parse_data_type(value: &str) -> Result<DataType, String> {
         "LREAL" => Ok(DataType::LReal),
         "CHAR" => Ok(DataType::Char),
         "TIME" => Ok(DataType::Time),
+        "EDGESTATE" => Ok(DataType::InstructionState(plc_program::StateKind::Edge)),
+        "TIMERSTATE" => Ok(DataType::InstructionState(plc_program::StateKind::Timer)),
+        "COUNTERSTATE" => Ok(DataType::InstructionState(plc_program::StateKind::Counter)),
         _ if upper.starts_with("STRING[") && upper.ends_with(']') => {
             let capacity = upper[7..upper.len() - 1]
                 .parse::<u16>()
