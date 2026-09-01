@@ -15,6 +15,7 @@ type RuntimeSurfaceProps = Readonly<{
   busy: boolean;
   onNavigate?: (objectId: string) => void;
   onOperation: (operation: RuntimeOperation) => Promise<void>;
+  onStartSimulation?: () => Promise<void>;
   onVerifyReplay: () => Promise<void>;
   replayReceipt: ReplayVerificationReceipt | null;
   runtime: EngineeringRuntimeView;
@@ -23,6 +24,7 @@ type RuntimeSurfaceProps = Readonly<{
 export const RuntimeToolbar = ({
   busy,
   onOperation,
+  onStartSimulation,
   onVerifyReplay,
   replayReceipt,
   runtime,
@@ -42,6 +44,19 @@ export const RuntimeToolbar = ({
         </span>
       </div>
       <span className="runtime-toolbar__divider" aria-hidden="true" />
+      {onStartSimulation !== undefined && (
+        <button
+          className="runtime-toolbar__guided"
+          disabled={busy || session === null || !runtime.canBuild || (session.online && cpuState === "RUN")}
+          onClick={() => void onStartSimulation()}
+          title={!runtime.canBuild
+            ? "Resolve blocking project issues before starting the virtual PLC"
+            : "Build, load, go online, start monitoring, and enter RUN"}
+          type="button"
+        >
+          {session?.online === true && cpuState === "RUN" ? "Simulation running" : "Start simulation"}
+        </button>
+      )}
       <button
         disabled={busy || session === null || !runtime.canBuild}
         onClick={() => void onOperation({ kind: "runtime.build" })}

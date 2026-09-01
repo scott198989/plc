@@ -253,6 +253,36 @@ export const createLadProgramPayload = (
   };
 };
 
+/**
+ * Creates the first learner-facing LAD exercise with names that match the
+ * virtual pushbuttons and motor output provisioned by the ladder-lab setup.
+ * Member identities stay canonical, so renaming a variable later does not
+ * break its rung or tag binding.
+ */
+export const createStarterLadProgramPayload = (engineeringNumber = 1): ProjectPayload => {
+  const payload = createLadProgramPayload(engineeringNumber);
+  const members = Array.isArray(payload.interface) ? payload.interface : [];
+  const start = renameInterfaceMember(members[0], "Start_PB", 0);
+  const motor = renameInterfaceMember(members[1], "Motor_Run", 2);
+  const stop = createInterfaceMemberPayload("Stop_PB", "temp", 1, "BOOL");
+  return {
+    ...payload,
+    interface: [start, stop, motor],
+  };
+};
+
+const renameInterfaceMember = (
+  member: ProjectPayloadValue | undefined,
+  name: string,
+  order: number,
+): ProjectPayloadValue => {
+  const fields = member === undefined ? null : recordFieldsOrNull(member);
+  if (fields === null) {
+    return createInterfaceMemberPayload(name, "temp", order, "BOOL");
+  }
+  return recordValue({ ...fields, name, order: unsignedValue(order) });
+};
+
 const ladderEdge = (sourcePortId: string, targetPortId: string): ProjectPayloadValue =>
   recordValue({ id: crypto.randomUUID(), sourcePortId, targetPortId });
 

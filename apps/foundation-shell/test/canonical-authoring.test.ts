@@ -9,6 +9,7 @@ import {
   createNamedTypeMemberPayload,
   createNamedTypePayload,
   createSclProgramPayload,
+  createStarterLadProgramPayload,
   createTracePayload,
   createWatchPayload,
   interfaceMemberIdentity,
@@ -134,6 +135,21 @@ describe("canonical authoring payloads", () => {
     expect(edges.every((edge) => ports.has(String(edge.sourcePortId)) && ports.has(String(edge.targetPortId)))).toBe(true);
     expect(record(nodes[1]?.operand).memberId).toBe(interfaceMemberIdentity(payload, "InputValue"));
     expect(record(nodes[2]?.operand).memberId).toBe(interfaceMemberIdentity(payload, "OutputValue"));
+  });
+
+  it("authors a learner motor-starter rung with three stable BOOL variables", () => {
+    const payload = createStarterLadProgramPayload();
+    const members = list(payload.interface).map(record);
+    expect(members.map((member) => member.name)).toEqual(["Start_PB", "Stop_PB", "Motor_Run"]);
+    expect(members.map((member) => member.type)).toEqual(["BOOL", "BOOL", "BOOL"]);
+    expect(members.map((member) => member.role)).toEqual(["temp", "temp", "temp"]);
+    expect(new Set(members.map((member) => member.id)).size).toBe(3);
+
+    const network = record(list(record(payload.graph).networks)[0]);
+    const nodes = list(network.nodes).map(record);
+    expect(record(nodes[1]?.operand).memberId).toBe(interfaceMemberIdentity(payload, "Start_PB"));
+    expect(record(nodes[2]?.operand).memberId).toBe(interfaceMemberIdentity(payload, "Motor_Run"));
+    expect(interfaceMemberIdentity(payload, "Stop_PB")).toMatch(UUID);
   });
 
   it("authors a typed FBD data-flow graph through the shared NOT instruction", () => {

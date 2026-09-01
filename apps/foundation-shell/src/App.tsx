@@ -115,6 +115,50 @@ export const App = (): React.JSX.Element => {
     }
   }, [runBusy, services]);
 
+  const startSimulation = useCallback(async (): Promise<void> => {
+    if (snapshot === null) {
+      return;
+    }
+    await runBusy(async () => {
+      let current = snapshot;
+      const advance = async (operation: RuntimeOperation): Promise<void> => {
+        current = await services.client.executeRuntime(operation);
+        setSnapshot(current);
+      };
+      const session = (): NonNullable<WorkbenchSnapshot["runtime"]["session"]> => {
+        if (current.runtime.session === null) {
+          throw new Error(current.runtime.reason ?? "The virtual controller is not ready yet.");
+        }
+        return current.runtime.session;
+      };
+
+      if (!current.runtime.canBuild) {
+        throw new Error(current.runtime.reason ?? "Resolve the blocking project issues before starting simulation.");
+      }
+      if (!session().buildCurrent) {
+        await advance({ kind: "runtime.build" });
+      }
+      if (session().cpuState === "POWERED_OFF") {
+        await advance({ kind: "runtime.power-on" });
+      }
+      if (!session().loaded || session().loadedArtifactFingerprint !== session().buildFingerprint) {
+        if (session().loadPreview === null) {
+          await advance({ kind: "runtime.preview-load", postLoadMode: "STOP" });
+        }
+        await advance({ kind: "runtime.commit-load" });
+      }
+      if (!session().online) {
+        await advance({ kind: "runtime.go-online" });
+      }
+      if (session().monitorState !== "ACTIVE") {
+        await advance({ kind: "runtime.start-monitoring" });
+      }
+      if (session().cpuState === "STOP") {
+        await advance({ kind: "runtime.request-run" });
+      }
+    });
+  }, [runBusy, services, snapshot]);
+
   const verifyReplay = useCallback(async (): Promise<void> => {
     const verified = await runBusy(async () => {
       const replayPackage = await services.client.exportReplayPackage();
@@ -198,6 +242,7 @@ export const App = (): React.JSX.Element => {
         onClose={closeProject}
         onOperation={executeOperation}
         onRuntimeOperation={executeRuntimeOperation}
+        onStartSimulation={startSimulation}
         onVerifyReplay={verifyReplay}
         onSave={async (mode) => { await saveProject(mode); }}
         replayReceipt={replayReceipt}

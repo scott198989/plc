@@ -30,6 +30,7 @@ import {
 import type { LadAuthoringResult } from "./lad-authoring";
 import { projectLadLiveMonitoring } from "./lad-live-monitoring";
 import type { LadBooleanMemberLiveState } from "./lad-live-monitoring";
+import { createLadderStarterPlan } from "./ladder-starter";
 import { projectLadNetworkTopology } from "./lad-topology";
 import type { LadTopologyItem, LadTopologyParallel } from "./lad-topology";
 import { RuntimeInspector, RuntimeToolbar } from "./RuntimeWorkbench";
@@ -52,6 +53,7 @@ type EngineeringWorkbenchProps = Readonly<{
   onOperation: (operation: WorkbenchOperation) => Promise<void>;
   onRuntimeOperation: (operation: RuntimeOperation) => Promise<void>;
   onSave: (mode: "save" | "save-as") => Promise<void>;
+  onStartSimulation: () => Promise<void>;
   onVerifyReplay: () => Promise<void>;
   replayReceipt: ReplayVerificationReceipt | null;
   snapshot: WorkbenchSnapshot;
@@ -89,6 +91,7 @@ export const EngineeringWorkbench = ({
   onOperation,
   onRuntimeOperation,
   onSave,
+  onStartSimulation,
   onVerifyReplay,
   replayReceipt,
   snapshot,
@@ -162,6 +165,9 @@ export const EngineeringWorkbench = ({
     () => Object.values(snapshot.objects).filter((object) => object.lifecycle === "active"),
     [snapshot.objects],
   );
+  const learnerLadProgram = activeObjects.find((object) =>
+    object.kind === "OB" && object.semanticPayload.language === "LAD"
+  );
   const tombstoneCount = Object.values(snapshot.objects).length - activeObjects.length;
   const blockingCount = snapshot.diagnostics.filter((diagnostic) => diagnostic.blocking).length;
   const createOptions = selected === undefined ? [] : creationOptions(selected, snapshot);
@@ -188,6 +194,24 @@ export const EngineeringWorkbench = ({
     setCreateMenuOpen(false);
     setSelectedId(objectId);
     setOpenTabs((current) => [...current, objectId]);
+  };
+
+  const openLadderProgram = (programId: string): void => {
+    setSelectedId(programId);
+    setOpenTabs((current) => current.includes(programId) ? current : [...current, programId]);
+    setBottomPane(null);
+  };
+
+  const startLadderLab = async (): Promise<void> => {
+    if (learnerLadProgram !== undefined) {
+      openLadderProgram(learnerLadProgram.id);
+      return;
+    }
+    const plan = createLadderStarterPlan(snapshot.projectRootId);
+    for (const operation of plan.operations) {
+      await onOperation(operation);
+    }
+    openLadderProgram(plan.programId);
   };
 
   return (
@@ -243,6 +267,10 @@ export const EngineeringWorkbench = ({
       <RuntimeToolbar
         busy={busy}
         onOperation={onRuntimeOperation}
+        onStartSimulation={async () => {
+          await onStartSimulation();
+          setBottomPane("runtime");
+        }}
         onVerifyReplay={onVerifyReplay}
         replayReceipt={replayReceipt}
         runtime={snapshot.runtime}
@@ -348,6 +376,10 @@ export const EngineeringWorkbench = ({
               <ProjectOverview
                 activeCount={activeObjects.length}
                 blockingCount={blockingCount}
+                busy={busy}
+                canCreateLadderLab={activeObjects.length === 1}
+                ladderProgramName={learnerLadProgram?.displayName ?? null}
+                onLadderAction={() => void startLadderLab()}
                 snapshot={snapshot}
                 tombstoneCount={tombstoneCount}
               />
@@ -539,6 +571,10 @@ const ObjectGlyph = ({ kind }: Readonly<{ kind: WorkbenchObjectView["kind"] }>):
 type ProjectOverviewProps = Readonly<{
   activeCount: number;
   blockingCount: number;
+  busy: boolean;
+  canCreateLadderLab: boolean;
+  ladderProgramName: string | null;
+  onLadderAction: () => void;
   snapshot: WorkbenchSnapshot;
   tombstoneCount: number;
 }>;
@@ -546,15 +582,58 @@ type ProjectOverviewProps = Readonly<{
 const ProjectOverview = ({
   activeCount,
   blockingCount,
+  busy,
+  canCreateLadderLab,
+  ladderProgramName,
+  onLadderAction,
   snapshot,
   tombstoneCount,
-}: ProjectOverviewProps): React.JSX.Element => (
-  <div className="overview-layout">
-    <header className="editor-title">
-      <p className="eyebrow">Project overview</p>
-      <h1>{snapshot.projectName}</h1>
-      <p>Canonical project identity, revision state, and integrity at a glance.</p>
-    </header>
+}: ProjectOverviewProps): React.JSX.Element => {
+  const ladderActionAvailable = ladderProgramName !== null || canCreateLadderLab;
+  return (
+    <div className="overview-layout">
+      <header className="editor-title">
+        <p className="eyebrow">Learning workspace</p>
+        <h1>{snapshot.projectName}</h1>
+        <p>Build a ladder program, run it on the virtual PLC, and watch the logic respond.</p>
+      </header>
+      {ladderActionAvailable && (
+        <section className="learning-start-card" aria-labelledby="learning-start-title">
+          <div className="learning-start-card__symbol" aria-hidden="true">
+            <span>—| |—</span><span>—( )—</span>
+          </div>
+          <div className="learning-start-card__copy">
+            <p className="action-kicker">Start here</p>
+            <h2 id="learning-start-title">
+              {ladderProgramName === null ? "Create your first ladder circuit" : "Continue your ladder program"}
+            </h2>
+            <p>
+              {ladderProgramName === null
+                ? "Set up a safe virtual PLC, Start and Stop pushbuttons, a motor output, and an editable MainCycle rung."
+                : `${ladderProgramName} is ready for contacts, branches, coils, and live simulation.`}
+            </p>
+            <ol aria-label="Ladder learning steps">
+              <li><strong>1</strong><span>Choose variables</span></li>
+              <li><strong>2</strong><span>Build the rung</span></li>
+              <li><strong>3</strong><span>Run and observe</span></li>
+            </ol>
+          </div>
+          <button
+            className="learning-start-card__action"
+            disabled={busy}
+            onClick={onLadderAction}
+            type="button"
+          >
+            {busy
+              ? "Setting up…"
+              : ladderProgramName === null
+                ? "Create motor starter lab"
+                : `Open ${ladderProgramName}`}
+            <span aria-hidden="true">→</span>
+          </button>
+        </section>
+      )}
+      <p className="overview-section-label">Engineering details</p>
     <div className="metric-grid">
       <article className="metric-card">
         <span>Active objects</span>
@@ -588,8 +667,9 @@ const ProjectOverview = ({
         <div><dt>Project hash</dt><dd>{snapshot.projectHash}</dd></div>
       </dl>
     </section>
-  </div>
-);
+    </div>
+  );
+};
 
 const ObjectOverview = ({
   object,
@@ -1070,7 +1150,14 @@ type GraphInterfaceMember = Readonly<{
   dataType: string;
   id: string;
   name: string;
+  operandLabel?: string;
   role: string;
+}>;
+
+type LadInsertionTarget = Readonly<{
+  edgeId: string;
+  networkId: string;
+  rungNumber: number;
 }>;
 
 type GraphicalProgramEditorProps = Readonly<{
@@ -1093,10 +1180,33 @@ const GraphicalProgramEditor = ({
     ? graphRecord.networks
     : [];
   const members = readGraphInterfaceMembers(object.semanticPayload);
-  const readableBooleanMembers = members.filter((member) => member.dataType === "BOOL");
+  const boundTags = Object.values(snapshot.objects).filter((candidate) =>
+    candidate.lifecycle === "active" &&
+    candidate.kind === "Tag" &&
+    candidate.semanticPayload.blockId === object.id &&
+    typeof candidate.semanticPayload.memberId === "string"
+  );
+  const tagByMemberId = new Map(
+    boundTags.map((tag) => [String(tag.semanticPayload.memberId), tag] as const),
+  );
+  const displayedMembers = members.map((member) => {
+    const tag = tagByMemberId.get(member.id);
+    return tag === undefined
+      ? member
+      : {
+          ...member,
+          operandLabel: tag.displayName === member.name
+            ? member.name
+            : `${tag.displayName} (${member.name})`,
+        };
+  });
+  const readableBooleanMembers = displayedMembers.filter((member) => member.dataType === "BOOL");
   const writableBooleanMembers = readableBooleanMembers.filter((member) =>
     member.role !== "input" && member.role !== "constant"
   );
+  const preferredCoilMember = writableBooleanMembers.find((member) =>
+    tagByMemberId.get(member.id)?.semanticPayload.addressArea === "Q"
+  ) ?? writableBooleanMembers.at(-1);
   const liveResult = language === "LAD"
     ? projectLadLiveMonitoring(snapshot, object.id)
     : null;
@@ -1106,7 +1216,17 @@ const GraphicalProgramEditor = ({
       : [],
   );
   const [ladAuthoringError, setLadAuthoringError] = useState<string | null>(null);
-  useEffect(() => setLadAuthoringError(null), [object.id, object.semanticRevision]);
+  const [ladInsertTarget, setLadInsertTarget] = useState<LadInsertionTarget | null>(null);
+  const [ladPaletteMemberId, setLadPaletteMemberId] = useState(readableBooleanMembers[0]?.id ?? "");
+  useEffect(() => {
+    setLadAuthoringError(null);
+    setLadInsertTarget(null);
+    setLadPaletteMemberId((current) =>
+      readableBooleanMembers.some((member) => member.id === current)
+        ? current
+        : readableBooleanMembers[0]?.id ?? ""
+    );
+  }, [object.id, object.semanticRevision]);
 
   const commitGraph = (updated: ProjectPayloadValue): void => {
     if (busy) {
@@ -1126,7 +1246,20 @@ const GraphicalProgramEditor = ({
       return;
     }
     setLadAuthoringError(null);
+    setLadInsertTarget(null);
     commitGraph(result.graph);
+  };
+
+  const insertPaletteContact = (mode: "normally-closed" | "normally-open"): void => {
+    if (graph === undefined || ladInsertTarget === null || ladPaletteMemberId.length === 0) {
+      return;
+    }
+    commitLadMutation(insertSeriesContact(graph, {
+      edgeId: ladInsertTarget.edgeId,
+      memberId: ladPaletteMemberId,
+      mode,
+      networkId: ladInsertTarget.networkId,
+    }));
   };
 
   const commitNodeFields = (
@@ -1146,17 +1279,17 @@ const GraphicalProgramEditor = ({
     <div className="graph-editor" data-language={language}>
       <header className="graph-editor__header">
         <div>
-          <p className="action-kicker">Coordinate-free semantic editor</p>
+          <p className="action-kicker">{language === "LAD" ? "Ladder program" : "Function block diagram"}</p>
           <h1>{object.displayName}</h1>
           <p>
             {language === "LAD"
-              ? "Power flow, operands, and coil behavior are stored as a stable ladder graph."
+              ? "Build each rung from left to right. Contacts test conditions; the coil controls the result."
               : "Typed ports and data dependencies are stored independently from this visual arrangement."}
           </p>
         </div>
         <div className="graph-editor__identity">
           <span>{language}</span>
-          <code>{networks.length} network{networks.length === 1 ? "" : "s"}</code>
+          <code>{networks.length} {language === "LAD" ? "rung" : "network"}{networks.length === 1 ? "" : "s"}</code>
           {language === "LAD" && liveResult?.ok === true && (
             <span
               className="graph-editor__live-state"
@@ -1168,25 +1301,78 @@ const GraphicalProgramEditor = ({
                 : "Monitoring off"}
             </span>
           )}
-          {language === "LAD" && graph !== undefined && (
-            <button
-              disabled={busy || writableBooleanMembers.length === 0}
-              onClick={() => {
-                const member = writableBooleanMembers[0];
-                if (member !== undefined) {
-                  commitLadMutation(addLadNetwork(graph, { coilMemberId: member.id }));
-                }
-              }}
-              title={writableBooleanMembers.length === 0
-                ? "Add a writable BOOL interface member before creating another network"
-                : "Add a new ladder network"}
-              type="button"
-            >
-              + Network
-            </button>
-          )}
         </div>
       </header>
+
+      {language === "LAD" && (
+        <div className="lad-workspace-tools">
+          <section className="lad-instruction-palette" aria-label="Ladder instructions">
+            <div className="lad-instruction-palette__intro">
+              <span>Instructions</span>
+              <strong>
+                {ladInsertTarget === null
+                  ? "Choose a blue insert point on a rung"
+                  : `Insert point selected · Rung ${ladInsertTarget.rungNumber}`}
+              </strong>
+            </div>
+            <label className="lad-instruction-palette__operand">
+              <span>Variable</span>
+              <select
+                aria-label="Instruction variable"
+                disabled={busy || readableBooleanMembers.length === 0}
+                onChange={(event) => setLadPaletteMemberId(event.target.value)}
+                value={ladPaletteMemberId}
+              >
+                {memberOptions(readableBooleanMembers, ladPaletteMemberId)}
+              </select>
+            </label>
+            <div className="lad-instruction-palette__buttons">
+              <button
+                aria-label="NO contact"
+                disabled={busy || ladInsertTarget === null || ladPaletteMemberId.length === 0}
+                onClick={() => insertPaletteContact("normally-open")}
+                title={ladInsertTarget === null ? "Choose an insert point first" : "Insert a normally open contact"}
+                type="button"
+              >
+                <span aria-hidden="true">—| |—</span>
+                <strong>NO contact</strong>
+              </button>
+              <button
+                aria-label="NC contact"
+                disabled={busy || ladInsertTarget === null || ladPaletteMemberId.length === 0}
+                onClick={() => insertPaletteContact("normally-closed")}
+                title={ladInsertTarget === null ? "Choose an insert point first" : "Insert a normally closed contact"}
+                type="button"
+              >
+                <span aria-hidden="true">—|/|—</span>
+                <strong>NC contact</strong>
+              </button>
+              <button
+                aria-label="New rung"
+                disabled={busy || graph === undefined || preferredCoilMember === undefined}
+                onClick={() => {
+                  if (graph !== undefined && preferredCoilMember !== undefined) {
+                    commitLadMutation(addLadNetwork(graph, { coilMemberId: preferredCoilMember.id }));
+                  }
+                }}
+                title={preferredCoilMember === undefined
+                  ? "Add a BOOL variable before creating another rung"
+                  : `Add a rung with ${preferredCoilMember.operandLabel ?? preferredCoilMember.name} as its coil`}
+                type="button"
+              >
+                <span aria-hidden="true">—( )—</span>
+                <strong>New rung</strong>
+              </button>
+            </div>
+          </section>
+          <LadVariablesEditor
+            boundTags={tagByMemberId}
+            busy={busy}
+            object={object}
+            onOperation={onOperation}
+          />
+        </div>
+      )}
 
       {ladAuthoringError !== null && (
         <div className="graph-editor__authoring-error" role="alert">
@@ -1219,6 +1405,8 @@ const GraphicalProgramEditor = ({
                 network={network}
                 networkIndex={networkIndex}
                 onMutation={commitLadMutation}
+                onSelectInsertTarget={setLadInsertTarget}
+                selectedEdgeId={ladInsertTarget?.edgeId ?? null}
                 writableMembers={writableBooleanMembers}
               />
             ) : (
@@ -1236,11 +1424,145 @@ const GraphicalProgramEditor = ({
       )}
 
       <footer className="graph-editor__footer">
-        <span>Semantic identities remain stable when symbols are renamed.</span>
-        <span>Layout does not participate in execution.</span>
+        <span>Select an insert point, choose a variable, then add a contact.</span>
+        <span>Use Add parallel on a contact to begin a seal-in branch.</span>
       </footer>
     </div>
   );
+};
+
+type LadVariablesEditorProps = Readonly<{
+  boundTags: ReadonlyMap<string, WorkbenchObjectView>;
+  busy: boolean;
+  object: WorkbenchObjectView;
+  onOperation: (operation: WorkbenchOperation) => Promise<void>;
+}>;
+
+const LadVariablesEditor = ({
+  boundTags,
+  busy,
+  object,
+  onOperation,
+}: LadVariablesEditorProps): React.JSX.Element => {
+  const canonical = Array.isArray(object.semanticPayload.interface)
+    ? object.semanticPayload.interface
+    : [];
+  const [drafts, setDrafts] = useState<readonly ProjectPayloadValue[]>(canonical);
+  useEffect(() => setDrafts(canonical), [object.id, object.semanticRevision]);
+
+  const rows = drafts.map((value) => canonicalRecordFields(value));
+  const normalizedNames = rows.flatMap((row) =>
+    row !== null && typeof row.name === "string"
+      ? [row.name.toLocaleLowerCase("en-US")]
+      : []
+  );
+  const duplicateNames = new Set(
+    normalizedNames.filter((name, index) => normalizedNames.indexOf(name) !== index),
+  );
+  const invalid = rows.some((row) =>
+    row === null ||
+    typeof row.name !== "string" ||
+    !PLC_IDENTIFIER.test(row.name) ||
+    duplicateNames.has(row.name.toLocaleLowerCase("en-US"))
+  );
+  const changed = JSON.stringify(drafts) !== JSON.stringify(canonical);
+
+  const updateName = (index: number, name: string): void => {
+    setDrafts((current) => current.map((value, candidateIndex) => {
+      if (candidateIndex !== index) {
+        return value;
+      }
+      const fields = canonicalRecordFields(value);
+      return fields === null ? value : recordValue({ ...fields, name });
+    }));
+  };
+
+  return (
+    <details className="lad-variables" open>
+      <summary>
+        <span>BOOL variables</span>
+        <strong>{rows.length}</strong>
+        <small>Names used by contacts and coils</small>
+      </summary>
+      <div className="lad-variables__body">
+        <div className="lad-variables__rows">
+          {rows.map((row, index) => {
+            const id = typeof row?.id === "string" ? row.id : `invalid-${index}`;
+            const name = typeof row?.name === "string" ? row.name : "";
+            const dataType = typeof row?.type === "string" ? row.type : "?";
+            const tag = boundTags.get(id);
+            const invalidName = !PLC_IDENTIFIER.test(name) ||
+              duplicateNames.has(name.toLocaleLowerCase("en-US"));
+            return (
+              <div className="lad-variables__row" key={id}>
+                <label>
+                  <span>Variable {index + 1}</span>
+                  <input
+                    aria-invalid={invalidName}
+                    aria-label={`Variable ${index + 1} name`}
+                    disabled={busy}
+                    onChange={(event) => updateName(index, event.target.value)}
+                    spellCheck={false}
+                    value={name}
+                  />
+                </label>
+                <code>{dataType}</code>
+                <span className="lad-variables__binding" data-bound={tag !== undefined}>
+                  {tag === undefined
+                    ? "Program variable"
+                    : `${String(tag.semanticPayload.addressArea ?? "Tag")} · ${tag.displayName}`}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+        <div className="lad-variables__actions">
+          <button
+            disabled={busy}
+            onClick={() => setDrafts((current) => [
+              ...current,
+              createInterfaceMemberPayload(nextLadVariableName(current), "temp", current.length, "BOOL"),
+            ])}
+            type="button"
+          >
+            + Add BOOL variable
+          </button>
+          <span aria-live="polite">
+            {invalid ? "Use unique PLC names: letters, numbers, and underscores." : "Renaming keeps rung connections intact."}
+          </span>
+          <button
+            className="primary-button"
+            disabled={busy || invalid || !changed}
+            onClick={() => void onOperation({
+              key: "interface",
+              kind: "project.set-semantic-field",
+              objectId: object.id,
+              value: drafts,
+            })}
+            type="button"
+          >
+            Apply variables
+          </button>
+        </div>
+      </div>
+    </details>
+  );
+};
+
+const nextLadVariableName = (members: readonly ProjectPayloadValue[]): string => {
+  const names = new Set(members.flatMap((value) => {
+    const fields = canonicalRecordFields(value);
+    return fields !== null && typeof fields.name === "string"
+      ? [fields.name.toLocaleLowerCase("en-US")]
+      : [];
+  }));
+  for (let suffix = 1; suffix <= 9_999; suffix += 1) {
+    const candidate = `Bool_${suffix}`;
+    if (!names.has(candidate.toLocaleLowerCase("en-US"))) {
+      return candidate;
+    }
+  }
+  return `Bool_${crypto.randomUUID().slice(0, 8)}`;
 };
 
 type GraphNetworkEditorProps = Readonly<{
@@ -1259,6 +1581,8 @@ type LadderNetworkEditorProps = Readonly<{
   network: ProjectPayload;
   networkIndex: number;
   onMutation: (result: LadAuthoringResult) => void;
+  onSelectInsertTarget: (target: LadInsertionTarget) => void;
+  selectedEdgeId: string | null;
   writableMembers: readonly GraphInterfaceMember[];
 }>;
 
@@ -1270,12 +1594,15 @@ const LadderNetworkEditor = ({
   network,
   networkIndex,
   onMutation,
+  onSelectInsertTarget,
+  selectedEdgeId,
   writableMembers,
 }: LadderNetworkEditorProps): React.JSX.Element => {
   const nodes = Array.isArray(network.nodes)
     ? network.nodes.map(canonicalRecordFields).filter((node): node is ProjectPayload => node !== null)
     : [];
   const edgeCount = Array.isArray(network.edges) ? network.edges.length : 0;
+  const instructionCount = nodes.filter((node) => node.nodeKind !== "power-source").length;
   const networkId = typeof network.id === "string" ? network.id : null;
   const projection = projectLadNetworkTopology(network);
 
@@ -1286,7 +1613,7 @@ const LadderNetworkEditor = ({
     return (
       <section className="lad-network" aria-label={`LAD network ${networkIndex + 1}`}>
         <div className="graph-network__heading">
-          <span>Network {networkIndex + 1}</span>
+          <span>Rung {networkIndex + 1}</span>
           <code>Invalid topology</code>
         </div>
         <div className="graph-editor__invalid" role="alert">{reason}</div>
@@ -1301,21 +1628,24 @@ const LadderNetworkEditor = ({
     members,
     networkId,
     onMutation,
+    onSelectInsertTarget,
+    rungNumber: networkIndex + 1,
+    selectedEdgeId,
     writableMembers,
   };
   return (
     <section className="lad-network" aria-label={`LAD network ${networkIndex + 1}`}>
       <div className="graph-network__heading">
-        <span>Network {networkIndex + 1}</span>
+        <span>Rung {networkIndex + 1}</span>
         <span className="graph-network__heading-actions">
-          <code>{nodes.length} nodes · {edgeCount} power edges</code>
+          <code>{instructionCount} instruction{instructionCount === 1 ? "" : "s"} · {edgeCount} connection{edgeCount === 1 ? "" : "s"}</code>
           <button
             aria-label={`Remove LAD network ${networkIndex + 1}`}
             disabled={busy}
             onClick={() => onMutation(removeLadNetwork(graph, { networkId }))}
             type="button"
           >
-            Remove network
+            Remove rung
           </button>
         </span>
       </div>
@@ -1335,6 +1665,9 @@ type LadRenderContext = Readonly<{
   members: readonly GraphInterfaceMember[];
   networkId: string;
   onMutation: (result: LadAuthoringResult) => void;
+  onSelectInsertTarget: (target: LadInsertionTarget) => void;
+  rungNumber: number;
+  selectedEdgeId: string | null;
   writableMembers: readonly GraphInterfaceMember[];
 }>;
 
@@ -1368,26 +1701,26 @@ const LadInsertContact = ({
   context: LadRenderContext;
   edgeId: string;
 }>): React.JSX.Element => {
-  const member = context.members[0];
+  const selected = context.selectedEdgeId === edgeId;
   return (
     <button
-      aria-label="Add series contact"
+      aria-label={`Choose insert point on rung ${context.rungNumber}`}
+      aria-pressed={selected}
       className="lad-insert-contact"
-      disabled={context.busy || member === undefined}
-      onClick={() => {
-        if (member !== undefined) {
-          context.onMutation(insertSeriesContact(context.graph, {
-            edgeId,
-            memberId: member.id,
-            networkId: context.networkId,
-          }));
-        }
-      }}
-      title={member === undefined ? "Add a BOOL interface member before inserting a contact" : "Insert a contact on this power edge"}
+      data-selected={selected}
+      disabled={context.busy || context.members.length === 0}
+      onClick={() => context.onSelectInsertTarget({
+        edgeId,
+        networkId: context.networkId,
+        rungNumber: context.rungNumber,
+      })}
+      title={context.members.length === 0
+        ? "Add a BOOL variable before inserting a contact"
+        : "Choose this point, then select an instruction above"}
       type="button"
     >
       <span aria-hidden="true">+</span>
-      Contact
+      {selected ? "Selected" : "Insert here"}
     </button>
   );
 };
@@ -1451,6 +1784,9 @@ const LadElement = ({
         <div className="lad-symbol" aria-hidden="true">
           <span>—|</span><strong>{node.mode === "normally-closed" ? "/" : ""}</strong><span>|—</span>
         </div>
+        <strong className="lad-element__name">
+          {parallelMember?.operandLabel ?? parallelMember?.name ?? "Choose variable"}
+        </strong>
         <label>
           <span>Operand</span>
           <select
@@ -1511,10 +1847,14 @@ const LadElement = ({
     );
   }
   if (element.nodeKind === "coil") {
+    const selectedMember = context.writableMembers.find((member) => member.id === memberId);
     return (
       <div className="lad-element lad-coil">
         <LadLiveOperandBadge live={live} />
         <div className="lad-symbol" aria-hidden="true"><span>—(</span><strong>{coilMark(node.mode)}</strong><span>)—</span></div>
+        <strong className="lad-element__name">
+          {selectedMember?.operandLabel ?? selectedMember?.name ?? "Choose variable"}
+        </strong>
         <label>
           <span>Operand</span>
           <select
@@ -1668,7 +2008,7 @@ const memberOptions = (
     ? members
     : [{ dataType: "?", id: selectedId, name: "Unresolved member", role: "unresolved" }, ...members];
   return values.map((member) => (
-    <option key={member.id} value={member.id}>{member.name} · {member.dataType} · {member.role}</option>
+    <option key={member.id} value={member.id}>{member.operandLabel ?? member.name} · {member.dataType}</option>
   ));
 };
 

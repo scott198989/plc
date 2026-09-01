@@ -1,16 +1,20 @@
 .virtual-trainer {
-  --trainer-ink: #e9f2ff;
-  --trainer-muted: #9fb0c6;
-  --trainer-panel: #111b29;
-  --trainer-edge: #2b3b50;
-  --trainer-accent: #53c7ff;
+  --trainer-ink: #edf4ff;
+  --trainer-muted: #afbed2;
+  --trainer-panel: #172337;
+  --trainer-edge: #40536d;
+  --trainer-accent: #6aa7ff;
   --trainer-live: #75ef9a;
-  background: linear-gradient(145deg, #101a28, #0a111b);
+  background:
+    radial-gradient(circle at 12% 0%, rgb(70 126 210 / 27%), transparent 38%),
+    linear-gradient(145deg, rgb(26 39 58 / 96%), rgb(13 22 35 / 96%));
   border: 1px solid var(--trainer-edge);
-  border-radius: 18px;
-  box-shadow: 0 18px 50px rgb(0 0 0 / 22%);
+  border-radius: 15px;
+  box-shadow: inset 0 1px rgb(255 255 255 / 9%), 0 22px 54px rgb(14 25 41 / 26%);
   color: var(--trainer-ink);
   padding: 24px;
+  -webkit-backdrop-filter: blur(22px) saturate(120%);
+  backdrop-filter: blur(22px) saturate(120%);
 }
 
 .virtual-trainer__header,
@@ -44,7 +48,7 @@
 
 .virtual-trainer__state {
   align-items: center;
-  background: #172333;
+  background: rgb(39 55 79 / 72%);
   border: 1px solid var(--trainer-edge);
   border-radius: 999px;
   color: var(--trainer-muted);
@@ -80,10 +84,13 @@
 }
 
 .virtual-trainer__panel {
-  background: color-mix(in srgb, var(--trainer-panel) 94%, transparent);
+  background: color-mix(in srgb, var(--trainer-panel) 78%, transparent);
   border: 1px solid var(--trainer-edge);
-  border-radius: 14px;
+  border-radius: 12px;
   padding: 18px;
+  box-shadow: inset 0 1px rgb(255 255 255 / 7%), 0 10px 26px rgb(3 11 23 / 18%);
+  -webkit-backdrop-filter: blur(14px) saturate(118%);
+  backdrop-filter: blur(14px) saturate(118%);
 }
 
 .virtual-trainer__panel-heading {
@@ -106,9 +113,9 @@
 }
 
 .virtual-trainer__device {
-  background: #0b1420;
-  border: 1px solid #243449;
-  border-radius: 12px;
+  background: rgb(11 20 33 / 88%);
+  border: 1px solid #344861;
+  border-radius: 9px;
   padding: 14px;
 }
 
@@ -128,8 +135,8 @@
 }
 
 .virtual-trainer__mode-picker {
-  background: #111d2b;
-  border: 1px solid #2b3d53;
+  background: #152238;
+  border: 1px solid #3a506d;
   border-radius: 8px;
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -150,15 +157,15 @@
 }
 
 .virtual-trainer__mode-picker button[aria-pressed="true"] {
-  background: #2c425a;
+  background: #315988;
   color: var(--trainer-ink);
 }
 
 .virtual-trainer__pushbutton {
   align-items: center;
-  background: linear-gradient(#334861, #233347);
-  border: 1px solid #54708f;
-  border-radius: 12px;
+  background: linear-gradient(#3b5576, #263b56);
+  border: 1px solid #6482aa;
+  border-radius: 9px;
   display: flex;
   justify-content: center;
   gap: 10px;
@@ -166,9 +173,9 @@
 
 .virtual-trainer__pushbutton > span {
   background: var(--trainer-accent);
-  border: 3px solid #92ddff;
+  border: 3px solid #aad0ff;
   border-radius: 50%;
-  box-shadow: 0 3px 0 #0a6a94;
+  box-shadow: 0 3px 0 #245b9c;
   height: 18px;
   width: 18px;
 }
@@ -233,8 +240,8 @@
 }
 
 .virtual-trainer__indicator > span {
-  background: #28384b;
-  border: 4px solid #4c6078;
+  background: #2a3b53;
+  border: 4px solid #526b8b;
   border-radius: 50%;
   grid-row: 1 / 3;
   height: 38px;
@@ -262,9 +269,9 @@
 }
 
 .virtual-trainer__notice {
-  background: #172333;
+  background: rgb(42 61 88 / 70%);
   border-left: 3px solid var(--trainer-accent);
-  border-radius: 6px;
+  border-radius: 8px;
   margin: 18px 0 0;
   padding: 10px 12px;
 }
