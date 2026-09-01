@@ -1,6 +1,8 @@
 import { useId, useState } from "react";
 
 import { verifyLocalFoundation } from "./foundation-client";
+import { ThemeToggle } from "./ThemeToggle";
+import type { AppTheme } from "./ThemeToggle";
 
 type ProjectHomeProps = Readonly<{
   busy: boolean;
@@ -9,6 +11,8 @@ type ProjectHomeProps = Readonly<{
   fileAccessAvailable: boolean;
   onCreate: (displayName: string) => Promise<void>;
   onOpen: () => Promise<void>;
+  onToggleTheme: () => void;
+  theme: AppTheme;
 }>;
 
 export const ProjectHome = ({
@@ -18,6 +22,8 @@ export const ProjectHome = ({
   fileAccessAvailable,
   onCreate,
   onOpen,
+  onToggleTheme,
+  theme,
 }: ProjectHomeProps): React.JSX.Element => {
   const nameInputId = useId();
   const [name, setName] = useState("My PLC Lab");
@@ -42,6 +48,7 @@ export const ProjectHome = ({
           <span className="core-state__dot" aria-hidden="true" />
           {coreLabel === null ? "Starting core" : `Core ${coreLabel}`}
         </div>
+        <ThemeToggle onToggle={onToggleTheme} theme={theme} />
       </header>
 
       <main className="home-main" id="main-content">

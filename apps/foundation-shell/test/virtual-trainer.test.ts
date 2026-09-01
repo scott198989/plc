@@ -116,6 +116,7 @@ describe("Virtual Trainer", () => {
     } satisfies EngineeringRuntimeView;
     const markup = renderToStaticMarkup(createElement(VirtualTrainer, {
       busy: false,
+      inputControls: { start: "maintained" },
       onOperation: async () => undefined,
       runtime: maintainedRuntime,
     }));
@@ -123,5 +124,16 @@ describe("Virtual Trainer", () => {
     expect(markup).toContain('role="switch"');
     expect(markup).toContain('aria-checked="true"');
     expect(markup).toContain("ON");
+  });
+
+  it("uses learner-friendly device defaults for starter tag names", () => {
+    const markup = renderToStaticMarkup(createElement(VirtualTrainer, {
+      busy: false,
+      onOperation: async () => undefined,
+      runtime,
+    }));
+
+    expect(markup).toContain('aria-label="Pulse Start button"');
+    expect(markup).toContain('aria-label="Conveyor motor actuator is on"');
   });
 });

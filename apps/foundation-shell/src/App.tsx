@@ -6,6 +6,8 @@ import { FileAccessBroker, FileAccessError } from "./file-access-broker";
 import { ProjectHome } from "./ProjectHome";
 import type { ReplayVerificationReceipt } from "./replay-types";
 import type { RuntimeOperation } from "./runtime-types";
+import { applyTheme, readInitialTheme } from "./ThemeToggle";
+import type { AppTheme } from "./ThemeToggle";
 import type { WorkbenchOperation, WorkbenchSnapshot } from "./workbench-types";
 
 type AppServices = Readonly<{
@@ -24,6 +26,9 @@ export const App = (): React.JSX.Element => {
   const [error, setError] = useState<string | null>(null);
   const [replayReceipt, setReplayReceipt] = useState<ReplayVerificationReceipt | null>(null);
   const [closeRequested, setCloseRequested] = useState(false);
+  const [theme, setTheme] = useState<AppTheme>(readInitialTheme);
+
+  useEffect(() => applyTheme(theme), [theme]);
 
   useEffect(() => {
     let active = true;
@@ -153,9 +158,45 @@ export const App = (): React.JSX.Element => {
       if (session().monitorState !== "ACTIVE") {
         await advance({ kind: "runtime.start-monitoring" });
       }
+      await advance({ kind: "runtime.capture-snapshot" });
       if (session().cpuState === "STOP") {
         await advance({ kind: "runtime.request-run" });
       }
+      await advance({ kind: "runtime.run-scan" });
+    });
+  }, [runBusy, services, snapshot]);
+
+  const resetSimulation = useCallback(async (): Promise<void> => {
+    if (snapshot === null) {
+      return;
+    }
+    await runBusy(async () => {
+      let current = snapshot;
+      const advance = async (operation: RuntimeOperation): Promise<void> => {
+        current = await services.client.executeRuntime(operation);
+        setSnapshot(current);
+      };
+      const session = (): NonNullable<WorkbenchSnapshot["runtime"]["session"]> => {
+        if (current.runtime.session === null) {
+          throw new Error(current.runtime.reason ?? "The virtual controller is not ready yet.");
+        }
+        return current.runtime.session;
+      };
+
+      if (!session().snapshotAvailable) {
+        throw new Error("Start simulation once before resetting the lab.");
+      }
+      if (session().cpuState === "RUN") {
+        await advance({ kind: "runtime.request-stop" });
+      }
+      await advance({ kind: "runtime.restore-snapshot" });
+      if (session().monitorState !== "ACTIVE") {
+        await advance({ kind: "runtime.start-monitoring" });
+      }
+      if (session().cpuState === "STOP") {
+        await advance({ kind: "runtime.request-run" });
+      }
+      await advance({ kind: "runtime.run-scan" });
     });
   }, [runBusy, services, snapshot]);
 
@@ -230,6 +271,8 @@ export const App = (): React.JSX.Element => {
         fileAccessAvailable={services.files.canOpen() && services.files.canSave()}
         onCreate={createProject}
         onOpen={openProject}
+        onToggleTheme={() => setTheme((current) => current === "dark" ? "light" : "dark")}
+        theme={theme}
       />
     );
   }
@@ -241,12 +284,15 @@ export const App = (): React.JSX.Element => {
         error={error}
         onClose={closeProject}
         onOperation={executeOperation}
+        onResetSimulation={resetSimulation}
         onRuntimeOperation={executeRuntimeOperation}
         onStartSimulation={startSimulation}
+        onToggleTheme={() => setTheme((current) => current === "dark" ? "light" : "dark")}
         onVerifyReplay={verifyReplay}
         onSave={async (mode) => { await saveProject(mode); }}
         replayReceipt={replayReceipt}
         snapshot={snapshot}
+        theme={theme}
       />
       {closeRequested && (
         <div className="dialog-backdrop" role="presentation">

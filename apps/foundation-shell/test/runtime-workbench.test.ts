@@ -108,6 +108,7 @@ describe("runtime workbench presentation", () => {
     const toolbar = renderToStaticMarkup(createElement(RuntimeToolbar, {
       busy: false,
       onOperation,
+      onResetSimulation: async () => undefined,
       onVerifyReplay: async () => undefined,
       replayReceipt: {
         contentFingerprint: "A".repeat(64),
@@ -140,6 +141,7 @@ describe("runtime workbench presentation", () => {
 
     expect(toolbar).toContain("Virtual controller commands");
     expect(toolbar).toContain("Commit load");
+    expect(toolbar).toContain("Reset lab");
     expect(toolbar).toContain("e12 · s41");
     expect(toolbar).toContain("Replay verified · 4 events");
     expect(toolbar).toContain('data-event-count="4"');

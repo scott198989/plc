@@ -95,7 +95,7 @@ export const VirtualTrainer = ({
             ) : (
               <div className="virtual-trainer__device-grid">
                 {inputs.map((probe) => {
-                  const mode = controlModes[probe.id] ?? "maintained";
+                  const mode = controlModes[probe.id] ?? inputControls[probe.id] ?? inferredInputControl(probe);
                   const rawValue = booleanValue(probe.rawInputValue);
                   const effectiveValue = booleanValue(probe.effectiveValue);
                   const pending = activeControlId === probe.id;
@@ -187,7 +187,7 @@ export const VirtualTrainer = ({
             ) : (
               <div className="virtual-trainer__device-grid">
                 {outputs.map((probe) => {
-                  const device = outputDevices[probe.id] ?? "lamp";
+                  const device = outputDevices[probe.id] ?? inferredOutputDevice(probe);
                   const value = booleanValue(
                     probe.deliveredOutputValue ?? probe.committedOutputValue ?? probe.effectiveValue,
                   );
@@ -233,3 +233,16 @@ const isBooleanOutput = (probe: RuntimeProbeView): boolean =>
 
 const booleanValue = (value: RuntimeProbeView["effectiveValue"]): boolean =>
   value?.type === "BOOL" && value.value === true;
+
+const inferredInputControl = (probe: RuntimeProbeView): BooleanInputControl => {
+  const name = probe.displayName.toLocaleLowerCase("en-US");
+  return /(?:^|[_\s-])(?:pb|button)(?:$|[_\s-])/u.test(name) ||
+    /(?:^|[_\s-])(?:start|stop|reset)(?:$|[_\s-])/u.test(name)
+    ? "momentary"
+    : "maintained";
+};
+
+const inferredOutputDevice = (probe: RuntimeProbeView): BooleanOutputDevice => {
+  const name = probe.displayName.toLocaleLowerCase("en-US");
+  return /(?:motor|pump|fan|conveyor|valve|actuator)/u.test(name) ? "actuator" : "lamp";
+};

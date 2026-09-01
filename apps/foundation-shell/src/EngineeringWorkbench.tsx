@@ -30,13 +30,19 @@ import {
 import type { LadAuthoringResult } from "./lad-authoring";
 import { projectLadLiveMonitoring } from "./lad-live-monitoring";
 import type { LadBooleanMemberLiveState } from "./lad-live-monitoring";
+import { projectLadPowerFlow } from "./lad-power-flow";
+import type { LadPowerFlowProjection, LadPowerState } from "./lad-power-flow";
 import { createLadderStarterPlan } from "./ladder-starter";
 import { projectLadNetworkTopology } from "./lad-topology";
 import type { LadTopologyItem, LadTopologyParallel } from "./lad-topology";
+import { projectMotorStarterGuide } from "./motor-starter-guide";
+import type { MotorStarterGuideProjection } from "./motor-starter-guide";
 import { RuntimeInspector, RuntimeToolbar } from "./RuntimeWorkbench";
 import type { ReplayVerificationReceipt } from "./replay-types";
 import type { EngineeringRuntimeView, RuntimeOperation } from "./runtime-types";
 import { TagConfigurationEditor } from "./TagConfigurationEditor";
+import { ThemeToggle } from "./ThemeToggle";
+import type { AppTheme } from "./ThemeToggle";
 import type {
   ProjectPayload,
   ProjectPayloadValue,
@@ -51,12 +57,15 @@ type EngineeringWorkbenchProps = Readonly<{
   error: string | null;
   onClose: () => void;
   onOperation: (operation: WorkbenchOperation) => Promise<void>;
+  onResetSimulation: () => Promise<void>;
   onRuntimeOperation: (operation: RuntimeOperation) => Promise<void>;
   onSave: (mode: "save" | "save-as") => Promise<void>;
   onStartSimulation: () => Promise<void>;
+  onToggleTheme: () => void;
   onVerifyReplay: () => Promise<void>;
   replayReceipt: ReplayVerificationReceipt | null;
   snapshot: WorkbenchSnapshot;
+  theme: AppTheme;
 }>;
 
 const kindLabel: Readonly<Record<WorkbenchObjectView["kind"], string>> = {
@@ -89,20 +98,27 @@ export const EngineeringWorkbench = ({
   error,
   onClose,
   onOperation,
+  onResetSimulation,
   onRuntimeOperation,
   onSave,
   onStartSimulation,
+  onToggleTheme,
   onVerifyReplay,
   replayReceipt,
   snapshot,
+  theme,
 }: EngineeringWorkbenchProps): React.JSX.Element => {
   const [selectedId, setSelectedId] = useState(snapshot.projectRootId);
   const [openTabs, setOpenTabs] = useState<readonly string[]>([snapshot.projectRootId]);
   const [bottomPane, setBottomPane] = useState<"diagnostics" | "runtime" | null>("diagnostics");
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [ladderFocus, setLadderFocus] = useState(false);
 
   const selected = snapshot.objects[selectedId] ?? snapshot.objects[snapshot.projectRootId];
   const resolvedSelectedId = selected?.id ?? snapshot.projectRootId;
+  const ladderSelected = selected !== undefined &&
+    isGraphicalProgramBlock(selected) &&
+    selected.semanticPayload.language !== "FBD";
 
   useEffect(() => {
     if (snapshot.objects[selectedId]?.lifecycle !== "active") {
@@ -113,6 +129,12 @@ export const EngineeringWorkbench = ({
       return valid.length === 0 ? [snapshot.projectRootId] : valid;
     });
   }, [selectedId, snapshot]);
+
+  useEffect(() => {
+    if (ladderFocus && !ladderSelected) {
+      setLadderFocus(false);
+    }
+  }, [ladderFocus, ladderSelected]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -141,6 +163,18 @@ export const EngineeringWorkbench = ({
         }
         return;
       }
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLocaleLowerCase("en-US") === "f") {
+        if (ladderSelected) {
+          event.preventDefault();
+          setLadderFocus((current) => !current);
+        }
+        return;
+      }
+      if (event.key === "Escape" && ladderFocus) {
+        event.preventDefault();
+        setLadderFocus(false);
+        return;
+      }
       if (!isEditing && event.key === "Delete" && resolvedSelectedId !== snapshot.projectRootId) {
         event.preventDefault();
         void onOperation({ kind: "project.delete-object", objectId: resolvedSelectedId });
@@ -148,7 +182,7 @@ export const EngineeringWorkbench = ({
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [busy, onOperation, onSave, resolvedSelectedId, snapshot.projectRootId, snapshot.undo]);
+  }, [busy, ladderFocus, ladderSelected, onOperation, onSave, resolvedSelectedId, snapshot.projectRootId, snapshot.undo]);
 
   const selectObject = (objectId: string): void => {
     const object = snapshot.objects[objectId];
@@ -214,8 +248,20 @@ export const EngineeringWorkbench = ({
     openLadderProgram(plan.programId);
   };
 
+  const startAndOpenSimulation = async (): Promise<void> => {
+    await onStartSimulation();
+    setBottomPane("runtime");
+  };
+
+  const toggleLadderFocus = (): void => {
+    if (!ladderSelected && !ladderFocus) {
+      return;
+    }
+    setLadderFocus((current) => !current);
+  };
+
   return (
-    <div className="workbench-shell">
+    <div className="workbench-shell" data-ladder-focus={ladderFocus}>
       <header className="workbench-header">
         <div className="workbench-brand">
           <span className="workbench-brand__mark" aria-hidden="true">VL</span>
@@ -235,6 +281,18 @@ export const EngineeringWorkbench = ({
           </span>
         </div>
         <div className="header-actions" aria-label="Project commands">
+          {ladderSelected && (
+            <button
+              aria-controls="main-content"
+              aria-label={ladderFocus ? "Restore workbench layout" : "Expand ladder editor"}
+              aria-pressed={ladderFocus}
+              className="icon-button workbench-focus-toggle"
+              onClick={toggleLadderFocus}
+              title={`${ladderFocus ? "Restore workbench layout" : "Expand ladder editor"} (Ctrl+Shift+F)`}
+              type="button"
+            >{ladderFocus ? "↙" : "↗"}</button>
+          )}
+          <ThemeToggle onToggle={onToggleTheme} theme={theme} />
           <button
             aria-label={snapshot.undo.undoLabel ?? "Undo"}
             className="icon-button"
@@ -267,10 +325,8 @@ export const EngineeringWorkbench = ({
       <RuntimeToolbar
         busy={busy}
         onOperation={onRuntimeOperation}
-        onStartSimulation={async () => {
-          await onStartSimulation();
-          setBottomPane("runtime");
-        }}
+        onResetSimulation={onResetSimulation}
+        onStartSimulation={startAndOpenSimulation}
         onVerifyReplay={onVerifyReplay}
         replayReceipt={replayReceipt}
         runtime={snapshot.runtime}
@@ -402,8 +458,11 @@ export const EngineeringWorkbench = ({
             ) : isGraphicalProgramBlock(selected) ? (
               <GraphicalProgramEditor
                 busy={busy}
+                ladderFocus={ladderFocus}
                 object={selected}
                 onOperation={onOperation}
+                onStartSimulation={startAndOpenSimulation}
+                onToggleLadderFocus={toggleLadderFocus}
                 snapshot={snapshot}
               />
             ) : (
@@ -1162,15 +1221,21 @@ type LadInsertionTarget = Readonly<{
 
 type GraphicalProgramEditorProps = Readonly<{
   busy: boolean;
+  ladderFocus: boolean;
   object: WorkbenchObjectView;
   onOperation: (operation: WorkbenchOperation) => Promise<void>;
+  onStartSimulation: () => Promise<void>;
+  onToggleLadderFocus: () => void;
   snapshot: WorkbenchSnapshot;
 }>;
 
 const GraphicalProgramEditor = ({
   busy,
+  ladderFocus,
   object,
   onOperation,
+  onStartSimulation,
+  onToggleLadderFocus,
   snapshot,
 }: GraphicalProgramEditorProps): React.JSX.Element => {
   const language = object.semanticPayload.language === "FBD" ? "FBD" : "LAD";
@@ -1218,9 +1283,18 @@ const GraphicalProgramEditor = ({
   const [ladAuthoringError, setLadAuthoringError] = useState<string | null>(null);
   const [ladInsertTarget, setLadInsertTarget] = useState<LadInsertionTarget | null>(null);
   const [ladPaletteMemberId, setLadPaletteMemberId] = useState(readableBooleanMembers[0]?.id ?? "");
+  const [ladGuideTargetNodeId, setLadGuideTargetNodeId] = useState<string | null>(null);
+  const [ladGuidePrompt, setLadGuidePrompt] = useState<string | null>(null);
+  const firstNetwork = canonicalRecordFields(networks[0]);
+  const firstTopology = firstNetwork === null ? null : projectLadNetworkTopology(firstNetwork);
+  const motorGuide = language === "LAD" && firstTopology?.ok === true
+    ? projectMotorStarterGuide(firstTopology.topology, readableBooleanMembers)
+    : null;
   useEffect(() => {
     setLadAuthoringError(null);
     setLadInsertTarget(null);
+    setLadGuideTargetNodeId(null);
+    setLadGuidePrompt(null);
     setLadPaletteMemberId((current) =>
       readableBooleanMembers.some((member) => member.id === current)
         ? current
@@ -1247,7 +1321,38 @@ const GraphicalProgramEditor = ({
     }
     setLadAuthoringError(null);
     setLadInsertTarget(null);
+    setLadGuideTargetNodeId(null);
+    setLadGuidePrompt(null);
     commitGraph(result.graph);
+  };
+
+  const prepareStopContact = (): void => {
+    if (
+      motorGuide?.available !== true ||
+      motorGuide.stopInsertionEdgeId === null ||
+      motorGuide.stopMemberId === null ||
+      firstTopology?.ok !== true
+    ) {
+      return;
+    }
+    setLadPaletteMemberId(motorGuide.stopMemberId);
+    setLadInsertTarget({
+      edgeId: motorGuide.stopInsertionEdgeId,
+      networkId: firstTopology.topology.networkId,
+      rungNumber: 1,
+    });
+    setLadGuideTargetNodeId(null);
+    setLadGuidePrompt("Stop_PB and its rung position are selected. Click NC contact in the instruction palette.");
+  };
+
+  const prepareSealInContact = (): void => {
+    if (motorGuide?.available !== true || motorGuide.motorMemberId === null) {
+      return;
+    }
+    setLadPaletteMemberId(motorGuide.motorMemberId);
+    setLadInsertTarget(null);
+    setLadGuideTargetNodeId(motorGuide.startContactNodeId);
+    setLadGuidePrompt("Motor_Run is selected. On the Start_PB instruction below, click Parallel + Motor_Run.");
   };
 
   const insertPaletteContact = (mode: "normally-closed" | "normally-open"): void => {
@@ -1301,11 +1406,37 @@ const GraphicalProgramEditor = ({
                 : "Monitoring off"}
             </span>
           )}
+          {language === "LAD" && (
+            <button
+              aria-controls="main-content"
+              aria-label={ladderFocus ? "Restore workbench layout" : "Expand ladder editor"}
+              aria-pressed={ladderFocus}
+              className="graph-editor__focus"
+              onClick={onToggleLadderFocus}
+              title="Expand the ladder canvas (Ctrl+Shift+F)"
+              type="button"
+            >
+              <span aria-hidden="true">{ladderFocus ? "↙" : "↗"}</span>
+              {ladderFocus ? "Restore layout" : "Expand ladder"}
+            </button>
+          )}
         </div>
       </header>
 
       {language === "LAD" && (
         <div className="lad-workspace-tools">
+          {motorGuide?.available === true && (
+            <MotorStarterCoach
+              busy={busy}
+              guide={motorGuide}
+              motorLive={motorGuide.motorMemberId === null ? null : liveMembers.get(motorGuide.motorMemberId) ?? null}
+              onPrepareSealIn={prepareSealInContact}
+              onPrepareStop={prepareStopContact}
+              onStartSimulation={onStartSimulation}
+              prompt={ladGuidePrompt}
+              simulationRunning={snapshot.runtime.session?.online === true && snapshot.runtime.session.cpuState === "RUN"}
+            />
+          )}
           <section className="lad-instruction-palette" aria-label="Ladder instructions">
             <div className="lad-instruction-palette__intro">
               <span>Instructions</span>
@@ -1399,6 +1530,7 @@ const GraphicalProgramEditor = ({
               <LadderNetworkEditor
                 busy={busy}
                 graph={graph}
+                guideTargetNodeId={ladGuideTargetNodeId}
                 key={String(network.id ?? networkIndex)}
                 liveMembers={liveMembers}
                 members={readableBooleanMembers}
@@ -1406,6 +1538,7 @@ const GraphicalProgramEditor = ({
                 networkIndex={networkIndex}
                 onMutation={commitLadMutation}
                 onSelectInsertTarget={setLadInsertTarget}
+                paletteMemberId={ladPaletteMemberId}
                 selectedEdgeId={ladInsertTarget?.edgeId ?? null}
                 writableMembers={writableBooleanMembers}
               />
@@ -1428,6 +1561,83 @@ const GraphicalProgramEditor = ({
         <span>Use Add parallel on a contact to begin a seal-in branch.</span>
       </footer>
     </div>
+  );
+};
+
+const MotorStarterCoach = ({
+  busy,
+  guide,
+  motorLive,
+  onPrepareSealIn,
+  onPrepareStop,
+  onStartSimulation,
+  prompt,
+  simulationRunning,
+}: Readonly<{
+  busy: boolean;
+  guide: MotorStarterGuideProjection;
+  motorLive: LadBooleanMemberLiveState | null;
+  onPrepareSealIn: () => void;
+  onPrepareStop: () => void;
+  onStartSimulation: () => Promise<void>;
+  prompt: string | null;
+  simulationRunning: boolean;
+}>): React.JSX.Element => {
+  const completed = Number(guide.hasStopContact) + Number(guide.hasSealInBranch) + Number(simulationRunning);
+  const motorState = motorLive?.truth === "on"
+    ? "Motor output is ON"
+    : motorLive?.truth === "off"
+      ? "Motor output is OFF"
+      : "Motor output appears after simulation starts";
+  return (
+    <section aria-labelledby="motor-starter-coach-title" className="motor-starter-coach">
+      <header>
+        <div>
+          <span>Guided lab · Motor starter</span>
+          <h2 id="motor-starter-coach-title">Build a Start / Stop seal-in circuit</h2>
+          <p>You place each instruction. The coach selects the right variable and position, then explains what the circuit does.</p>
+        </div>
+        <strong aria-label={`${completed} of 3 lab stages complete`}>{completed}/3</strong>
+      </header>
+      <ol>
+        <li data-complete={guide.hasStopContact}>
+          <span aria-hidden="true">{guide.hasStopContact ? "✓" : "1"}</span>
+          <div>
+            <strong>Stop the whole rung safely</strong>
+            <small>Put Stop_PB normally closed in series so pressing Stop interrupts every path.</small>
+          </div>
+          {!guide.hasStopContact && (
+            <button disabled={busy} onClick={onPrepareStop} type="button">Select Stop instruction</button>
+          )}
+        </li>
+        <li data-complete={guide.hasSealInBranch}>
+          <span aria-hidden="true">{guide.hasSealInBranch ? "✓" : "2"}</span>
+          <div>
+            <strong>Keep the motor on after Start is released</strong>
+            <small>Add a Motor_Run normally open contact in parallel with Start_PB.</small>
+          </div>
+          {!guide.hasSealInBranch && guide.hasStopContact && (
+            <button disabled={busy} onClick={onPrepareSealIn} type="button">Select seal-in contact</button>
+          )}
+        </li>
+        <li data-complete={simulationRunning}>
+          <span aria-hidden="true">{simulationRunning ? "✓" : "3"}</span>
+          <div>
+            <strong>Prove the sequence on the trainer</strong>
+            <small>{simulationRunning ? motorState : "Start the virtual PLC, press Start, then press Stop."}</small>
+          </div>
+          {guide.complete && !simulationRunning && (
+            <button disabled={busy} onClick={() => void onStartSimulation()} type="button">Start simulation</button>
+          )}
+        </li>
+      </ol>
+      {prompt !== null && <p className="motor-starter-coach__prompt" role="status">{prompt}</p>}
+      {guide.complete && (
+        <p className="motor-starter-coach__explanation">
+          Stop_PB is in series. Start_PB and Motor_Run share parallel paths. When the coil turns on, its own contact closes and holds the path until Stop_PB opens it.
+        </p>
+      )}
+    </section>
   );
 };
 
@@ -1478,7 +1688,7 @@ const LadVariablesEditor = ({
   };
 
   return (
-    <details className="lad-variables" open>
+    <details className="lad-variables">
       <summary>
         <span>BOOL variables</span>
         <strong>{rows.length}</strong>
@@ -1576,12 +1786,14 @@ type GraphNetworkEditorProps = Readonly<{
 type LadderNetworkEditorProps = Readonly<{
   busy: boolean;
   graph: ProjectPayloadValue | undefined;
+  guideTargetNodeId: string | null;
   liveMembers: ReadonlyMap<string, LadBooleanMemberLiveState>;
   members: readonly GraphInterfaceMember[];
   network: ProjectPayload;
   networkIndex: number;
   onMutation: (result: LadAuthoringResult) => void;
   onSelectInsertTarget: (target: LadInsertionTarget) => void;
+  paletteMemberId: string;
   selectedEdgeId: string | null;
   writableMembers: readonly GraphInterfaceMember[];
 }>;
@@ -1589,12 +1801,14 @@ type LadderNetworkEditorProps = Readonly<{
 const LadderNetworkEditor = ({
   busy,
   graph,
+  guideTargetNodeId,
   liveMembers,
   members,
   network,
   networkIndex,
   onMutation,
   onSelectInsertTarget,
+  paletteMemberId,
   selectedEdgeId,
   writableMembers,
 }: LadderNetworkEditorProps): React.JSX.Element => {
@@ -1602,7 +1816,9 @@ const LadderNetworkEditor = ({
     ? network.nodes.map(canonicalRecordFields).filter((node): node is ProjectPayload => node !== null)
     : [];
   const edgeCount = Array.isArray(network.edges) ? network.edges.length : 0;
-  const instructionCount = nodes.filter((node) => node.nodeKind !== "power-source").length;
+  const instructionCount = nodes.filter((node) =>
+    !["power-source", "branch-split", "branch-join"].includes(String(node.nodeKind)),
+  ).length;
   const networkId = typeof network.id === "string" ? network.id : null;
   const projection = projectLadNetworkTopology(network);
 
@@ -1621,14 +1837,19 @@ const LadderNetworkEditor = ({
     );
   }
 
+  const powerFlow = projectLadPowerFlow(projection.topology, liveMembers);
+
   const renderContext: LadRenderContext = {
     busy,
     graph,
+    guideTargetNodeId,
     liveMembers,
     members,
     networkId,
     onMutation,
     onSelectInsertTarget,
+    paletteMemberId,
+    powerFlow,
     rungNumber: networkIndex + 1,
     selectedEdgeId,
     writableMembers,
@@ -1638,6 +1859,7 @@ const LadderNetworkEditor = ({
       <div className="graph-network__heading">
         <span>Rung {networkIndex + 1}</span>
         <span className="graph-network__heading-actions">
+          <LadRungPowerStatus power={powerFlow.rungState} />
           <code>{instructionCount} instruction{instructionCount === 1 ? "" : "s"} · {edgeCount} connection{edgeCount === 1 ? "" : "s"}</code>
           <button
             aria-label={`Remove LAD network ${networkIndex + 1}`}
@@ -1649,10 +1871,10 @@ const LadderNetworkEditor = ({
           </button>
         </span>
       </div>
-      <div className="lad-rung">
-        <span className="lad-rail" aria-hidden="true" />
+      <div className="lad-rung" data-power={powerFlow.rungState}>
+        <span className="lad-rail" data-power="on" aria-hidden="true" />
         <LadTopologySeries context={renderContext} items={projection.topology.items} />
-        <span className="lad-rail lad-rail--right" aria-hidden="true" />
+        <span className="lad-rail lad-rail--right" data-power={powerFlow.rungState} aria-hidden="true" />
       </div>
     </section>
   );
@@ -1661,15 +1883,25 @@ const LadderNetworkEditor = ({
 type LadRenderContext = Readonly<{
   busy: boolean;
   graph: ProjectPayloadValue;
+  guideTargetNodeId: string | null;
   liveMembers: ReadonlyMap<string, LadBooleanMemberLiveState>;
   members: readonly GraphInterfaceMember[];
   networkId: string;
   onMutation: (result: LadAuthoringResult) => void;
   onSelectInsertTarget: (target: LadInsertionTarget) => void;
+  paletteMemberId: string;
+  powerFlow: LadPowerFlowProjection;
   rungNumber: number;
   selectedEdgeId: string | null;
   writableMembers: readonly GraphInterfaceMember[];
 }>;
+
+const LadRungPowerStatus = ({ power }: Readonly<{ power: LadPowerState }>): React.JSX.Element => (
+  <output className="lad-rung-power" data-power={power}>
+    <i aria-hidden="true" />
+    {power === "on" ? "Power reaches coil" : power === "off" ? "Power stopped" : "Awaiting live values"}
+  </output>
+);
 
 const LadTopologySeries = ({
   context,
@@ -1680,7 +1912,11 @@ const LadTopologySeries = ({
 }>): React.JSX.Element => (
   <div className="lad-series">
     {items.map((item) => (
-      <div className="lad-series__segment" key={item.kind === "element" ? item.nodeId : item.branchId}>
+      <div
+        className="lad-series__segment"
+        data-power={itemPowerState(context, item)}
+        key={item.kind === "element" ? item.nodeId : item.branchId}
+      >
         {item.beforeEdgeId !== null && (
           <LadInsertContact context={context} edgeId={item.beforeEdgeId} />
         )}
@@ -1693,6 +1929,13 @@ const LadTopologySeries = ({
     ))}
   </div>
 );
+
+const itemPowerState = (
+  context: LadRenderContext,
+  item: LadTopologyItem,
+): LadPowerState => item.kind === "parallel"
+  ? context.powerFlow.edgeStates.get(item.afterEdgeId) ?? "unknown"
+  : context.powerFlow.nodeStates.get(item.nodeId)?.outgoing ?? "unknown";
 
 const LadInsertContact = ({
   context,
@@ -1707,6 +1950,7 @@ const LadInsertContact = ({
       aria-label={`Choose insert point on rung ${context.rungNumber}`}
       aria-pressed={selected}
       className="lad-insert-contact"
+      data-power={context.powerFlow.edgeStates.get(edgeId) ?? "unknown"}
       data-selected={selected}
       disabled={context.busy || context.members.length === 0}
       onClick={() => context.onSelectInsertTarget({
@@ -1732,18 +1976,34 @@ const LadParallel = ({
   context: LadRenderContext;
   parallel: LadTopologyParallel;
 }>): React.JSX.Element => (
-  <div className="lad-parallel" aria-label={`${parallel.paths.length}-path parallel branch`}>
-    <span className="lad-parallel__bus" aria-hidden="true" />
+  <div
+    className="lad-parallel"
+    aria-label={`${parallel.paths.length}-path parallel branch`}
+    data-power={context.powerFlow.edgeStates.get(parallel.afterEdgeId) ?? "unknown"}
+  >
+    <span
+      className="lad-parallel__bus"
+      data-power={context.powerFlow.edgeStates.get(parallel.beforeEdgeId) ?? "unknown"}
+      aria-hidden="true"
+    />
     <div className="lad-parallel__paths">
       {parallel.paths.map((path, index) => (
-        <div className="lad-parallel__path" key={path.pathId}>
+        <div
+          className="lad-parallel__path"
+          data-power={context.powerFlow.pathStates.get(path.pathId) ?? "unknown"}
+          key={path.pathId}
+        >
           <span className="lad-parallel__path-label">Path {index + 1}</span>
           <LadTopologySeries context={context} items={path.items} />
           <LadInsertContact context={context} edgeId={path.exitEdgeId} />
         </div>
       ))}
     </div>
-    <span className="lad-parallel__bus lad-parallel__bus--right" aria-hidden="true" />
+    <span
+      className="lad-parallel__bus lad-parallel__bus--right"
+      data-power={context.powerFlow.edgeStates.get(parallel.afterEdgeId) ?? "unknown"}
+      aria-hidden="true"
+    />
   </div>
 );
 
@@ -1759,14 +2019,15 @@ const LadElement = ({
   const operand = canonicalRecordFields(node.operand);
   const memberId = typeof operand?.memberId === "string" ? operand.memberId : "";
   const live = context.liveMembers.get(memberId) ?? null;
+  const power = context.powerFlow.nodeStates.get(nodeId) ?? null;
 
   if (element.nodeKind === "power-source") {
-    return <div className="lad-power-source"><span aria-hidden="true">L+</span><small>Power</small></div>;
+    return <div className="lad-power-source" data-power="on"><span aria-hidden="true">L+</span><small>Power</small></div>;
   }
   if (element.nodeKind === "call") {
     const targetBlockId = typeof node.targetBlockId === "string" ? node.targetBlockId : "unresolved";
     return (
-      <div className="lad-element lad-call">
+      <div className="lad-element lad-call" data-power={power?.outgoing ?? "unknown"}>
         <div className="lad-call__title"><span>CALL</span><strong>FC</strong></div>
         <div className="lad-call__target">
           <span>Target block</span>
@@ -1777,15 +2038,20 @@ const LadElement = ({
     );
   }
   if (element.nodeKind === "contact") {
-    const parallelMember = context.members.find((member) => member.id === memberId) ?? context.members[0];
+    const selectedMember = context.members.find((member) => member.id === memberId) ?? context.members[0];
+    const parallelMember = context.members.find((member) => member.id === context.paletteMemberId) ?? selectedMember;
     return (
-      <div className="lad-element lad-contact">
-        <LadLiveOperandBadge live={live} />
+      <div
+        className="lad-element lad-contact"
+        data-guide-target={context.guideTargetNodeId === nodeId}
+        data-power={power?.outgoing ?? "unknown"}
+      >
+        <LadLiveOperandBadge contactCondition={power?.condition ?? "unknown"} live={live} />
         <div className="lad-symbol" aria-hidden="true">
           <span>—|</span><strong>{node.mode === "normally-closed" ? "/" : ""}</strong><span>|—</span>
         </div>
         <strong className="lad-element__name">
-          {parallelMember?.operandLabel ?? parallelMember?.name ?? "Choose variable"}
+          {selectedMember?.operandLabel ?? selectedMember?.name ?? "Choose variable"}
         </strong>
         <label>
           <span>Operand</span>
@@ -1818,6 +2084,7 @@ const LadElement = ({
         </label>
         <div className="lad-element__actions">
           <button
+            aria-label={`Add ${parallelMember?.operandLabel ?? parallelMember?.name ?? "variable"} parallel with ${selectedMember?.operandLabel ?? selectedMember?.name ?? "selected contact"}`}
             disabled={context.busy || parallelMember === undefined}
             onClick={() => {
               if (parallelMember !== undefined) {
@@ -1830,7 +2097,7 @@ const LadElement = ({
             }}
             type="button"
           >
-            Add parallel
+            Parallel + {parallelMember?.operandLabel ?? parallelMember?.name ?? "variable"}
           </button>
           <button
             disabled={context.busy}
@@ -1849,8 +2116,8 @@ const LadElement = ({
   if (element.nodeKind === "coil") {
     const selectedMember = context.writableMembers.find((member) => member.id === memberId);
     return (
-      <div className="lad-element lad-coil">
-        <LadLiveOperandBadge live={live} />
+      <div className="lad-element lad-coil" data-power={power?.incoming ?? "unknown"}>
+        <LadLiveOperandBadge contactCondition={null} live={live} />
         <div className="lad-symbol" aria-hidden="true"><span>—(</span><strong>{coilMark(node.mode)}</strong><span>)—</span></div>
         <strong className="lad-element__name">
           {selectedMember?.operandLabel ?? selectedMember?.name ?? "Choose variable"}
@@ -1901,12 +2168,22 @@ const LadElement = ({
 };
 
 const LadLiveOperandBadge = ({
+  contactCondition,
   live,
 }: Readonly<{
+  contactCondition: LadPowerState | null;
   live: LadBooleanMemberLiveState | null;
 }>): React.JSX.Element => {
   const truth = live?.truth ?? "unknown";
-  const label = truth === "on" ? "ON" : truth === "off" ? "OFF" : "—";
+  const rawLabel = truth === "on" ? "TRUE" : truth === "off" ? "FALSE" : "—";
+  const state = contactCondition ?? truth;
+  const label = contactCondition === null
+    ? `Output ${truth === "on" ? "ON" : truth === "off" ? "OFF" : "—"}`
+    : contactCondition === "on"
+      ? "Closed · passes power"
+      : contactCondition === "off"
+        ? "Open · blocks power"
+        : "Contact state unknown";
   const reason = live === null
     ? "No live binding"
     : live.unknownReason === null
@@ -1914,14 +2191,14 @@ const LadLiveOperandBadge = ({
       : live.unknownReason.replaceAll("-", " ");
   return (
     <span
-      aria-label={`Operand value ${label}${live?.forced === true ? ", forced" : ""}`}
+      aria-label={`${label}; operand ${rawLabel}${live?.forced === true ? ", forced" : ""}`}
       className="lad-live-operand"
       data-forced={live?.forced === true}
-      data-truth={truth}
+      data-truth={state}
       title={reason}
     >
       <i aria-hidden="true" />
-      Operand {label}
+      {label}
       {live?.forced === true && <strong>F</strong>}
     </span>
   );

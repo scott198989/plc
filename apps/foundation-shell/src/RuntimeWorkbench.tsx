@@ -15,6 +15,7 @@ type RuntimeSurfaceProps = Readonly<{
   busy: boolean;
   onNavigate?: (objectId: string) => void;
   onOperation: (operation: RuntimeOperation) => Promise<void>;
+  onResetSimulation?: () => Promise<void>;
   onStartSimulation?: () => Promise<void>;
   onVerifyReplay: () => Promise<void>;
   replayReceipt: ReplayVerificationReceipt | null;
@@ -24,6 +25,7 @@ type RuntimeSurfaceProps = Readonly<{
 export const RuntimeToolbar = ({
   busy,
   onOperation,
+  onResetSimulation,
   onStartSimulation,
   onVerifyReplay,
   replayReceipt,
@@ -55,6 +57,19 @@ export const RuntimeToolbar = ({
           type="button"
         >
           {session?.online === true && cpuState === "RUN" ? "Simulation running" : "Start simulation"}
+        </button>
+      )}
+      {onResetSimulation !== undefined && (
+        <button
+          className="runtime-toolbar__reset"
+          disabled={disabled || session?.snapshotAvailable !== true}
+          onClick={() => void onResetSimulation()}
+          title={session?.snapshotAvailable === true
+            ? "Return all trainer inputs and controller values to the baseline captured at startup"
+            : "Start simulation once to capture a clean lab baseline"}
+          type="button"
+        >
+          Reset lab
         </button>
       )}
       <button
